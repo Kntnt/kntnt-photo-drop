@@ -5,15 +5,16 @@
  * Registered as `wp kntnt-photo-drop collection`, this is the trusted,
  * deliberate place — alongside the admin page — where a collection is
  * *established* (its immutable output contract fixed), *renamed* (the only
- * mutable field), and *removed*. Blocks are select-only consumers and never
- * reach this surface (ADR-0004).
+ * mutable field), *removed*, and reconciled by the *doctor*. Blocks are
+ * select-only consumers and never reach this surface (ADR-0004).
  *
- * The command is thin on purpose. Its only three public methods are the verbs
- * `create` / `update` / `delete`, which is exactly the subcommand set WP-CLI's
- * reflection should surface. The filesystem mutations live on the collection
- * Repository, the descriptor shape lives on the Descriptor, and every decidable
- * flag rule lives on the pure Collection_Input helper — so the verbs read as a
- * short script and the parts they orchestrate are each independently testable.
+ * The command is thin on purpose. Its only four public methods are the verbs
+ * `create` / `update` / `delete` / `doctor`, which is exactly the subcommand set
+ * WP-CLI's reflection should surface. The filesystem mutations live on the
+ * collection Repository, the descriptor shape lives on the Descriptor, the
+ * reconciliation logic lives on the `Doctor` service, and every decidable flag
+ * rule lives on the pure Collection_Input helper — so the verbs read as a short
+ * script and the parts they orchestrate are each independently testable.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.2.0
@@ -24,8 +25,14 @@ declare( strict_types = 1 );
 namespace Kntnt\Photo_Drop\Cli;
 
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Doctor\Doctor;
+use Kntnt\Photo_Drop\Doctor\Doctor_Report;
+use Kntnt\Photo_Drop\Doctor\Finding;
+use Kntnt\Photo_Drop\Doctor\Finding_Kind;
+use Kntnt\Photo_Drop\Doctor\Ignore_Matcher;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use WP_CLI;
+use WP_CLI\Utils;
 
 /**
  * Implements `wp kntnt-photo-drop collection {create,update,delete}`.
@@ -33,7 +40,7 @@ use WP_CLI;
  * Registered by Plugin::__construct() only when WP_CLI is defined, so the file
  * imposes no cost on web requests. Each public verb method carries its own
  * `## OPTIONS` / `## EXAMPLES` docblock, which WP-CLI reads as the subcommand
- * synopsis; no other public method exists, so no helper leaks as a subcommand.
+ * synopsis; no other public method is public, so no helper leaks as a subcommand.
  *
  * @since 0.2.0
  */
@@ -277,6 +284,182 @@ final class Collection_Command {
 		}
 
 		WP_CLI::success( "Deleted collection '{$slug}'." );
+
+	}
+
+	/**
+	 * Reconciles a collection's derived artifacts to its main images.
+	 *
+	 * The diagnostic the design calls for: the main image is the unit of truth, and
+	 * the doctor finds every place a derived artifact has drifted from the mains.
+	 * It is report-only by default — the report *is* the dry run, so nothing on disk
+	 * changes. `--repair` acts: it creates missing thumbnails, refreshes the index,
+	 * and removes orphan thumbnails. `--repair --force` re-derives everything
+	 * (regenerates all thumbnails, rebuilds all indexes), the path to take after a
+	 * `kntnt_photo_drop_thumbnail_width` change. A main that violates the immutable
+	 * contract (over the ceiling, or not WebP — only arrivable by an out-of-band
+	 * copy) is warned about, never processed in place, never deleted; a foreign file
+	 * is warned about, never deleted — even with `--repair`. The built-in OS-junk
+	 * ignore list (`.DS_Store`, `._*`, `Thumbs.db`, …) is skipped silently;
+	 * `--ignore=<glob>` (one or more comma-separated globs) extends it, and
+	 * `--show-ignored` reveals what was skipped.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <slug>
+	 * : The collection to reconcile.
+	 *
+	 * [--repair]
+	 * : Act on the findings instead of only reporting them.
+	 *
+	 * [--force]
+	 * : With --repair, re-derive every thumbnail and rebuild every index (use after a thumbnail-width change).
+	 *
+	 * [--ignore=<glob>]
+	 * : Extra foreign-file globs to ignore, comma-separated (e.g. "*.tmp,raw/*").
+	 *
+	 * [--show-ignored]
+	 * : List the files skipped by the ignore list rather than passing over them silently.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp kntnt-photo-drop collection doctor spring-2024
+	 *     wp kntnt-photo-drop collection doctor spring-2024 --repair
+	 *     wp kntnt-photo-drop collection doctor spring-2024 --repair --force
+	 *     wp kntnt-photo-drop collection doctor spring-2024 --ignore="*.tmp,raw/*" --show-ignored
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param array<int,string>    $args       Positional arguments: the slug.
+	 * @param array<string,string> $assoc_args Associative arguments: repair, force, ignore, show-ignored.
+	 */
+	public function doctor( array $args, array $assoc_args ): void {
+
+		// Resolve the collection up front and read its descriptor — the doctor needs
+		// the output contract (to judge a violation) and the thumbnail widths (to know
+		// which derived artifacts to demand).
+		$slug = $args[0] ?? '';
+		$path = $this->repository->resolve_slug( $slug );
+		if ( $path === null ) {
+			WP_CLI::error( "No collection named '{$slug}' was found." );
+			return;
+		}
+		$descriptor = Descriptor::read( $path );
+		if ( $descriptor === null ) {
+			WP_CLI::error( "Cannot read the descriptor for collection '{$slug}'." );
+			return;
+		}
+
+		// --force only acts together with --repair; forcing without repairing would
+		// imply an act the report-only run never performs, so it is rejected.
+		$repair = isset( $assoc_args['repair'] );
+		$force  = isset( $assoc_args['force'] );
+		if ( $force && ! $repair ) {
+			WP_CLI::error( 'The --force flag only applies with --repair.' );
+			return;
+		}
+
+		// Build the doctor for this collection and run it; the service computes the
+		// full diagnosis first, then either reports it or acts on it.
+		$ignore = new Ignore_Matcher( $assoc_args['ignore'] ?? null );
+		$doctor = new Doctor( $path, $descriptor, $ignore );
+		$report = $doctor->run( $repair, $force );
+
+		// Print the diagnosis (and, when acting, the repair summary), revealing the
+		// ignored files only when the operator asked to see them.
+		$this->report_doctor( $slug, $report, isset( $assoc_args['show-ignored'] ) );
+
+	}
+
+	/**
+	 * Prints a doctor report: a finding table, per-kind warnings, and a summary.
+	 *
+	 * Renders the actionable findings (missing-derived, orphan-derived, contract
+	 * violations, foreign files) as one `format_items()` table so the operator sees
+	 * the whole picture at a glance, raises a `WP_CLI::warning` for each
+	 * contract-violating main and foreign file (the two states a human must resolve
+	 * by hand), lists the ignored files only when `--show-ignored` is set, and
+	 * closes with a one-line summary reflecting whether the run reported or repaired.
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param string        $slug         The collection slug, for the summary line.
+	 * @param Doctor_Report $report       The diagnosis and any repair tallies.
+	 * @param bool          $show_ignored Whether to list the ignored files.
+	 */
+	private function report_doctor( string $slug, Doctor_Report $report, bool $show_ignored ): void {
+
+		// Render every actionable finding as one table; the ignored ones are held back
+		// for the optional --show-ignored listing so the main table stays signal.
+		$actionable = array_filter(
+			$report->findings,
+			static fn ( Finding $finding ): bool => $finding->kind !== Finding_Kind::Ignored,
+		);
+		if ( $actionable !== [] ) {
+			Utils\format_items(
+				'table',
+				array_map( static fn ( Finding $finding ): array => $finding->to_row(), array_values( $actionable ) ),
+				[ 'kind', 'path', 'detail' ],
+			);
+		}
+
+		// Warn, one line each, about the two states a human must resolve: a main that
+		// breaks the contract (never processed in place, never deleted) and a foreign
+		// file (never deleted).
+		foreach ( $report->of_kind( Finding_Kind::Contract_Violation ) as $finding ) {
+			WP_CLI::warning( "Contract violation: {$finding->path} — {$finding->detail}. Not processed; not deleted." );
+		}
+		foreach ( $report->of_kind( Finding_Kind::Foreign ) as $finding ) {
+			WP_CLI::warning( "Foreign file: {$finding->path}. Not deleted." );
+		}
+
+		// Reveal the silently-skipped files only on request, so an operator can audit
+		// what the ignore list passed over.
+		if ( $show_ignored ) {
+			foreach ( $report->of_kind( Finding_Kind::Ignored ) as $finding ) {
+				WP_CLI::log( "Ignored: {$finding->path}." );
+			}
+		}
+
+		// Close with a summary whose wording matches the mode: a dry-run count when
+		// reporting, the created/removed tallies when repairing.
+		WP_CLI::success( $this->doctor_summary( $slug, $report ) );
+
+	}
+
+	/**
+	 * Composes the doctor's one-line closing summary for the run's mode.
+	 *
+	 * In report-only mode the summary counts the actionable findings (the dry run);
+	 * in repair mode it reports what was created and removed. Either way it names the
+	 * collection so a multi-collection session stays legible.
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param string        $slug   The collection slug.
+	 * @param Doctor_Report $report The diagnosis and any repair tallies.
+	 * @return string The summary line.
+	 */
+	private function doctor_summary( string $slug, Doctor_Report $report ): string {
+
+		// A repaired run reports its effect; a report-only run reports the finding
+		// counts it would act on, since the report is the dry run.
+		if ( $report->repaired ) {
+			$created = $report->created;
+			$removed = $report->removed;
+			return "Doctored '{$slug}': created {$created} derived artifact(s), removed {$removed} orphan(s).";
+		}
+
+		// Count the actionable findings (everything but the ignored ones) so the
+		// dry-run summary reflects what a --repair would address.
+		$actionable = count(
+			array_filter(
+				$report->findings,
+				static fn ( Finding $finding ): bool => $finding->kind !== Finding_Kind::Ignored,
+			),
+		);
+
+		return "Doctored '{$slug}' (report-only): {$actionable} finding(s). Re-run with --repair to act.";
 
 	}
 
