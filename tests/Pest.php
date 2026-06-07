@@ -22,6 +22,11 @@ uses( Tests\Unit\TestCase::class )->in( 'Unit' );
 // already declare the real classes.
 require_once __DIR__ . '/Unit/fixtures/Wp_Stubs.php';
 
+// Pull in the counting dimension-reader test double the Storage tests inject to
+// prove the index cache-hit path measures no image. Kept out of the PSR-4 path
+// so it is loaded explicitly rather than autoloaded.
+require_once __DIR__ . '/Unit/fixtures/Counting_Dimension_Reader.php';
+
 // Lift the plugin's log threshold to `warning` for the test process so that
 // log-behaviour invariants can be inspected. The constant is defined exactly
 // once per process; if a test eventually wants `debug` it can override at the

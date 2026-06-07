@@ -12,12 +12,13 @@
 	<file>uninstall.php</file>
 
 	<!--
-		Test fixtures are minimal stand-ins for WordPress core classes that
-		are not loaded in the unit-test environment. They exist solely so
-		type hints resolve and tests can run; cluttering them with
-		WordPress-style documentation comments adds noise without value.
+		Test fixtures are minimal stand-ins and test doubles that are not
+		loaded in the unit-test environment via PSR-4 but required explicitly
+		by tests/Pest.php. They guard their declarations with class_exists()
+		and mix a single declaration with that guard, which trips the
+		side-effects sniff for no real benefit in fixture code.
 	-->
-	<exclude-pattern>tests/Unit/fixtures/Wp_Stubs.php</exclude-pattern>
+	<exclude-pattern>tests/Unit/fixtures/*</exclude-pattern>
 
 	<!-- Only PHP files. -->
 	<arg name="extensions" value="php"/>
