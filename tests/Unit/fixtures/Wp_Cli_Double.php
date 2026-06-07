@@ -67,6 +67,14 @@ if ( ! class_exists( 'WP_CLI' ) ) {
 		public static array $logs = [];
 
 		/**
+		 * The recorded `warning(...)` messages since the last reset.
+		 *
+		 * @since 0.3.0
+		 * @var array<int,string>
+		 */
+		public static array $warnings = [];
+
+		/**
 		 * When false, the next `confirm(...)` without `--yes` is declined (halts).
 		 *
 		 * @since 0.2.0
@@ -83,6 +91,7 @@ if ( ! class_exists( 'WP_CLI' ) ) {
 			self::$successes      = [];
 			self::$errors         = [];
 			self::$logs           = [];
+			self::$warnings       = [];
 			self::$confirm_answer = true;
 		}
 
@@ -106,6 +115,17 @@ if ( ! class_exists( 'WP_CLI' ) ) {
 		 */
 		public static function log( string $message ): void {
 			self::$logs[] = $message;
+		}
+
+		/**
+		 * Records a warning message without halting, mirroring WP-CLI's warning().
+		 *
+		 * @since 0.3.0
+		 *
+		 * @param string $message The warning text.
+		 */
+		public static function warning( string $message ): void {
+			self::$warnings[] = $message;
 		}
 
 		/**
@@ -138,4 +158,11 @@ if ( ! class_exists( 'WP_CLI' ) ) {
 			throw new \Tests\Unit\Fixtures\Cli_Halt( 'declined' );
 		}
 	}
+}
+
+if ( ! function_exists( 'WP_CLI\Utils\format_items' ) ) {
+	// The image command renders its per-file table through WP_CLI\Utils\format_items.
+	// The real function prints to stdout; this stub records the rows so a test can
+	// assert what the command reported without parsing console output.
+	require_once __DIR__ . '/Wp_Cli_Format_Items.php';
 }

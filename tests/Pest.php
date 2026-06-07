@@ -27,6 +27,15 @@ require_once __DIR__ . '/Unit/fixtures/Wp_Stubs.php';
 // so it is loaded explicitly rather than autoloaded.
 require_once __DIR__ . '/Unit/fixtures/Counting_Dimension_Reader.php';
 
+// Pull in the recorder the format_items() stub writes to, before the WP_CLI
+// double that loads that stub, so the class exists when the stub references it.
+require_once __DIR__ . '/Unit/fixtures/Format_Items_Recorder.php';
+
+// Pull in the encode-failing codec double the Optimizer test injects to prove a
+// codec encode failure surfaces as a rejected source. Kept out of the PSR-4 path
+// so it is loaded explicitly rather than autoloaded.
+require_once __DIR__ . '/Unit/fixtures/Encode_Failing_Codec.php';
+
 // Pull in the WP_CLI test double the CLI command tests drive. The real WP_CLI
 // facade is absent from the unit-test runtime; the double records output and
 // turns error()/declined confirm() into a catchable exception. Kept out of the
