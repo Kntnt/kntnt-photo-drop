@@ -18,6 +18,7 @@ use Kntnt\Photo_Drop\Bootstrap\Block_Registrar;
 use Kntnt\Photo_Drop\Cli\Collection_Command;
 use Kntnt\Photo_Drop\Cli\Image_Command;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Rest\Collections_Controller;
 use Kntnt\Photo_Drop\Rest\Upload_Controller;
 
 /**
@@ -292,6 +293,14 @@ final class Plugin {
 		// an unauthenticated or un-capable caller never reaches the handler.
 		$upload_controller = new Upload_Controller( $repository );
 		add_action( 'rest_api_init', [ $upload_controller, 'register_routes' ] );
+
+		// Register the editor-only collection list endpoint. Gated by `edit_posts`
+		// in its own permission callback, it backs the block editors' collection
+		// selectors (the Drop Zone now, the Gallery later) with the discovery
+		// scan's slug, display name, and contract fields — a pure read with no
+		// write surface.
+		$collections_controller = new Collections_Controller( $repository );
+		add_action( 'rest_api_init', [ $collections_controller, 'register_routes' ] );
 
 		// Register the WP-CLI commands only when running under WP_CLI, so the
 		// command classes are never loaded on a web request. The CLI is the

@@ -1,0 +1,56 @@
+// Photo Drop Zone — editor-only styles.
+// Styles the static editor preview (no live upload happens in the editor) and
+// the read-only contract display in the inspector. The dashed frame and muted
+// tone signal "this is a placeholder for the live uploader" to a site builder.
+
+.kntnt-photo-drop-drop-zone--editor {
+
+	.kntnt-photo-drop-drop-zone__preview {
+		padding: 1.5rem;
+		border: 2px dashed currentcolor;
+		border-radius: 4px;
+		text-align: center;
+		opacity: 0.85;
+	}
+
+	.kntnt-photo-drop-drop-zone__preview-title {
+		margin: 0 0 0.5rem;
+		font-weight: 600;
+	}
+
+	.kntnt-photo-drop-drop-zone__preview-note {
+		margin: 0.5rem 0 0;
+		font-size: 0.85em;
+		opacity: 0.7;
+	}
+}
+
+// The read-only contract display sits in the inspector panel.
+.kntnt-photo-drop-drop-zone__contract {
+	margin-top: 1rem;
+
+	&-hint {
+		margin: 0 0 0.5rem;
+		font-size: 0.85em;
+		opacity: 0.8;
+	}
+
+	dl {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 0.25rem 0.75rem;
+		margin: 0;
+	}
+
+	dt {
+		font-weight: 600;
+	}
+
+	dd {
+		margin: 0;
+	}
+
+	&-note {
+		margin: 0.75rem 0 0;
+	}
+}

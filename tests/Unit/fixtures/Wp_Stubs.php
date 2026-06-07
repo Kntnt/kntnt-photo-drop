@@ -30,6 +30,18 @@ if ( ! class_exists( 'WP_Block_Editor_Context' ) ) {
 	class WP_Block_Editor_Context {}
 }
 
+if ( ! class_exists( 'WP_Block' ) ) {
+	/**
+	 * Minimal stand-in for WordPress's WP_Block class.
+	 *
+	 * The dynamic-block render handlers type-hint their third argument against it
+	 * but read nothing from it, so an empty shell suffices for the unit tests.
+	 *
+	 * @since 0.5.0
+	 */
+	class WP_Block {}
+}
+
 if ( ! class_exists( 'WP_Error' ) ) {
 	/**
 	 * Minimal stand-in for WordPress's WP_Error class.

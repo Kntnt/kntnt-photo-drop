@@ -4,19 +4,27 @@
 	"name": "kntnt-photo-drop/drop-zone",
 	"title": "Photo Drop Zone",
 	"category": "kntnt",
-	"description": "A capability-gated front-end bulk uploader bound to one collection; images are optimised in the browser before upload.",
-	"keywords": [ "photo", "upload", "drop zone", "collection" ],
+	"description": "A capability-gated front-end uploader that optimises images in the browser and uploads them into a chosen collection.",
+	"keywords": [ "photo", "upload", "drop", "image", "collection" ],
 	"textdomain": "kntnt-photo-drop",
 	"editorScript": "file:./index.tsx",
+	"viewScriptModule": "file:./view.ts",
 	"style": "file:./style-index.css",
+	"editorStyle": "file:./index.css",
+	"viewStyle": "file:./view.css",
 	"render": "file:./render.php",
 	"supports": {
-		"html": false,
-		"align": [ "wide", "full" ],
 		"anchor": true,
+		"html": false,
 		"spacing": {
 			"margin": true,
 			"padding": true
+		}
+	},
+	"attributes": {
+		"collection": {
+			"type": "string",
+			"default": ""
 		}
 	}
 }
