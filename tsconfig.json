@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"jsx": "react-jsx",
+		"jsxImportSource": "@wordpress/element",
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"isolatedModules": true,
+		"forceConsistentCasingInFileNames": true,
+		"verbatimModuleSyntax": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"baseUrl": ".",
+		"paths": {
+			"@wordpress/*": [ "node_modules/@wordpress/*" ]
+		}
+	},
+	"include": [ "src/**/*.ts", "src/**/*.tsx" ],
+	"exclude": [ "node_modules", "build", "vendor" ]
+}

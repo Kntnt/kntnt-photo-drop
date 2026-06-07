@@ -1,0 +1,11 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/wp-env.json",
+	"core": "WordPress/WordPress#6.5",
+	"phpVersion": "8.4",
+	"plugins": [ "." ],
+	"config": {
+		"WP_DEBUG": true,
+		"WP_DEBUG_LOG": true,
+		"KNTNT_PHOTO_DROP_LOG_LEVEL": "debug"
+	}
+}

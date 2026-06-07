@@ -1,0 +1,23 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "kntnt-photo-drop/gallery",
+	"title": "Photo Gallery",
+	"category": "kntnt",
+	"description": "A public, server-rendered gallery of a chosen collection, with an Interactivity-API lightbox.",
+	"keywords": [ "photo", "gallery", "lightbox", "collection" ],
+	"textdomain": "kntnt-photo-drop",
+	"editorScript": "file:./index.tsx",
+	"viewScriptModule": "file:./view.ts",
+	"style": "file:./style-index.css",
+	"render": "file:./render.php",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ],
+		"anchor": true,
+		"spacing": {
+			"margin": true,
+			"padding": true
+		}
+	}
+}
