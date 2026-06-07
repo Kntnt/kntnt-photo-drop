@@ -1,0 +1,207 @@
+# Blocks and admin page
+
+Per-block specification: `block.json` attribute schema, editor UI, and render output for the two blocks, plus the create/update/delete UX of the collection-lifecycle admin page. This pins the attribute shapes; the rationale for the design lives in [`design.md`](design.md) and the ADRs. Use the [`CONTEXT.md`](../CONTEXT.md) vocabulary throughout.
+
+Both blocks are **dynamic** (server-rendered via `render.php` → an autoloaded `Render_*` class) and **select-only consumers** of collections: neither can create or reconfigure one. Both register under the `kntnt` block category. Pre-1.0, there are no `deprecated` entries and no attribute migrations.
+
+## Shared concepts
+
+- A block points at a collection by its **slug** (the directory name under the uploads root). The slug is the only durable reference; a renamed (`mv`'d) collection dangles the block, which is expected.
+- The collection list in every selector (both blocks' inspectors and the admin page) comes from the **discovery scan** — any directory under the uploads root containing a `collection.json`. There is no registry.
+- A dangling collection reference renders **nothing** for the public and an **editor-only notice** for a logged-in user.
+
+---
+
+## Photo Drop Zone — `kntnt-photo-drop/drop-zone`
+
+A capability-gated front-end uploader bound to one existing collection. It selects a collection and uploads into it; it never establishes or reconfigures one, so its inspector has nothing that could conflict with the contract.
+
+### `block.json`
+
+```json
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "kntnt-photo-drop/drop-zone",
+	"title": "Photo Drop Zone",
+	"category": "kntnt",
+	"description": "A capability-gated front-end uploader that optimises images in the browser and uploads them into a chosen collection.",
+	"keywords": [ "photo", "upload", "drop", "image", "collection" ],
+	"textdomain": "kntnt-photo-drop",
+	"editorScript": "file:./index.tsx",
+	"viewScriptModule": "file:./view.ts",
+	"style": "file:./style-index.css",
+	"editorStyle": "file:./index.css",
+	"viewStyle": "file:./view.css",
+	"render": "file:./render.php",
+	"supports": {
+		"anchor": true,
+		"html": false,
+		"spacing": { "margin": true, "padding": true }
+	},
+	"attributes": {
+		"collection": {
+			"type": "string",
+			"default": ""
+		}
+	}
+}
+```
+
+### Attributes
+
+| Attribute | Type | Default | Meaning |
+|---|---|---|---|
+| `collection` | string | `""` | The slug of the collection to upload into. The **only** persisted attribute. Everything about the contract is read live from the descriptor, never stored on the block. |
+
+The collection's output contract (max width, quality, WebP, thumbnail width) is **not** a block attribute — it is read from `collection.json` at edit time (for the read-only inspector display) and at render time (to configure FilePond). This is what keeps the Drop Zone unable to conflict with the contract.
+
+### Editor UI (`edit.tsx`)
+
+- **Inspector → Collection** — a `SelectControl` listing discovered collections by display name (value = slug). Choosing one sets `collection`.
+- **Inspector → Output contract (read-only)** — a static display of the selected collection's `maxWidth` (or "No limit"), `quality`, format (always **WebP**), and `thumbnailWidths`. No fields to edit; a hint links to the admin page for lifecycle changes.
+- **Canvas (editor preview)** — a static representation of the drop area with the selected collection's name. No live upload happens in the editor.
+- When `collection` is empty or dangling, the canvas shows a notice prompting selection (or noting the collection is gone).
+
+### Render output (`render.php` → `Render_Drop_Zone`)
+
+- Renders **only** for users who hold the upload capability (`upload_files`, filter `kntnt_photo_drop_upload_capability`). For anyone else, the block renders nothing — and crucially **no `wp_rest` nonce** is emitted (defence in depth; see [ADR-0006](adr/0006-server-enforced-contract-rest-upload.md)).
+- For a capable user, emits the FilePond-backed drop area plus a **"Select folder"** control (`webkitdirectory`), wired through the Interactivity API view module. The descriptor's contract is read server-side and passed to the client so FilePond's `image-resize` + the `canvas.toBlob(…, 'image/webp', quality)` encode hook are configured from it.
+- Each file is uploaded one-per-request to `POST /wp-json/kntnt-photo-drop/v1/collections/<slug>/images` (multipart: the file + its `relativePath`), carrying the nonce. `webkitRelativePath` is preserved as FilePond item metadata so the server can recreate sub-directories (path hard-sanitised and `realpath`-confined). A folder dragged onto the zone is detected (`webkitGetAsEntry().isDirectory`) and **warned** about, offering to continue flat.
+- The client optimisation is a bandwidth optimisation only; the server re-enforces the contract on every file.
+
+---
+
+## Photo Gallery — `kntnt-photo-drop/gallery`
+
+A public, server-rendered gallery of one collection — all images under a start path rendered as one flattened set (no in-gallery folder navigation; see [ADR-0005](adr/0005-recursive-flatten-gallery-no-navigation.md)) — with an Interactivity-API lightbox.
+
+### `block.json`
+
+```json
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "kntnt-photo-drop/gallery",
+	"title": "Photo Gallery",
+	"category": "kntnt",
+	"description": "A public, server-rendered gallery of a collection, with a lightbox.",
+	"keywords": [ "photo", "gallery", "images", "lightbox", "collection" ],
+	"textdomain": "kntnt-photo-drop",
+	"editorScript": "file:./index.tsx",
+	"viewScriptModule": "file:./view.ts",
+	"style": "file:./style-index.css",
+	"editorStyle": "file:./index.css",
+	"viewStyle": "file:./view.css",
+	"render": "file:./render.php",
+	"supports": {
+		"anchor": true,
+		"html": false,
+		"align": [ "wide", "full" ],
+		"color": { "background": true, "text": true, "gradients": true },
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true,
+			"__experimentalFontFamily": true
+		},
+		"spacing": { "margin": true, "padding": true }
+	},
+	"attributes": {
+		"collection":                   { "type": "string",  "default": "" },
+		"startPath":                    { "type": "string",  "default": "" },
+		"recursive":                    { "type": "boolean", "default": true },
+		"order":                        { "type": "string",  "default": "asc" },
+		"layout":                       { "type": "string",  "default": "grid" },
+		"minimumColumnWidth":           { "type": "string",  "default": "320px" },
+		"blockGap":                     { "type": "string",  "default": "12px" },
+		"imageFit":                     { "type": "string",  "default": "cover" },
+		"aspectRatio":                  { "type": "string",  "default": "" },
+		"targetRowHeight":              { "type": "number",  "default": 240 },
+		"enableLightbox":               { "type": "boolean", "default": true },
+		"captionContent":               { "type": "string",  "default": "none" },
+		"captionHumanize":              { "type": "boolean", "default": true },
+		"captionIncludeCollectionName": { "type": "boolean", "default": false },
+		"captionSeparator":             { "type": "string",  "default": "›" },
+		"captionPosition":              { "type": "string",  "default": "under" },
+		"captionOverlayAnchor":         { "type": "string",  "default": "bottom-left" },
+		"captionBackground":            { "type": "string",  "default": "" },
+		"captionTextColor":             { "type": "string",  "default": "" }
+	}
+}
+```
+
+### Attributes
+
+| Attribute | Type | Default | Allowed values / notes |
+|---|---|---|---|
+| `collection` | string | `""` | Collection slug. |
+| `startPath` | string | `""` | Editor-set start path relative to the collection root; `""` = root. **Never a visitor query parameter** — validated once against the root, so there is no per-request path-traversal surface ([ADR-0005](adr/0005-recursive-flatten-gallery-no-navigation.md)). |
+| `recursive` | boolean | `true` | `true` = all images under `startPath` recursively, flattened; `false` = this folder only. |
+| `order` | string | `"asc"` | `"asc"` \| `"desc"`. Natural sort by full relative path (keeps each folder's images contiguous). Not visitor-controllable. |
+| `layout` | string | `"grid"` | `"grid"` = mode A (uniform grid, core Grid layout); `"justified"` = mode B (bespoke justified rows). |
+| `minimumColumnWidth` | string | `"320px"` | Mode A only. Maps to core Grid's `minimumColumnWidth`. |
+| `blockGap` | string | `"12px"` | Gap between items. Reused by both modes (mirrors core `blockGap`). |
+| `imageFit` | string | `"cover"` | Mode A only. `"cover"` \| `"contain"`. |
+| `aspectRatio` | string | `""` | Mode A only. `""` = use each image's stored ratio (zero layout shift); otherwise a CSS ratio such as `"1"`, `"4/3"`, `"16/9"`. |
+| `targetRowHeight` | number | `240` | Mode B only. Target row height in px; per-image `flex-grow`/`flex-basis` are derived from stored dimensions, last row left-aligned. |
+| `enableLightbox` | boolean | `true` | When on, the Interactivity-API lightbox is wired; the no-JS `<a href="full.webp">` fallback is present regardless ([ADR-0007](adr/0007-lightbox-via-interactivity-api.md)). |
+| `captionContent` | string | `"none"` | `"none"` \| `"filename"` \| `"path"` (path-breadcrumb). |
+| `captionHumanize` | boolean | `true` | Humanise filenames/segments (strip extension, replace separators with spaces). |
+| `captionIncludeCollectionName` | boolean | `false` | Prefix the breadcrumb with the collection's display name. |
+| `captionSeparator` | string | `"›"` | Breadcrumb separator (free text). |
+| `captionPosition` | string | `"under"` | `"under"` \| `"above"` \| `"overlay"`. |
+| `captionOverlayAnchor` | string | `"bottom-left"` | Overlay only. One of the 9 positions: `top-left`, `top-center`, `top-right`, `middle-left`, `middle-center`, `middle-right`, `bottom-left`, `bottom-center`, `bottom-right`. |
+| `captionBackground` | string | `""` | Overlay caption background; `""` = none, otherwise a colour (alpha allowed). |
+| `captionTextColor` | string | `""` | Caption text colour; `""` = inherit. |
+
+Because Canvas re-encoding strips all EXIF/IPTC at ingestion, there is no embedded caption or capture date — captions are derived from the filename/path only.
+
+### Editor UI (`edit.tsx`)
+
+Inspector panels:
+
+- **Collection** — `SelectControl` of discovered collections (value = slug) + a `startPath` control (chooses a sub-folder of the selected collection) + a **"This folder only"** toggle (inverse of `recursive`).
+- **Ordering** — ascending/descending `order`.
+- **Layout** — mode toggle A/B. Mode A reveals `minimumColumnWidth`, `imageFit`, `aspectRatio`; mode B reveals `targetRowHeight`. Both show `blockGap`. Gallery width/alignment is the core block toolbar; colour and typography are core panels.
+- **Captions** — `captionContent`, then when not "none": `captionHumanize`, (for "path") `captionIncludeCollectionName` and `captionSeparator`, `captionPosition`, and (for "overlay") `captionOverlayAnchor`, `captionBackground`, `captionTextColor`.
+- **Lightbox** — `enableLightbox` toggle.
+
+The editor preview uses `ServerSideRender` (or an equivalent fetch of the rendered markup) so the editor matches the frontend. An empty/dangling `collection` shows an inline notice.
+
+### Render output (`render.php` → `Render_Gallery`)
+
+- Resolves the collection, validates `startPath` against the root once, walks the tree (recursive or single-folder), reading each folder's mtime-validated `index.json` (self-heals if stale; see [ADR-0003](adr/0003-on-disk-collection-layout.md)), and orders by full relative path (natural sort, `order`).
+- Emits a `<figure>` per image with `loading="lazy"`, stored `width`/`height` (or `aspect-ratio`) for zero layout shift, and a `srcset` listing each thumbnail width plus the main — the main is always a candidate, so the browser never upscales a thumbnail.
+- Mode A uses core's Grid layout (`minimumColumnWidth`, `blockGap`) plus the bespoke `aspect-ratio`/`imageFit`; mode B emits bespoke justified rows (`flex-grow`/`flex-basis` from stored dimensions, `targetRowHeight`, `blockGap`, last row left-aligned).
+- Captions render per `captionContent`/position/overlay settings.
+- The lightbox is an Interactivity-API surface (open/close, prev/next, keyboard, swipe, neighbour preload, focus trap, `aria`); each thumbnail is wrapped in `<a href="full.webp">` so a no-JS click navigates to the full image. The gallery needs no REST — it is pure SSR plus the view module.
+
+---
+
+## Collection-lifecycle admin page
+
+Collection **create / update / delete** lives on a dedicated admin page (and the CLI). Blocks are select-only consumers and never appear here. The page is gated by `manage_options` (filter `kntnt_photo_drop_manage_capability`). It is the GUI mirror of the `wp kntnt-photo-drop collection {create,update,delete}` commands ([ADR-0004](adr/0004-cli-import-is-consumer-grouped-subcommands.md)).
+
+### List view
+
+- A table of all discovered collections (the discovery scan), one row each: display name, slug, max width (or "No limit"), quality, format (**WebP**), thumbnail width(s), and image count. A collection copied in from another site appears automatically; a deleted directory disappears.
+- Row actions: **Edit** (name only) and **Delete**. A **Create collection** button opens the create form.
+
+### Create
+
+- Fields: **Slug** (required; becomes the directory name and the durable identity), **Display name** (optional; defaults to a humanised slug), **Maximum width** (required; pre-filled from `kntnt_photo_drop_default_max_width`, default 1920; an explicit "No limit" choice maps to `null`), **Quality** (required; pre-filled from `kntnt_photo_drop_default_quality`, default 80).
+- **No format field** (always WebP) and **no thumbnail-width field** (it is filter-driven via `kntnt_photo_drop_thumbnail_width` and re-derivable, so it is never frozen here; [ADR-0002](adr/0002-immutable-webp-output-contract.md)).
+- A prominent, unmissable **irreversibility warning** on max width + quality: these fix the output contract at establishment and **cannot be changed afterwards**, because images are downscaled and re-encoded at ingestion and the original is never kept. Submitting establishes the collection: it creates the directory and writes `collection.json`.
+- Slug validation: lowercase, URL-safe, unique among existing directories.
+
+### Update (Edit)
+
+- Only the **display name** is editable. Max width, quality, format, and thumbnail width(s) are shown **read-only / disabled**, with a note that the contract is immutable and thumbnail width is changed via the filter + `collection doctor --repair --force`. Submitting rewrites only `name` in `collection.json`; any attempt to change the contract is rejected server-side.
+
+### Delete
+
+- A confirmation step (the act removes the collection directory and everything under it). After confirming, the directory is deleted; blocks that referenced the slug then dangle, which is expected. Mirrors `collection delete <slug>` (which prompts unless `--yes`).
+
+### Relationship to the CLI
+
+The admin page and the CLI are the only two places a collection's lifecycle is driven, and they are deliberate, trusted contexts. The page never exposes anything the contract model forbids (no format choice, no contract edit after establishment, no thumbnail-width field). Everything the page does has a CLI equivalent for headless/automated use.
