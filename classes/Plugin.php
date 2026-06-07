@@ -16,6 +16,7 @@ namespace Kntnt\Photo_Drop;
 
 use Kntnt\Photo_Drop\Bootstrap\Block_Registrar;
 use Kntnt\Photo_Drop\Cli\Collection_Command;
+use Kntnt\Photo_Drop\Cli\Image_Command;
 use Kntnt\Photo_Drop\Collection\Repository;
 
 /**
@@ -279,11 +280,14 @@ final class Plugin {
 		add_action( 'init', [ $block_registrar, 'register' ] );
 		add_filter( 'block_categories_all', [ $block_registrar, 'register_category' ], 10, 2 );
 
-		// Register the WP-CLI lifecycle commands only when running under WP_CLI,
-		// so the command class is never loaded on a web request. The CLI is the
-		// trusted place a collection is established, renamed, and removed.
+		// Register the WP-CLI commands only when running under WP_CLI, so the
+		// command classes are never loaded on a web request. The CLI is the
+		// trusted place a collection is established, renamed, and removed, and the
+		// browser-free consumer that imports into and deletes from one.
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			\WP_CLI::add_command( 'kntnt-photo-drop collection', new Collection_Command( new Repository() ) );
+			$repository = new Repository();
+			\WP_CLI::add_command( 'kntnt-photo-drop collection', new Collection_Command( $repository ) );
+			\WP_CLI::add_command( 'kntnt-photo-drop image', new Image_Command( $repository ) );
 		}
 
 	}
