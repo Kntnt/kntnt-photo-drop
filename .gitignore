@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build artefacts produced by tooling not yet committed
+# (build/ from @wordpress/scripts is intentionally NOT ignored — it is committed)
+*.log
+.phpunit.result.cache
+.phpunit.cache/
+coverage/
+.npm/
+
+# Release artefact emitted by ./build-release-zip.sh — uploaded to the
+# GitHub release as an asset, not committed.
+/kntnt-photo-drop.zip
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local AI-agent config (Claude Code etc.) — per-developer, not project content.
+# Skills under .claude/skills/ encode project-specific procedure and ARE committed.
+.claude/*
+!.claude/skills/
+
+# Local config
+.env
+.env.local
+
+# Composer / npm lock files are kept (committed)

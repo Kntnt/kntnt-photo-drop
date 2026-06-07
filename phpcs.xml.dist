@@ -1,0 +1,141 @@
+<?xml version="1.0"?>
+<ruleset name="kntnt-photo-drop">
+
+	<description>WordPress Coding Standards with the four deliberate deviations documented in docs/coding-standards.md.</description>
+
+	<!-- Scan the classes directory, test files, and the bootstrap files. -->
+	<file>classes/</file>
+	<file>tests/</file>
+	<file>kntnt-photo-drop.php</file>
+	<file>autoloader.php</file>
+	<file>install.php</file>
+	<file>uninstall.php</file>
+
+	<!--
+		Test fixtures are minimal stand-ins for WordPress core classes that
+		are not loaded in the unit-test environment. They exist solely so
+		type hints resolve and tests can run; cluttering them with
+		WordPress-style documentation comments adds noise without value.
+	-->
+	<exclude-pattern>tests/Unit/fixtures/Wp_Stubs.php</exclude-pattern>
+
+	<!-- Only PHP files. -->
+	<arg name="extensions" value="php"/>
+
+	<!-- Show progress and use colors. -->
+	<arg value="sp"/>
+	<arg name="colors"/>
+
+	<!-- Baseline: WordPress Coding Standards. -->
+	<rule ref="WordPress">
+
+		<!--
+			Deliberate deviation 1: modern PHP array syntax.
+			The project uses [ ... ] literals; array() is banned by choice.
+			Both the Generic and Universal short-array rules are excluded so
+			that the DisallowLongArraySyntax rule added below can enforce the
+			modern syntax without a conflicting sniff.
+		-->
+		<exclude name="Generic.Arrays.DisallowShortArraySyntax"/>
+		<exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
+
+		<!--
+			Deliberate deviation 2: PSR-4 filenames.
+			WordPress CS expects class-classname.php; we use ClassName.php.
+		-->
+		<exclude name="WordPress.Files.FileName"/>
+
+		<!--
+			Deliberate deviation 3: namespaces over global function prefixes.
+			PHP code lives inside \Kntnt\Photo_Drop and does not use a
+			kntnt_ function-name prefix on class members.
+		-->
+		<exclude name="WordPress.NamingConventions.PrefixAllGlobals"/>
+
+		<!--
+			Deliberate deviation 4: Yoda conditions are not required.
+			Natural order is the default; Yoda only when it genuinely
+			improves readability (strict_types removes the original safety
+			motivation).
+		-->
+		<exclude name="WordPress.PHP.YodaConditions"/>
+
+		<!--
+			The coding standard explicitly forbids vertical alignment of = and =>
+			across multiple lines. The MultipleStatementAlignment sniff enforces
+			the opposite; exclude it so the no-alignment rule wins.
+		-->
+		<exclude name="Generic.Formatting.MultipleStatementAlignment"/>
+
+		<!--
+			Tests and low-level infrastructure legitimately use ini_set and
+			other runtime-configuration calls. WordPress's IniSet sniff
+			treats all ini_set as risky; the project accepts that risk where
+			it is explicitly needed (tests redirect error_log to /dev/null).
+		-->
+		<exclude name="WordPress.PHP.IniSet"/>
+
+		<!--
+			Tests use set_error_handler to capture output. The DevelopmentFunctions
+			sniff group flags it, but it is appropriate in test context.
+		-->
+		<exclude name="WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler"/>
+
+		<!--
+			Unused function parameters in helper functions used by Pest datasets
+			are intentional (the parameter is part of the expected interface).
+		-->
+		<exclude name="Generic.CodeAnalysis.UnusedFunctionParameter"/>
+
+		<!--
+			Paragraph style requires a blank line before the closing brace
+			of every function / method body. PSR2's FunctionClosingBrace
+			rule forbids that blank line. Per the coding standards, the
+			paragraph style takes precedence.
+		-->
+		<exclude name="PSR2.Methods.FunctionClosingBrace"/>
+		<exclude name="PSR2.Classes.ClassDeclaration"/>
+
+		<!--
+			PEAR function-call signature rules conflict with the paragraph
+			style's blank line before the final statement in a closure body.
+		-->
+		<exclude name="PEAR.Functions.FunctionCallSignature"/>
+
+		<!--
+			error_log() is the project's intentional logging mechanism.
+			Plugin::error/warning/info/debug all route through it.
+		-->
+		<exclude name="WordPress.PHP.DevelopmentFunctions.error_log_error_log"/>
+
+	</rule>
+
+	<!--
+		Tests legitimately use the plain PHP filesystem API and the silence
+		operator on best-effort fixture cleanup. The WordPress alternatives
+		(WP_Filesystem, wp_delete_file) require WordPress to be loaded, which
+		is not the case in a Brain Monkey unit-test environment.
+	-->
+	<rule ref="WordPress.WP.AlternativeFunctions">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.PHP.NoSilencedErrors">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+
+	<!-- Require short array syntax ([ ]) — never array(). -->
+	<rule ref="Generic.Arrays.DisallowLongArraySyntax"/>
+
+	<!-- Allow longer lines — the project caps at 120 cols for code. -->
+	<rule ref="Generic.Files.LineLength">
+		<properties>
+			<property name="lineLimit" value="120"/>
+			<property name="absoluteLineLimit" value="0"/>
+		</properties>
+	</rule>
+
+	<!-- Minimum PHP version for compatibility sniffs. -->
+	<config name="minimum_supported_wp_version" value="6.5"/>
+	<config name="testVersion" value="8.4-"/>
+
+</ruleset>
