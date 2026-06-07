@@ -18,6 +18,7 @@ use Kntnt\Photo_Drop\Bootstrap\Block_Registrar;
 use Kntnt\Photo_Drop\Cli\Collection_Command;
 use Kntnt\Photo_Drop\Cli\Image_Command;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Rest\Upload_Controller;
 
 /**
  * Singleton entry point for the kntnt-photo-drop plugin.
@@ -280,12 +281,23 @@ final class Plugin {
 		add_action( 'init', [ $block_registrar, 'register' ] );
 		add_filter( 'block_categories_all', [ $block_registrar, 'register_category' ], 10, 2 );
 
+		// Resolve the filesystem-backed collection read side once; both the REST
+		// upload endpoint and the CLI commands resolve slugs through this same
+		// repository, so a single instance keeps the source of truth shared.
+		$repository = new Repository();
+
+		// Register the only HTTP write path into a collection: the Drop Zone upload
+		// endpoint. It is gated by a nonce plus `upload_files` in its own
+		// permission callback (ADR-0006), so wiring it on every request is safe —
+		// an unauthenticated or un-capable caller never reaches the handler.
+		$upload_controller = new Upload_Controller( $repository );
+		add_action( 'rest_api_init', [ $upload_controller, 'register_routes' ] );
+
 		// Register the WP-CLI commands only when running under WP_CLI, so the
 		// command classes are never loaded on a web request. The CLI is the
 		// trusted place a collection is established, renamed, and removed, and the
 		// browser-free consumer that imports into and deletes from one.
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			$repository = new Repository();
 			\WP_CLI::add_command( 'kntnt-photo-drop collection', new Collection_Command( $repository ) );
 			\WP_CLI::add_command( 'kntnt-photo-drop image', new Image_Command( $repository ) );
 		}
