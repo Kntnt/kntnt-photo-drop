@@ -217,6 +217,140 @@ final class Repository {
 	}
 
 	/**
+	 * Creates the empty directory for a new collection and returns its path.
+	 *
+	 * This is the write counterpart to `resolve_slug()`: it owns the one
+	 * filesystem mutation the lifecycle needs (an `mkdir` under the root), so
+	 * the command above stays thin and free of path arithmetic. It establishes
+	 * the directory only — the descriptor is written separately by the caller
+	 * via `Descriptor::write()`, keeping the directory and its `collection.json`
+	 * as two explicit steps the caller can order and report on.
+	 *
+	 * Returns `null` (creating nothing) when the slug is malformed, the root is
+	 * unavailable, or a directory already exists at the slug — so a caller can
+	 * map each failure to a clear message and never silently clobbers an
+	 * existing collection.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string $slug The collection identity to create.
+	 * @return string|null The absolute collection directory path, or null on refusal.
+	 */
+	public function create_collection( string $slug ): ?string {
+
+		// Reject a malformed slug before touching disk; the same lexical gate
+		// resolve_slug() applies, so a hostile slug never reaches the filesystem.
+		if ( ! $this->is_valid_slug( $slug ) ) {
+			return null;
+		}
+
+		// Without a root there is nowhere to create the collection.
+		$root = $this->get_root();
+		if ( $root === null ) {
+			return null;
+		}
+
+		// Refuse to create over an existing directory; establishment must never
+		// clobber a collection (or any directory) that is already there.
+		$path = $root . $slug;
+		if ( is_dir( $path ) ) {
+			return null;
+		}
+
+		// Create the directory tree; a failure here yields the refusal state so
+		// the caller reports it rather than proceeding to write a descriptor into
+		// a directory that does not exist.
+		if ( ! wp_mkdir_p( $path ) ) {
+			Plugin::error( "Failed to create the collection directory at {$path}." );
+			return null;
+		}
+
+		return $path;
+
+	}
+
+	/**
+	 * Removes a collection directory and everything beneath it.
+	 *
+	 * The destructive counterpart to discovery: it resolves the slug to an
+	 * existing collection first (so only a real collection — a directory holding
+	 * a descriptor — can ever be targeted) and then deletes the whole tree,
+	 * mains, thumbnails, indexes and descriptor alike. The filesystem is the
+	 * source of truth, so removing the directory is the entire deletion; there
+	 * is no registry row to also clear.
+	 *
+	 * Returns `false` (deleting nothing) when the slug does not resolve to a
+	 * collection, and `false` when the recursive removal fails partway, so the
+	 * caller can surface the outcome rather than assume success.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string $slug The collection identity to delete.
+	 * @return bool True when the collection directory was fully removed.
+	 */
+	public function delete_collection( string $slug ): bool {
+
+		// Resolve to a real collection first; an unknown or malformed slug deletes
+		// nothing, and a bare directory without a descriptor is not a collection.
+		$path = $this->resolve_slug( $slug );
+		if ( $path === null ) {
+			return false;
+		}
+
+		// Remove the entire tree. The plugin owns this directory on disk directly
+		// (ADR-0001), so it deletes the files itself rather than routing through
+		// the Media Library, which knows nothing about out-of-library collections.
+		return $this->remove_tree( $path );
+
+	}
+
+	/**
+	 * Recursively deletes a directory tree, returning whether it fully succeeded.
+	 *
+	 * Walks children depth-first, unlinking files and symlinks (never following a
+	 * symlink into its target) and recursing into real sub-directories, then
+	 * removes the now-empty directory itself. A single failed unlink or rmdir
+	 * propagates as `false` so the caller learns the tree was not fully cleared.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string $dir Absolute path of the directory to remove.
+	 * @return bool True when the directory and all its contents were removed.
+	 */
+	private function remove_tree( string $dir ): bool {
+
+		// Treat a symlink or non-directory as a leaf: unlink it rather than
+		// recursing, so a symlink inside a collection cannot lead the delete out
+		// of the tree. The plugin owns this directory tree on disk directly
+		// (ADR-0001), so it unlinks the file rather than routing through the
+		// Media Library, which knows nothing about out-of-library collections.
+		if ( is_link( $dir ) || ! is_dir( $dir ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- The plugin owns this directory tree on disk directly (ADR-0001); wp_delete_file is for Media-Library attachments, not files written outside it.
+			return unlink( $dir );
+		}
+
+		// Delete every child first; any failure short-circuits the whole removal
+		// so a partial delete is reported rather than masked.
+		$entries = scandir( $dir );
+		foreach ( $entries === false ? [] : $entries as $entry ) {
+			if ( $entry === '.' || $entry === '..' ) {
+				continue;
+			}
+			if ( ! $this->remove_tree( $dir . '/' . $entry ) ) {
+				return false;
+			}
+		}
+
+		// Remove the now-empty directory itself. The plugin owns this directory
+		// tree on disk directly (ADR-0001), so it removes the directory itself
+		// rather than routing through WP_Filesystem, which is the Media Library's
+		// abstraction and is not loaded in every context the CLI runs in.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- The plugin owns this directory tree on disk directly (ADR-0001); WP_Filesystem is the wrong abstraction for collection directories written outside the Media Library.
+		return rmdir( $dir );
+
+	}
+
+	/**
 	 * Creates the root directory if missing and disables directory listing.
 	 *
 	 * Creates the directory tree with `wp_mkdir_p()` and drops a blank
