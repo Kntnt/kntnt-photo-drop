@@ -1,0 +1,30 @@
+// Photo Drop Zone — frontend uploader styles.
+// Imported by view.ts so @wordpress/scripts bundles it into the view-side asset
+// (view.css) declared as viewStyle in block.json. Styles the folder picker and
+// the per-file status list that sit around FilePond's own chrome; FilePond's
+// base CSS is imported separately in view.ts.
+
+.kntnt-photo-drop-drop-zone {
+
+	&__folder {
+		margin: 0.75rem 0 0;
+	}
+
+	&__folder-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+
+	&__status {
+		margin: 0.75rem 0 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	&__status-item {
+		padding: 0.2rem 0;
+		font-size: 0.9em;
+	}
+}
