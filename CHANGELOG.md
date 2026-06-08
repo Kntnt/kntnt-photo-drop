@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Documentation: the thumbnail-regeneration examples in the README, the design notes, and ADR-0002 now show the complete, runnable WP-CLI command (`wp kntnt-photo-drop collection doctor <slug> --repair --force`) instead of a bare `collection doctor --repair --force` fragment that omitted the `wp kntnt-photo-drop` prefix.
+
 ## [0.1.0] - 2026-06-08
 
 ### Added

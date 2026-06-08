@@ -183,7 +183,7 @@ The absolute path to the uploads root that holds every collection. Default: `wp_
 add_filter( 'kntnt_photo_drop_thumbnail_width', fn() => [ 480, 960 ] );
 ```
 
-The width or widths at which thumbnails are derived. Default: `640`. May return a single integer or an array of integers; `[]` or `0` means no thumbnail. Because thumbnail width is re-derivable from the main image, it is not frozen in the contract – changing it and running `collection doctor --repair --force` regenerates the thumbnails.
+The width or widths at which thumbnails are derived. Default: `640`. May return a single integer or an array of integers; `[]` or `0` means no thumbnail. Because thumbnail width is re-derivable from the main image, it is not frozen in the contract – changing it and running `wp kntnt-photo-drop collection doctor <slug> --repair --force` regenerates the thumbnails.
 
 ### `kntnt_photo_drop_default_max_width`
 

@@ -196,7 +196,7 @@ Collection **create / update / delete** lives on a dedicated admin page (and the
 
 ### Update (Edit)
 
-- Only the **display name** is editable. Max width, quality, format, and thumbnail width(s) are shown **read-only / disabled**, with a note that the contract is immutable and thumbnail width is changed via the filter + `collection doctor --repair --force`. Submitting rewrites only `name` in `collection.json`; any attempt to change the contract is rejected server-side.
+- Only the **display name** is editable. Max width, quality, format, and thumbnail width(s) are shown **read-only / disabled**, with a note that the contract is immutable and thumbnail width is changed via the filter + `wp kntnt-photo-drop collection doctor <slug> --repair --force`. Submitting rewrites only `name` in `collection.json`; any attempt to change the contract is rejected server-side.
 
 ### Delete
 
