@@ -46,7 +46,7 @@
 	},
 	"scripts": {
 		"test": "pest",
-		"phpstan": "phpstan analyse --configuration=phpstan.neon.dist --memory-limit=512M",
+		"phpstan": "phpstan analyse --configuration=phpstan.neon.dist --memory-limit=1G",
 		"phpcs": "phpcs --standard=phpcs.xml.dist"
 	},
 	"minimum-stability": "stable"
