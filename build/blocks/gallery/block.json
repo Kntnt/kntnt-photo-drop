@@ -16,6 +16,7 @@
   "editorScript": "file:./index.js",
   "viewScriptModule": "file:./view.js",
   "style": "file:./style-index.css",
+  "viewStyle": "file:./view.css",
   "render": "file:./render.php",
   "supports": {
     "anchor": true,

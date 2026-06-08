@@ -10,6 +10,7 @@
 	"editorScript": "file:./index.tsx",
 	"viewScriptModule": "file:./view.ts",
 	"style": "file:./style-index.css",
+	"viewStyle": "file:./view.css",
 	"render": "file:./render.php",
 	"supports": {
 		"anchor": true,
