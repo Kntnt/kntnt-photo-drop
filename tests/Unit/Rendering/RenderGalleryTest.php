@@ -65,6 +65,7 @@ function wire_gallery_stubs( string $basedir, bool $logged_in = false ): void {
 	);
 	Functions\when( '__' )->returnArg( 1 );
 	Functions\when( 'esc_html__' )->returnArg( 1 );
+	Functions\when( 'esc_attr__' )->returnArg( 1 );
 	Functions\when( 'esc_html' )->returnArg( 1 );
 	Functions\when( 'esc_attr' )->returnArg( 1 );
 	Functions\when( 'esc_url' )->returnArg( 1 );
@@ -763,6 +764,99 @@ test( 'an empty collection attribute renders nothing for the public', function (
 	$html = Render_Gallery::render( [ 'collection' => '' ], '', gallery_block_stub() );
 
 	expect( $html )->toBe( '' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Lightbox — overlay + Interactivity hooks gated on enableLightbox (ADR-0007)
+// ---------------------------------------------------------------------------
+
+test( 'the lightbox is wired by default: the overlay, init hook, and flag are present', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		logged_in: false,
+		basedir_out: $basedir,
+	);
+
+	// enableLightbox defaults true: the flag is on, the Interactivity init hook
+	// and per-block context are bound, and the hidden dialog overlay is emitted.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="true"' );
+	expect( $html )->toContain( 'data-wp-init="callbacks.init"' );
+	expect( $html )->toContain( 'counterTemplate' );
+	expect( $html )->toContain( 'class="kntnt-photo-drop-lightbox"' );
+	expect( $html )->toContain( 'role="dialog"' );
+	expect( $html )->toContain( 'aria-modal="true"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the no-JS anchor fallback still wraps every image when the lightbox is on', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'enableLightbox' => true ],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+			[
+				'path'   => 'b.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		logged_in: false,
+		basedir_out: $basedir,
+	);
+
+	// The lightbox progressively enhances the same anchors it does not replace, so
+	// both images keep their full-image <a href> for the no-JS path.
+	expect( substr_count( $html, '<a class="kntnt-photo-drop-gallery__link"' ) )->toBe( 2 );
+	expect( $html )->toContain( 'href="https://example.test/uploads/kntnt-photo-drop/photos/a.jpg.webp"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'with the lightbox off, no overlay or init hook is emitted but the anchors remain', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'enableLightbox' => false ],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		logged_in: false,
+		basedir_out: $basedir,
+	);
+
+	// The flag is off: no enhancement markup at all (no overlay, no init hook, no
+	// context), yet the anchor still wraps the image so a click navigates to it.
+	// The flag attribute itself still reflects the off state.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="false"' );
+	expect( $html )->not->toContain( 'data-wp-init' );
+	expect( $html )->not->toContain( 'role="dialog"' );
+	expect( $html )->not->toContain( 'class="kntnt-photo-drop-lightbox"' );
+	expect( $html )->toContain( '<a class="kntnt-photo-drop-gallery__link"' );
+	expect( $html )->toContain( 'href="https://example.test/uploads/kntnt-photo-drop/photos/a.jpg.webp"' );
 
 	gallery_remove_tree( $basedir );
 } );

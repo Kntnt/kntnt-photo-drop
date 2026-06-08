@@ -433,7 +433,11 @@ final class Render_Gallery {
 	 * style variables on the inner container; mode B applies the justified flex
 	 * container. The outer wrapper is core's block-supports wrapper (alignment,
 	 * colour, typography, spacing, anchor) plus the project class and a lightbox
-	 * flag and the Interactivity directive the view module reads.
+	 * flag and the Interactivity directives the view module reads. When the
+	 * lightbox is enabled the wrapper also carries the Interactivity `init` hook
+	 * and the per-block context (the counter announcement template), and a hidden
+	 * overlay is appended for the view module to drive — all gated on the flag so
+	 * a lightbox-off gallery emits no enhancement markup and the anchors navigate.
 	 *
 	 * @since 0.6.0
 	 *
@@ -462,24 +466,104 @@ final class Render_Gallery {
 			);
 		}
 
-		// Compose the block-supports wrapper with the project class and a lightbox
-		// flag the view module reads, and bind the Interactivity namespace so the
-		// lightbox (#11) mounts without further server wiring.
-		$lightbox = self::read_bool( $attributes, 'enableLightbox', true ) ? 'true' : 'false';
-		$wrapper  = get_block_wrapper_attributes(
-			[
-				'class'                          => 'kntnt-photo-drop-gallery',
-				'data-wp-interactive'            => 'kntnt-photo-drop/gallery',
-				'data-kntnt-photo-drop-lightbox' => $lightbox,
-			],
-		);
+		// Compose the block-supports wrapper: the project class, the Interactivity
+		// namespace, and the lightbox flag the view module reads. When the lightbox
+		// is on, add the `init` hook and the per-block context so the controller
+		// mounts; when off, neither is emitted and the anchors keep navigating.
+		$enabled        = self::read_bool( $attributes, 'enableLightbox', true );
+		$wrapper_attrs  = [
+			'class'                          => 'kntnt-photo-drop-gallery',
+			'data-wp-interactive'            => 'kntnt-photo-drop/gallery',
+			'data-kntnt-photo-drop-lightbox' => $enabled ? 'true' : 'false',
+		];
+		if ( $enabled ) {
+			$wrapper_attrs['data-wp-init']    = 'callbacks.init';
+			$wrapper_attrs['data-wp-context'] = self::lightbox_context();
+		}
+		$wrapper = get_block_wrapper_attributes( $wrapper_attrs );
+
+		// Append the hidden lightbox overlay only when enabled, so a lightbox-off
+		// gallery carries no enhancement markup at all.
+		$overlay = $enabled ? self::lightbox_overlay() : '';
 
 		return sprintf(
-			'<div %1$s><div class="%2$s" style="%3$s">%4$s</div></div>',
+			'<div %1$s><div class="%2$s" style="%3$s">%4$s</div>%5$s</div>',
 			$wrapper,
 			esc_attr( $container_class ),
 			esc_attr( $container_style ),
 			$figures,
+			$overlay,
+		);
+
+	}
+
+	/**
+	 * Builds the per-block Interactivity context JSON the view module reads.
+	 *
+	 * View-script modules cannot translate at runtime, so the one runtime string
+	 * the lightbox needs — the `%1$d of %2$d` counter announcement — is translated
+	 * here and handed across as context. The view module fills the two
+	 * placeholders with the live position and total.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @return string The context object encoded as a JSON attribute value.
+	 */
+	private static function lightbox_context(): string {
+
+		// Translate the counter template once and encode it as the context island;
+		// `false` from the encoder degrades to an empty object the view tolerates.
+		$context = [
+			/* translators: 1: the 1-based position of the shown image, 2: the total number of images. */
+			'counterTemplate' => __( '%1$d of %2$d', 'kntnt-photo-drop' ),
+		];
+		$json    = wp_json_encode( $context );
+
+		return $json === false ? '{}' : $json;
+
+	}
+
+	/**
+	 * Builds the hidden lightbox overlay markup the view module drives.
+	 *
+	 * A single dialog-role overlay per gallery, hidden until a thumbnail is
+	 * clicked: a backdrop, the previous/next/close controls, the live image, and a
+	 * polite live region announcing the position. Every label is translatable and
+	 * the structure carries the WAI-ARIA dialog semantics (`role="dialog"`,
+	 * `aria-modal`, an `aria-label`); the view module toggles `hidden`, swaps the
+	 * image `src`/`alt`, and updates the counter. The overlay reuses each
+	 * thumbnail's own `<a href>` data as its slide source, so it adds no image
+	 * URLs of its own to escape — only static, translated chrome.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @return string The escaped overlay markup.
+	 */
+	private static function lightbox_overlay(): string {
+
+		// Label every control and the dialog itself; these are the only runtime
+		// strings the overlay carries, all translated and escaped at output.
+		$dialog_label = esc_attr__( 'Image viewer', 'kntnt-photo-drop' );
+		$close_label  = esc_attr__( 'Close', 'kntnt-photo-drop' );
+		$prev_label   = esc_attr__( 'Previous image', 'kntnt-photo-drop' );
+		$next_label   = esc_attr__( 'Next image', 'kntnt-photo-drop' );
+
+		// Compose the dialog: backdrop, controls, the live image, and the polite
+		// counter region. The image starts empty; the view module fills it on open.
+		return sprintf(
+			'<div class="kntnt-photo-drop-lightbox" role="dialog" aria-modal="true" aria-label="%1$s" hidden>'
+				. '<button type="button" class="kntnt-photo-drop-lightbox__close" aria-label="%2$s">&times;</button>'
+				. '<button type="button" class="kntnt-photo-drop-lightbox__prev" aria-label="%3$s">&lsaquo;</button>'
+				. '<figure class="kntnt-photo-drop-lightbox__figure">'
+				. '<img class="kntnt-photo-drop-lightbox__image" src="" alt="" />'
+				. '</figure>'
+				. '<button type="button" class="kntnt-photo-drop-lightbox__next" aria-label="%4$s">&rsaquo;</button>'
+				. '<p class="kntnt-photo-drop-lightbox__counter" aria-live="polite"></p>'
+				. '</div>',
+			$dialog_label,
+			$close_label,
+			$prev_label,
+			$next_label,
 		);
 
 	}

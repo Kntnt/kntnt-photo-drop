@@ -1,0 +1,105 @@
+// Photo Gallery — frontend lightbox styles.
+// Imported by view.ts so @wordpress/scripts bundles it into the view-side asset
+// (view.css) declared as viewStyle in block.json, keeping these styles off the
+// editor where there is no lightbox. The overlay is a fixed, full-viewport
+// modal the view module toggles via the `hidden` attribute; the image is
+// centred and capped to the viewport, and the prev/next/close controls are
+// absolutely placed over the backdrop.
+
+.kntnt-photo-drop-lightbox {
+	// A fixed, full-viewport modal layer above the page; `hidden` (toggled by the
+	// view module) removes it from layout and the accessibility tree entirely.
+	position: fixed;
+	inset: 0;
+	z-index: 999999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: clamp(0.5rem, 4vw, 3rem);
+	background: rgba(0, 0, 0, 0.9);
+
+	&[hidden] {
+		display: none;
+	}
+
+	&__figure {
+		// The figure holds the image centred and never exceeds the padded viewport.
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		max-width: 100%;
+		max-height: 100%;
+		margin: 0;
+	}
+
+	&__image {
+		// The image scales to fit the available space, never upscaled past its own
+		// pixels, with its aspect ratio preserved.
+		display: block;
+		max-width: 100%;
+		max-height: 90vh;
+		width: auto;
+		height: auto;
+		object-fit: contain;
+	}
+
+	// The three controls position themselves first (lowest specificity), so the
+	// shared-chrome hover/focus rules below never descend in specificity order.
+	&__close {
+		top: clamp(0.5rem, 2vw, 1.5rem);
+		right: clamp(0.5rem, 2vw, 1.5rem);
+	}
+
+	&__prev {
+		left: clamp(0.5rem, 2vw, 1.5rem);
+	}
+
+	&__next {
+		right: clamp(0.5rem, 2vw, 1.5rem);
+	}
+
+	&__close,
+	&__prev,
+	&__next {
+		// Shared control chrome: a circular, high-contrast button over the backdrop
+		// with a comfortable touch target.
+		position: absolute;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 3rem;
+		min-height: 3rem;
+		padding: 0;
+		font-size: 2rem;
+		line-height: 1;
+		color: #fff;
+		background: rgba(0, 0, 0, 0.5);
+		border: 0;
+		border-radius: 50%;
+		cursor: pointer;
+
+		&:hover,
+		&:focus-visible {
+			background: rgba(0, 0, 0, 0.8);
+		}
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	&__counter {
+		// A small position indicator pinned to the bottom centre; also the polite
+		// live region the screen reader announces on each navigation.
+		position: absolute;
+		bottom: clamp(0.5rem, 2vw, 1.5rem);
+		left: 50%;
+		margin: 0;
+		padding: 0.25rem 0.75rem;
+		font-size: 0.9rem;
+		color: #fff;
+		background: rgba(0, 0, 0, 0.5);
+		border-radius: 1rem;
+		transform: translateX(-50%);
+	}
+}
