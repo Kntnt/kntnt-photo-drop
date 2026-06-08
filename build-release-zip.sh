@@ -8,7 +8,14 @@
 # composer install is restored at the end so the working tree returns to
 # development mode.
 #
+# Arguments: none.
+#
 # Output: kntnt-photo-drop.zip in the project root.
+#
+# Exit codes:
+#   0  Success.
+#   1  A required CLI tool (composer, npm, zip) is not on PATH.
+#   2  The Version: header could not be parsed from the plugin file.
 #
 # The output filename intentionally has no version segment so that the
 # GitHub Releases asset URL stays stable across versions — the per-release
@@ -38,9 +45,9 @@ done
 version="$( grep -E '^[[:space:]]*\*[[:space:]]*Version:' "$plugin_file" \
 	| head -n 1 \
 	| sed -E 's/.*Version:[[:space:]]*([0-9A-Za-z.+-]+).*/\1/' )"
-if [ -z "$version" ]; then
+if [[ -z "$version" ]]; then
 	echo "Error: could not parse Version: header from $plugin_file" >&2
-	exit 1
+	exit 2
 fi
 
 zip_name="${plugin_slug}.zip"
@@ -68,19 +75,29 @@ npm run build --silent
 
 # Copy each runtime artefact explicitly. This is more verbose than rsync with
 # include/exclude rules but is obviously correct on review.
-cp "$plugin_file"                   "$target/"
+cp "$plugin_file" "$target/"
 cp "${project_root}/autoloader.php" "$target/"
-cp "${project_root}/install.php"    "$target/"
-cp "${project_root}/uninstall.php"  "$target/"
-cp "${project_root}/README.md"      "$target/"
-cp "${project_root}/LICENSE"        "$target/"
+cp "${project_root}/install.php" "$target/"
+cp "${project_root}/uninstall.php" "$target/"
+cp "${project_root}/README.md" "$target/"
+cp "${project_root}/LICENSE" "$target/"
 
 cp -R "${project_root}/classes" "$target/classes"
-cp -R "${project_root}/vendor"  "$target/vendor"
-cp -R "${project_root}/build"   "$target/build"
+cp -R "${project_root}/vendor" "$target/vendor"
+cp -R "${project_root}/build" "$target/build"
+
+# js/ and css/ are plain-asset directories that this plugin does not currently
+# ship (all client code compiles into build/ via @wordpress/scripts). Copy them
+# only if a future change adds them, so the script stays correct either way.
+if [[ -d "${project_root}/js" ]]; then
+	cp -R "${project_root}/js" "$target/js"
+fi
+if [[ -d "${project_root}/css" ]]; then
+	cp -R "${project_root}/css" "$target/css"
+fi
 
 # languages/ is optional in early versions; copy when present.
-if [ -d "${project_root}/languages" ]; then
+if [[ -d "${project_root}/languages" ]]; then
 	cp -R "${project_root}/languages" "$target/languages"
 fi
 

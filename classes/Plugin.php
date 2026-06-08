@@ -323,6 +323,13 @@ final class Plugin {
 			\WP_CLI::add_command( 'kntnt-photo-drop image', new Image_Command( $repository ) );
 		}
 
+		// Wire the GitHub-Releases auto-updater into WordPress's plugin update
+		// check. It runs admin-side only, comparing the installed version with
+		// the latest GitHub release and advertising an update when a newer one
+		// ships a ZIP asset (matched by content_type — see Updater).
+		$updater = new Updater();
+		add_filter( 'pre_set_site_transient_update_plugins', [ $updater, 'check_for_updates' ] );
+
 	}
 
 }
