@@ -14,6 +14,7 @@ declare( strict_types = 1 );
 
 namespace Kntnt\Photo_Drop;
 
+use Kntnt\Photo_Drop\Admin\Admin_Page;
 use Kntnt\Photo_Drop\Bootstrap\Block_Registrar;
 use Kntnt\Photo_Drop\Cli\Collection_Command;
 use Kntnt\Photo_Drop\Cli\Image_Command;
@@ -301,6 +302,17 @@ final class Plugin {
 		// write surface.
 		$collections_controller = new Collections_Controller( $repository );
 		add_action( 'rest_api_init', [ $collections_controller, 'register_routes' ] );
+
+		// Register the collection-lifecycle admin page — the GUI mirror of the CLI's
+		// create/update/delete verbs, and one of the two deliberate, trusted contexts
+		// where a collection's lifecycle is driven. The menu is registered on
+		// admin_menu (gated by the manage capability); the three forms post to their
+		// own admin_post handlers so the destructive writes never ride a GET.
+		$admin_page = new Admin_Page( $repository );
+		add_action( 'admin_menu', [ $admin_page, 'register_menu' ] );
+		add_action( 'admin_post_' . Admin_Page::ACTION_CREATE, [ $admin_page, 'handle_create' ] );
+		add_action( 'admin_post_' . Admin_Page::ACTION_UPDATE, [ $admin_page, 'handle_update' ] );
+		add_action( 'admin_post_' . Admin_Page::ACTION_DELETE, [ $admin_page, 'handle_delete' ] );
 
 		// Register the WP-CLI commands only when running under WP_CLI, so the
 		// command classes are never loaded on a web request. The CLI is the
