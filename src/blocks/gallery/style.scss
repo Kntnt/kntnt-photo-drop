@@ -1,9 +1,187 @@
-// Photo Gallery — shared editor + frontend styles (placeholder).
-// Intentionally minimal for the scaffolding slice. Real gallery layout
-// (uniform grid and justified rows) and lightbox styling land in a later
-// slice.
+// Photo Gallery — shared editor + frontend styles.
+// The layout knobs (gap, minimum column width, fit, caption colours) arrive as
+// CSS custom properties on the wrapper / item, so the server emits minimal
+// inline style and the cascade does the rest. Two layout containers are
+// provided: a uniform CSS grid (mode A) and justified flex rows (mode B).
+// Captions are positioned under, above, or as a nine-point anchored overlay.
 
-.wp-block-kntnt-photo-drop-gallery {
-	// Placeholder rule so the stylesheet compiles to a non-empty asset.
-	display: block;
+.kntnt-photo-drop-gallery {
+
+	&__layout {
+		// The shared gap both layouts read.
+		--kntnt-photo-drop-gap: 12px;
+	}
+
+	&__layout--grid {
+		// An auto-filling grid whose columns are at least the minimum width; each
+		// item fixes its own aspect ratio inline, so the grid never reflows on load.
+		--kntnt-photo-drop-min-column: 320px;
+
+		$min: var(--kntnt-photo-drop-min-column);
+
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min($min, 100%), 1fr));
+		gap: var(--kntnt-photo-drop-gap);
+	}
+
+	&__layout--justified {
+		// Justified rows: each item carries its flex-grow / flex-basis inline from
+		// the stored dimensions; the last row's items get grow 0, so it left-aligns.
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--kntnt-photo-drop-gap);
+	}
+
+	&__item {
+		// A relatively-positioned figure so an overlay caption can be placed within.
+		position: relative;
+		margin: 0;
+		overflow: hidden;
+	}
+
+	&__item--grid &__image {
+		// The grid image fills its cell, object-fit per the block setting.
+		width: 100%;
+		height: 100%;
+		object-fit: var(--kntnt-photo-drop-fit, cover);
+	}
+
+	&__item--justified &__image {
+		// The justified image fills the inline-sized figure and covers.
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	&__link {
+		// The full-image anchor (the no-JS fallback and the lightbox hook) fills
+		// the figure so the whole tile is clickable.
+		display: block;
+		width: 100%;
+		height: 100%;
+	}
+
+	&__caption {
+		// Captions: under and above flow with the figure; overlay is placed.
+		margin: 0;
+		font-size: 0.85em;
+		line-height: 1.3;
+	}
+
+	&__caption--under {
+		padding-top: 0.4em;
+	}
+
+	&__caption--above {
+		padding-bottom: 0.4em;
+	}
+
+	&__caption--overlay {
+		// The overlay sits over the image, drawing its colours from inline custom
+		// properties when the editor set them.
+		position: absolute;
+		max-width: 100%;
+		padding: 0.3em 0.5em;
+		background: var(--kntnt-photo-drop-caption-bg, rgba(0, 0, 0, 0.5));
+		color: var(--kntnt-photo-drop-caption-color, #fff);
+	}
+
+	// The nine overlay anchors map to edge insets; centre variants translate to
+	// the midpoint on the relevant axis.
+	&__caption--anchor-top-left {
+		top: 0;
+		left: 0;
+	}
+
+	&__caption--anchor-top-center {
+		top: 0;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	&__caption--anchor-top-right {
+		top: 0;
+		right: 0;
+	}
+
+	&__caption--anchor-middle-left {
+		top: 50%;
+		left: 0;
+		transform: translateY(-50%);
+	}
+
+	&__caption--anchor-middle-center {
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+	}
+
+	&__caption--anchor-middle-right {
+		top: 50%;
+		right: 0;
+		transform: translateY(-50%);
+	}
+
+	&__caption--anchor-bottom-left {
+		bottom: 0;
+		left: 0;
+	}
+
+	&__caption--anchor-bottom-center {
+		bottom: 0;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	&__caption--anchor-bottom-right {
+		bottom: 0;
+		right: 0;
+	}
+}
+
+// The editor-only notice variant reuses the wrapper, message-only.
+.kntnt-photo-drop-gallery--notice {
+	padding: 1em;
+	border: 1px dashed currentcolor;
+	opacity: 0.8;
+}
+
+// The editor canvas preview: a small, representative tile layout that conveys
+// the chosen mode without fetching real images. Not shipped to the frontend.
+.kntnt-photo-drop-gallery-editor {
+
+	&__title {
+		margin: 0 0 0.5em;
+		font-weight: 600;
+	}
+
+	&__tiles {
+		gap: 8px;
+	}
+
+	&__tiles--grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+	}
+
+	&__tiles--justified {
+		display: flex;
+		flex-wrap: wrap;
+	}
+
+	&__tile {
+		display: block;
+		min-width: 60px;
+		flex: 1 1 60px;
+		aspect-ratio: 3 / 2;
+		background: linear-gradient(135deg, #e0e0e0, #c8c8c8);
+		border-radius: 2px;
+	}
+
+	&__note {
+		margin: 0.6em 0 0;
+		font-size: 0.85em;
+		opacity: 0.7;
+	}
 }

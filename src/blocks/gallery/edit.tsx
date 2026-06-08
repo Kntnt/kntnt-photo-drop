@@ -1,0 +1,699 @@
+/**
+ * Photo Gallery edit component.
+ *
+ * The Gallery is a *select-only consumer* of collections (ADR-0002): the editor
+ * chooses a collection and a start path, and tunes presentation, but never
+ * creates or reconfigures a collection. This component owns the inspector — a
+ * Collection panel (selector from the editor REST list, start-path control, and a
+ * "this folder only" toggle), an Ordering panel, a Layout panel whose revealed
+ * controls depend on the mode, a Captions panel whose controls reveal with the
+ * content, and a Lightbox toggle — plus a lightweight in-canvas preview that
+ * mirrors the chosen layout so the editor reflects the frontend. An empty or
+ * dangling collection shows an inline notice rather than a broken frame.
+ *
+ * The collection list comes from the editor-only endpoint
+ * `kntnt-photo-drop/v1/collections` (gated by `edit_posts`), the same list the
+ * Drop Zone uses; it is fetched once per mounted block. The preview is
+ * deliberately representative, not a byte-exact SSR mirror — the frontend is pure
+ * server-rendered HTML, and the preview's job is to convey layout and captions at
+ * editing time without a round-trip per keystroke.
+ *
+ * @since 0.6.0
+ */
+
+import { useBlockProps, InspectorControls } from '@wordpress/block-editor';
+import {
+	PanelBody,
+	SelectControl,
+	ToggleControl,
+	TextControl,
+	RangeControl,
+	UnitControl,
+	Notice,
+	Spinner,
+} from '@wordpress/components';
+import { useEffect, useState } from '@wordpress/element';
+import apiFetch from '@wordpress/api-fetch';
+import { __ } from '@wordpress/i18n';
+import type { BlockEditProps } from '@wordpress/blocks';
+import type { JSX } from '@wordpress/element';
+
+import type {
+	GalleryAttributes,
+	CaptionContent,
+	CaptionPosition,
+	CaptionAnchor,
+	GalleryLayout,
+} from './attributes';
+
+/**
+ * One collection as returned by the editor list endpoint.
+ *
+ * Mirrors the payload `Rest\Collections_Controller::list_collections()` emits;
+ * the Gallery reads only the slug and display name to drive its selector.
+ *
+ * @since 0.6.0
+ */
+interface CollectionSummary {
+	readonly slug: string;
+	readonly name: string;
+}
+
+/**
+ * The fetch state of the shared collection list.
+ *
+ * @since 0.6.0
+ */
+type CollectionsState =
+	| { readonly status: 'loading' }
+	| { readonly status: 'error' }
+	| {
+			readonly status: 'loaded';
+			readonly collections: readonly CollectionSummary[];
+	  };
+
+/**
+ * The editor REST path the collection list is fetched from.
+ *
+ * @since 0.6.0
+ */
+const LIST_PATH = '/kntnt-photo-drop/v1/collections';
+
+/**
+ * The nine overlay anchor options, paired with their translated labels.
+ *
+ * @since 0.6.0
+ *
+ * @return The anchor select options.
+ */
+function anchorOptions(): { value: CaptionAnchor; label: string }[] {
+	return [
+		{ value: 'top-left', label: __( 'Top left', 'kntnt-photo-drop' ) },
+		{ value: 'top-center', label: __( 'Top centre', 'kntnt-photo-drop' ) },
+		{ value: 'top-right', label: __( 'Top right', 'kntnt-photo-drop' ) },
+		{
+			value: 'middle-left',
+			label: __( 'Middle left', 'kntnt-photo-drop' ),
+		},
+		{
+			value: 'middle-center',
+			label: __( 'Middle centre', 'kntnt-photo-drop' ),
+		},
+		{
+			value: 'middle-right',
+			label: __( 'Middle right', 'kntnt-photo-drop' ),
+		},
+		{
+			value: 'bottom-left',
+			label: __( 'Bottom left', 'kntnt-photo-drop' ),
+		},
+		{
+			value: 'bottom-center',
+			label: __( 'Bottom centre', 'kntnt-photo-drop' ),
+		},
+		{
+			value: 'bottom-right',
+			label: __( 'Bottom right', 'kntnt-photo-drop' ),
+		},
+	];
+}
+
+/**
+ * Edit component for the Photo Gallery block.
+ *
+ * Fetches the collection list, drives every inspector panel, and renders a
+ * representative in-canvas preview plus the empty/dangling notice. Attribute
+ * setters are thin pass-throughs so the wiring stays declarative.
+ *
+ * @since 0.6.0
+ *
+ * @param props               - Standard block edit props.
+ * @param props.attributes    - Current block attributes.
+ * @param props.setAttributes - Attribute setter.
+ * @return The block's editor markup.
+ */
+export function GalleryEdit( {
+	attributes,
+	setAttributes,
+}: BlockEditProps< GalleryAttributes > ): JSX.Element {
+	const {
+		collection,
+		startPath,
+		recursive,
+		order,
+		layout,
+		minimumColumnWidth,
+		blockGap,
+		imageFit,
+		aspectRatio,
+		targetRowHeight,
+		enableLightbox,
+		captionContent,
+		captionHumanize,
+		captionIncludeCollectionName,
+		captionSeparator,
+		captionPosition,
+		captionOverlayAnchor,
+		captionBackground,
+		captionTextColor,
+	} = attributes;
+	const blockProps = useBlockProps( {
+		className: 'kntnt-photo-drop-gallery-editor',
+	} );
+
+	// Fetch the editor-only collection list once per mounted block; the endpoint
+	// is a cheap directory scan and reflects the filesystem at fetch time.
+	const [ state, setState ] = useState< CollectionsState >( {
+		status: 'loading',
+	} );
+	useEffect( () => {
+		let active = true;
+		apiFetch< CollectionSummary[] >( { path: LIST_PATH } )
+			.then( ( collections ) => {
+				if ( active ) {
+					setState( { status: 'loaded', collections } );
+				}
+			} )
+			.catch( () => {
+				if ( active ) {
+					setState( { status: 'error' } );
+				}
+			} );
+		return () => {
+			active = false;
+		};
+	}, [] );
+
+	// Resolve the selected collection's summary; a non-empty slug absent from the
+	// loaded list is a dangling reference surfaced as a notice, never auto-cleared.
+	const collections = state.status === 'loaded' ? state.collections : [];
+	const selected =
+		collections.find( ( item ) => item.slug === collection ) ?? null;
+	const isDangling =
+		state.status === 'loaded' && collection !== '' && selected === null;
+
+	// Build the selector options, prepending an empty prompt and, for a dangling
+	// slug, a placeholder labelled with the slug so the persisted state shows.
+	const options = [
+		{
+			value: '',
+			label: __( '— Select a collection —', 'kntnt-photo-drop' ),
+		},
+		...collections.map( ( item ) => ( {
+			value: item.slug,
+			label: item.name,
+		} ) ),
+	];
+	if ( isDangling ) {
+		options.push( {
+			value: collection,
+			/* translators: %s: the missing collection slug. */
+			label: __( '%s (missing)', 'kntnt-photo-drop' ).replace(
+				'%s',
+				collection
+			),
+		} );
+	}
+
+	const isGrid = layout === 'grid';
+	const isPath = captionContent === 'path';
+	const isOverlay = captionPosition === 'overlay';
+
+	return (
+		<div { ...blockProps }>
+			<InspectorControls>
+				<PanelBody title={ __( 'Collection', 'kntnt-photo-drop' ) }>
+					{ state.status === 'loading' && (
+						<p>
+							<Spinner />
+							{ __( 'Loading collections…', 'kntnt-photo-drop' ) }
+						</p>
+					) }
+					{ state.status === 'error' && (
+						<Notice status="error" isDismissible={ false }>
+							{ __(
+								'The collection list could not be loaded.',
+								'kntnt-photo-drop'
+							) }
+						</Notice>
+					) }
+					{ state.status === 'loaded' && (
+						<>
+							<SelectControl
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								label={ __( 'Collection', 'kntnt-photo-drop' ) }
+								value={ collection }
+								options={ options }
+								onChange={ ( value: string ) =>
+									setAttributes( { collection: value } )
+								}
+								help={ __(
+									'Choose which collection this gallery shows.',
+									'kntnt-photo-drop'
+								) }
+							/>
+							<TextControl
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								label={ __( 'Start path', 'kntnt-photo-drop' ) }
+								value={ startPath }
+								onChange={ ( value: string ) =>
+									setAttributes( { startPath: value } )
+								}
+								help={ __(
+									'A sub-folder of the collection to start from. Leave empty for the whole collection.',
+									'kntnt-photo-drop'
+								) }
+							/>
+							<ToggleControl
+								__nextHasNoMarginBottom
+								label={ __(
+									'This folder only',
+									'kntnt-photo-drop'
+								) }
+								checked={ ! recursive }
+								onChange={ ( value: boolean ) =>
+									setAttributes( { recursive: ! value } )
+								}
+								help={ __(
+									'When on, sub-folders are not included; only images directly in the start path show.',
+									'kntnt-photo-drop'
+								) }
+							/>
+						</>
+					) }
+				</PanelBody>
+
+				<PanelBody
+					title={ __( 'Ordering', 'kntnt-photo-drop' ) }
+					initialOpen={ false }
+				>
+					<SelectControl
+						__next40pxDefaultSize
+						__nextHasNoMarginBottom
+						label={ __( 'Order', 'kntnt-photo-drop' ) }
+						value={ order }
+						options={ [
+							{
+								value: 'asc',
+								label: __( 'Ascending', 'kntnt-photo-drop' ),
+							},
+							{
+								value: 'desc',
+								label: __( 'Descending', 'kntnt-photo-drop' ),
+							},
+						] }
+						onChange={ ( value: string ) =>
+							setAttributes( {
+								order: value === 'desc' ? 'desc' : 'asc',
+							} )
+						}
+						help={ __(
+							'Images sort by their full path (natural order), so each folder stays together.',
+							'kntnt-photo-drop'
+						) }
+					/>
+				</PanelBody>
+
+				<PanelBody
+					title={ __( 'Layout', 'kntnt-photo-drop' ) }
+					initialOpen={ false }
+				>
+					<SelectControl
+						__next40pxDefaultSize
+						__nextHasNoMarginBottom
+						label={ __( 'Layout mode', 'kntnt-photo-drop' ) }
+						value={ layout }
+						options={ [
+							{
+								value: 'grid',
+								label: __( 'Uniform grid', 'kntnt-photo-drop' ),
+							},
+							{
+								value: 'justified',
+								label: __(
+									'Justified rows',
+									'kntnt-photo-drop'
+								),
+							},
+						] }
+						onChange={ ( value: string ) =>
+							setAttributes( {
+								layout: ( value === 'justified'
+									? 'justified'
+									: 'grid' ) as GalleryLayout,
+							} )
+						}
+					/>
+					{ isGrid && (
+						<>
+							<UnitControl
+								__next40pxDefaultSize
+								label={ __(
+									'Minimum column width',
+									'kntnt-photo-drop'
+								) }
+								value={ minimumColumnWidth }
+								onChange={ ( value: string | undefined ) =>
+									setAttributes( {
+										minimumColumnWidth: value ?? '320px',
+									} )
+								}
+							/>
+							<SelectControl
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								label={ __( 'Image fit', 'kntnt-photo-drop' ) }
+								value={ imageFit }
+								options={ [
+									{
+										value: 'cover',
+										label: __(
+											'Cover (crop to fill)',
+											'kntnt-photo-drop'
+										),
+									},
+									{
+										value: 'contain',
+										label: __(
+											'Contain (fit whole image)',
+											'kntnt-photo-drop'
+										),
+									},
+								] }
+								onChange={ ( value: string ) =>
+									setAttributes( {
+										imageFit:
+											value === 'contain'
+												? 'contain'
+												: 'cover',
+									} )
+								}
+							/>
+							<TextControl
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								label={ __(
+									'Aspect ratio',
+									'kntnt-photo-drop'
+								) }
+								value={ aspectRatio }
+								onChange={ ( value: string ) =>
+									setAttributes( { aspectRatio: value } )
+								}
+								help={ __(
+									'A CSS ratio such as 1, 4/3, or 16/9. Leave empty to use each image’s own ratio.',
+									'kntnt-photo-drop'
+								) }
+							/>
+						</>
+					) }
+					{ ! isGrid && (
+						<RangeControl
+							__next40pxDefaultSize
+							__nextHasNoMarginBottom
+							label={ __(
+								'Target row height',
+								'kntnt-photo-drop'
+							) }
+							value={ targetRowHeight }
+							min={ 80 }
+							max={ 600 }
+							onChange={ ( value: number | undefined ) =>
+								setAttributes( {
+									targetRowHeight: value ?? 240,
+								} )
+							}
+						/>
+					) }
+					<UnitControl
+						__next40pxDefaultSize
+						label={ __( 'Gap', 'kntnt-photo-drop' ) }
+						value={ blockGap }
+						onChange={ ( value: string | undefined ) =>
+							setAttributes( { blockGap: value ?? '12px' } )
+						}
+					/>
+				</PanelBody>
+
+				<PanelBody
+					title={ __( 'Captions', 'kntnt-photo-drop' ) }
+					initialOpen={ false }
+				>
+					<SelectControl
+						__next40pxDefaultSize
+						__nextHasNoMarginBottom
+						label={ __( 'Caption content', 'kntnt-photo-drop' ) }
+						value={ captionContent }
+						options={ [
+							{
+								value: 'none',
+								label: __( 'None', 'kntnt-photo-drop' ),
+							},
+							{
+								value: 'filename',
+								label: __( 'Filename', 'kntnt-photo-drop' ),
+							},
+							{
+								value: 'path',
+								label: __(
+									'Path breadcrumb',
+									'kntnt-photo-drop'
+								),
+							},
+						] }
+						onChange={ ( value: string ) =>
+							setAttributes( {
+								captionContent: value as CaptionContent,
+							} )
+						}
+					/>
+					{ captionContent !== 'none' && (
+						<>
+							<ToggleControl
+								__nextHasNoMarginBottom
+								label={ __( 'Humanise', 'kntnt-photo-drop' ) }
+								checked={ captionHumanize }
+								onChange={ ( value: boolean ) =>
+									setAttributes( { captionHumanize: value } )
+								}
+								help={ __(
+									'Strip the extension and turn separators into spaces.',
+									'kntnt-photo-drop'
+								) }
+							/>
+							{ isPath && (
+								<>
+									<ToggleControl
+										__nextHasNoMarginBottom
+										label={ __(
+											'Include collection name',
+											'kntnt-photo-drop'
+										) }
+										checked={ captionIncludeCollectionName }
+										onChange={ ( value: boolean ) =>
+											setAttributes( {
+												captionIncludeCollectionName:
+													value,
+											} )
+										}
+									/>
+									<TextControl
+										__next40pxDefaultSize
+										__nextHasNoMarginBottom
+										label={ __(
+											'Separator',
+											'kntnt-photo-drop'
+										) }
+										value={ captionSeparator }
+										onChange={ ( value: string ) =>
+											setAttributes( {
+												captionSeparator: value,
+											} )
+										}
+									/>
+								</>
+							) }
+							<SelectControl
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								label={ __( 'Position', 'kntnt-photo-drop' ) }
+								value={ captionPosition }
+								options={ [
+									{
+										value: 'under',
+										label: __(
+											'Under',
+											'kntnt-photo-drop'
+										),
+									},
+									{
+										value: 'above',
+										label: __(
+											'Above',
+											'kntnt-photo-drop'
+										),
+									},
+									{
+										value: 'overlay',
+										label: __(
+											'Overlay',
+											'kntnt-photo-drop'
+										),
+									},
+								] }
+								onChange={ ( value: string ) =>
+									setAttributes( {
+										captionPosition:
+											value as CaptionPosition,
+									} )
+								}
+							/>
+							{ isOverlay && (
+								<>
+									<SelectControl
+										__next40pxDefaultSize
+										__nextHasNoMarginBottom
+										label={ __(
+											'Overlay anchor',
+											'kntnt-photo-drop'
+										) }
+										value={ captionOverlayAnchor }
+										options={ anchorOptions() }
+										onChange={ ( value: string ) =>
+											setAttributes( {
+												captionOverlayAnchor:
+													value as CaptionAnchor,
+											} )
+										}
+									/>
+									<TextControl
+										__next40pxDefaultSize
+										__nextHasNoMarginBottom
+										label={ __(
+											'Overlay background',
+											'kntnt-photo-drop'
+										) }
+										value={ captionBackground }
+										onChange={ ( value: string ) =>
+											setAttributes( {
+												captionBackground: value,
+											} )
+										}
+										help={ __(
+											'A CSS colour (alpha allowed). Leave empty for none.',
+											'kntnt-photo-drop'
+										) }
+									/>
+									<TextControl
+										__next40pxDefaultSize
+										__nextHasNoMarginBottom
+										label={ __(
+											'Text colour',
+											'kntnt-photo-drop'
+										) }
+										value={ captionTextColor }
+										onChange={ ( value: string ) =>
+											setAttributes( {
+												captionTextColor: value,
+											} )
+										}
+									/>
+								</>
+							) }
+						</>
+					) }
+				</PanelBody>
+
+				<PanelBody
+					title={ __( 'Lightbox', 'kntnt-photo-drop' ) }
+					initialOpen={ false }
+				>
+					<ToggleControl
+						__nextHasNoMarginBottom
+						label={ __( 'Enable lightbox', 'kntnt-photo-drop' ) }
+						checked={ enableLightbox }
+						onChange={ ( value: boolean ) =>
+							setAttributes( { enableLightbox: value } )
+						}
+						help={ __(
+							'A no-JS link to the full image is always present; the lightbox enhances it when on.',
+							'kntnt-photo-drop'
+						) }
+					/>
+				</PanelBody>
+			</InspectorControls>
+
+			<div className="kntnt-photo-drop-gallery-editor__preview">
+				<p className="kntnt-photo-drop-gallery-editor__title">
+					{ __( 'Photo Gallery', 'kntnt-photo-drop' ) }
+				</p>
+				{ collection === '' && (
+					<Notice status="warning" isDismissible={ false }>
+						{ __(
+							'Select a collection in the block settings to show a gallery.',
+							'kntnt-photo-drop'
+						) }
+					</Notice>
+				) }
+				{ isDangling && (
+					<Notice status="error" isDismissible={ false }>
+						{
+							/* translators: %s: the missing collection slug. */
+							__(
+								'The collection “%s” no longer exists. Choose another in the block settings.',
+								'kntnt-photo-drop'
+							).replace( '%s', collection )
+						}
+					</Notice>
+				) }
+				{ selected !== null && (
+					<>
+						<p className="kntnt-photo-drop-gallery-editor__target">
+							{
+								/* translators: 1: the collection name, 2: the layout mode label. */
+								__(
+									'Showing “%1$s” as a %2$s.',
+									'kntnt-photo-drop'
+								)
+									.replace( '%1$s', selected.name )
+									.replace(
+										'%2$s',
+										isGrid
+											? __(
+													'uniform grid',
+													'kntnt-photo-drop'
+											  )
+											: __(
+													'justified gallery',
+													'kntnt-photo-drop'
+											  )
+									)
+							}
+						</p>
+						<div
+							className={ `kntnt-photo-drop-gallery-editor__tiles kntnt-photo-drop-gallery-editor__tiles--${ layout }` }
+							aria-hidden="true"
+						>
+							{ Array.from( { length: 6 } ).map(
+								( _value, index ) => (
+									<span
+										key={ index }
+										className="kntnt-photo-drop-gallery-editor__tile"
+									/>
+								)
+							) }
+						</div>
+						<p className="kntnt-photo-drop-gallery-editor__note">
+							{ __(
+								'The gallery is rendered on the published page from the collection’s images.',
+								'kntnt-photo-drop'
+							) }
+						</p>
+					</>
+				) }
+			</div>
+		</div>
+	);
+}
