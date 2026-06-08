@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-08
+
 ### Added
 
 - **Photo Drop Zone** block — a capability-gated front-end bulk uploader that downscales, converts to WebP, and compresses images in the browser (FilePond + the Canvas API) before uploading them one at a time, with a "Select folder" control that preserves folder structure and a warning when a folder is dragged onto the zone.
@@ -17,3 +19,6 @@ All notable changes to this project are documented here. The format follows [Kee
 - Per-folder thumbnail indexes that self-heal from the directory's modification time, so a large upload batch causes no write contention.
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
+
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.1.0
