@@ -1,46 +1,24 @@
 /**
- * Photo Gallery block registration entry point (placeholder).
+ * Photo Gallery block registration entry point.
  *
- * Registers the block type with a minimal Edit component. The save callback
- * returns null because this is a dynamic block — render.php produces the
- * frontend HTML on every page load.
+ * Registers the dynamic Photo Gallery block: the editor wires the `GalleryEdit`
+ * inspector and preview, and `save` returns `null` because `render.php` produces
+ * the frontend HTML on every page load. The stylesheet is imported here so
+ * `@wordpress/scripts`' webpack config extracts it into the file declared in
+ * `block.json`.
  *
- * This is a scaffolding stub: the real Edit UI (the collection selector, start
- * path, ordering, layout, and caption controls) lands in a later slice. The
- * stylesheet is imported here so @wordpress/scripts' webpack config extracts
- * it into the file declared in block.json.
- *
- * @since 0.1.0
+ * @since 0.6.0
  */
 
 import { registerBlockType } from '@wordpress/blocks';
-import { useBlockProps } from '@wordpress/block-editor';
-import { __ } from '@wordpress/i18n';
-import type { JSX } from '@wordpress/element';
 
 import metadata from './block.json';
+import { GalleryEdit } from './edit';
 
-// Import the stylesheet so webpack extracts it to the build directory.
+// Import the shared editor + frontend stylesheet so webpack extracts it.
 import './style.scss';
 
-/**
- * Placeholder Edit component for the Photo Gallery block.
- *
- * Renders a single labelled wrapper in the editor. Replaced by the real
- * collection selector and gallery controls in a later slice.
- *
- * @return The block's editor markup.
- */
-function GalleryEdit(): JSX.Element {
-	const blockProps = useBlockProps();
-	return (
-		<div { ...blockProps }>
-			{ __( 'Photo Gallery — placeholder', 'kntnt-photo-drop' ) }
-		</div>
-	);
-}
-
-// Register the block type, wiring the edit component and a null save.
+// Register the block type, wiring the edit component and a null save (dynamic).
 registerBlockType( metadata.name, {
 	edit: GalleryEdit,
 	save: () => null,

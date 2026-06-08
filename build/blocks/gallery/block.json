@@ -4,10 +4,11 @@
   "name": "kntnt-photo-drop/gallery",
   "title": "Photo Gallery",
   "category": "kntnt",
-  "description": "A public, server-rendered gallery of a chosen collection, with an Interactivity-API lightbox.",
+  "description": "A public, server-rendered gallery of a chosen collection, with a lightbox.",
   "keywords": [
     "photo",
     "gallery",
+    "images",
     "lightbox",
     "collection"
   ],
@@ -17,15 +18,103 @@
   "style": "file:./style-index.css",
   "render": "file:./render.php",
   "supports": {
+    "anchor": true,
     "html": false,
     "align": [
       "wide",
       "full"
     ],
-    "anchor": true,
+    "color": {
+      "background": true,
+      "text": true,
+      "gradients": true
+    },
+    "typography": {
+      "fontSize": true,
+      "lineHeight": true,
+      "__experimentalFontFamily": true
+    },
     "spacing": {
       "margin": true,
       "padding": true
+    }
+  },
+  "attributes": {
+    "collection": {
+      "type": "string",
+      "default": ""
+    },
+    "startPath": {
+      "type": "string",
+      "default": ""
+    },
+    "recursive": {
+      "type": "boolean",
+      "default": true
+    },
+    "order": {
+      "type": "string",
+      "default": "asc"
+    },
+    "layout": {
+      "type": "string",
+      "default": "grid"
+    },
+    "minimumColumnWidth": {
+      "type": "string",
+      "default": "320px"
+    },
+    "blockGap": {
+      "type": "string",
+      "default": "12px"
+    },
+    "imageFit": {
+      "type": "string",
+      "default": "cover"
+    },
+    "aspectRatio": {
+      "type": "string",
+      "default": ""
+    },
+    "targetRowHeight": {
+      "type": "number",
+      "default": 240
+    },
+    "enableLightbox": {
+      "type": "boolean",
+      "default": true
+    },
+    "captionContent": {
+      "type": "string",
+      "default": "none"
+    },
+    "captionHumanize": {
+      "type": "boolean",
+      "default": true
+    },
+    "captionIncludeCollectionName": {
+      "type": "boolean",
+      "default": false
+    },
+    "captionSeparator": {
+      "type": "string",
+      "default": "›"
+    },
+    "captionPosition": {
+      "type": "string",
+      "default": "under"
+    },
+    "captionOverlayAnchor": {
+      "type": "string",
+      "default": "bottom-left"
+    },
+    "captionBackground": {
+      "type": "string",
+      "default": ""
+    },
+    "captionTextColor": {
+      "type": "string",
+      "default": ""
     }
   }
 }
