@@ -31,7 +31,7 @@ A change whose behaviour is fully covered by unit tests need not add an integrat
 ## Standard adherence
 
 - The code obeys [`coding-standards.md`](coding-standards.md): `declare( strict_types = 1 )`, typed properties, `readonly` where immutable, `match` over `switch`, `[ ... ]` arrays, paragraph-style `//` comments with a topic sentence, PHPDoc/TSDoc on every file, class, method, property, and constant.
-- It honours the load-bearing invariants in [`CLAUDE.md`](../CLAUDE.md) and [`design.md`](design.md), and contradicts no ADR. A change that needs to contradict a decision is blocked until the ADR is amended — it is never shipped as a silent deviation.
+- It honours the load-bearing invariants in [`AGENTS.md`](../AGENTS.md) and [`design.md`](design.md), and contradicts no ADR. A change that needs to contradict a decision is blocked until the ADR is amended — it is never shipped as a silent deviation.
 - Domain terms match [`CONTEXT.md`](../CONTEXT.md) exactly.
 - All user-facing strings are translatable (`__()`, `esc_html__()`, …) against the `kntnt-photo-drop` text domain; all output is escaped at the point of output; every superglobal is sanitised; all SQL (if any) goes through `$wpdb->prepare()`.
 - Filters are namespaced `kntnt_photo_drop_*`.

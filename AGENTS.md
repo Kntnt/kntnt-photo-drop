@@ -12,6 +12,8 @@ Guidance for AI coding agents (Claude Code, Copilot, Cursor, Codex, …) working
 
 The ubiquitous language is in [`CONTEXT.md`](CONTEXT.md); use those terms (collection, output contract, descriptor, slug, main image, thumbnail, derived artifact, index, conforming, foreign file, doctor) exactly. Do not invent synonyms.
 
+It is **GPL-2.0-or-later**, PHP 8.4+, WordPress 6.5+. Every WordPress hook the plugin exposes is a filter namespaced **`kntnt_photo_drop_*`** (e.g. `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, `kntnt_photo_drop_list_capability`).
+
 ## First move: clone the reference and mirror it
 
 This plugin **mirrors the repository structure, build chain, and conventions of [`kntnt-gpx-blocks`](https://github.com/Kntnt/kntnt-gpx-blocks)**. Before writing any code, clone it next to this repo and read it as the template:
@@ -39,7 +41,6 @@ The plugin is built from a settled design. Load only what the task needs.
 | What to test, with what tooling | [`docs/testing.md`](docs/testing.md) |
 | The bar a change must clear before it ships | [`docs/definition-of-done.md`](docs/definition-of-done.md) |
 | Language/style rules | [`docs/coding-standards.md`](docs/coding-standards.md) |
-| Project-wide guardrails for Claude | [`CLAUDE.md`](CLAUDE.md) |
 
 The seven ADRs (`docs/adr/0001`–`0007`) own the decisions with real trade-offs: filesystem collections with no Media Library (0001), the immutable WebP output contract (0002), the on-disk layout and mtime-validated index (0003), the grouped CLI with consumer `import` (0004), the recursive-flatten gallery (0005), the server-enforced contract behind a nonce + `upload_files` REST upload (0006), and the Interactivity-API lightbox (0007). **Never contradict design.md or an ADR. Never redesign.** If a task seems to require contradicting a decision, stop and surface it — change is an ADR, not a silent edit.
 
@@ -91,3 +92,7 @@ There is no live WordPress on the maintainer's machine. For interactive verifica
 ## Cutting a release
 
 Mirror gpx-blocks: bump the `Version:` header in `kntnt-photo-drop.php` **and** `"version"` in `package.json` (must match), run every gate over the merged work, commit, tag `vX.Y.Z`, `./build-release-zip.sh` to produce `kntnt-photo-drop.zip` (runtime artefacts only, single top-level folder), push the commit and tag, then `gh release create vX.Y.Z ./kntnt-photo-drop.zip`. The `Updater` finds the asset by `content_type === "application/zip"`, so the stable filename is intentional. Skipping the ZIP means the auto-updater sees no new version.
+
+## Conventions for these docs
+
+`CONTEXT.md` is a **glossary only** — no implementation details, no decisions, no spec. Decisions with trade-offs go in `docs/adr/`. Markdown prose is **not hard-wrapped** (write each paragraph as one continuous line; soft-wrap in the editor). Code comments wrap at 80 columns per the coder skill.
