@@ -42,6 +42,11 @@ require_once __DIR__ . '/Unit/fixtures/Encode_Failing_Codec.php';
 // PSR-4 path so PHPStan (which has the real WP_CLI via its stubs) never sees it.
 require_once __DIR__ . '/Unit/fixtures/Wp_Cli_Double.php';
 
+// Pull in the catchable wp_die() stand-in the admin-page tests throw when a
+// capability or nonce check fails, so a refused request can be asserted without
+// terminating the test process.
+require_once __DIR__ . '/Unit/fixtures/Admin_Page_Halt.php';
+
 // Lift the plugin's log threshold to `warning` for the test process so that
 // log-behaviour invariants can be inspected. The constant is defined exactly
 // once per process; if a test eventually wants `debug` it can override at the
