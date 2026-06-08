@@ -274,7 +274,7 @@ The design and its rationale live under [`docs/`](docs/): the overall plan in [`
 
 ## How you can contribute
 
-Contributions are welcome, large or small: open an issue to report a bug or request a feature, submit a pull request, or contribute localisation or documentation. If you send a pull request, please run the quality gates above first and keep changes consistent with the conventions in [`AGENTS.md`](AGENTS.md) and [`docs/coding-standards.md`](docs/coding-standards.md).
+Contributions are welcome, large or small: open an issue to report a bug or request a feature, submit a pull request, or contribute localisation or documentation. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development setup, the quality gates a change must pass, the coding and writing standards, and the pull-request process.
 
 ## License
 
@@ -282,6 +282,4 @@ This plugin is licensed under the GNU General Public License, version 2 or later
 
 ## Changelog
 
-Each release is documented on the [GitHub Releases page](https://github.com/Kntnt/kntnt-photo-drop/releases), with notes drawn from the project's change history.
-
-The project follows [Semantic Versioning](https://semver.org/).
+All notable changes are recorded in [`CHANGELOG.md`](CHANGELOG.md), which follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning](https://semver.org/). Each tagged release is also published on the [GitHub Releases page](https://github.com/Kntnt/kntnt-photo-drop/releases).
