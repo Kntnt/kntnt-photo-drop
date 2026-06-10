@@ -58,3 +58,44 @@ jobs:
 
       - name: Block JS unit tests (Jest via wp-scripts)
         run: npm run test:js
+
+  integration-e2e:
+    name: Integration & E2E — wp-env + Playwright
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: gd, curl
+          tools: composer
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      # Node 24: the e2e suite's loader shim for the TypeScript-shipped
+      # @wordpress/e2e-test-utils-playwright relies on module.registerHooks(),
+      # which requires Node 22.15+.
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      # Both npm scripts boot the @wordpress/env Docker instance themselves;
+      # the committed build/ output is what the editor tests exercise.
+      - name: Integration tests (Pest against wp-env)
+        run: npm run test:integration
+
+      - name: End-to-end tests (Playwright against wp-env)
+        run: npm run test:e2e

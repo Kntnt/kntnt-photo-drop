@@ -1,7 +1,7 @@
 # kntnt-photo-drop
 
 [![License: GPL v2+](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
-[![WordPress](https://img.shields.io/badge/WordPress-6.5%2B-21759b.svg)](https://wordpress.org/)
+[![WordPress](https://img.shields.io/badge/WordPress-6.6%2B-21759b.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-8.4%2B-777bb4.svg)](https://www.php.net/)
 [![Release](https://img.shields.io/github/v/release/Kntnt/kntnt-photo-drop?sort=semver)](https://github.com/Kntnt/kntnt-photo-drop/releases/latest)
 
@@ -42,7 +42,7 @@ A collection fixes its own output rules – a maximum width and a compression qu
 
 ## Requirements
 
-- **WordPress** 6.5 or later.
+- **WordPress** 6.6 or later (6.6 ships the `react-jsx-runtime` script the compiled blocks depend on).
 - **PHP** 8.4 or later. (The plugin checks the PHP version on load and deactivates itself with an admin notice on an older runtime.)
 - A server image library – **GD** or **Imagick** with WebP support – for the server-side re-encoding that backs uploads and `image import`.
 

@@ -45,7 +45,8 @@
 		}
 	},
 	"scripts": {
-		"test": "pest",
+		"test": "pest --testsuite Unit",
+		"test:integration": "pest --testsuite Integration",
 		"phpstan": "phpstan analyse --configuration=phpstan.neon.dist --memory-limit=1G",
 		"phpcs": "phpcs --standard=phpcs.xml.dist"
 	},

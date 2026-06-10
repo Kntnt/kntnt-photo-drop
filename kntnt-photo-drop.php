@@ -3,8 +3,8 @@
  * Plugin Name:       Kntnt Photo Drop
  * Plugin URI:        https://github.com/Kntnt/kntnt-photo-drop
  * Description:       Gutenberg blocks: a front-end bulk photo uploader and a server-rendered gallery with a lightbox.
- * Version:           0.2.0
- * Requires at least: 6.5
+ * Version:           0.3.0
+ * Requires at least: 6.6
  * Requires PHP:      8.4
  * Author:            Kntnt
  * Author URI:        https://www.kntnt.com

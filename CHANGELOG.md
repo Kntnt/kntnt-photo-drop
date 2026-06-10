@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-10
+
+### Added
+
+- **Automated integration-test suite** (`tests/Integration/`, Pest against a booted `@wordpress/env` WordPress, `npm run test:integration`): plugin and block registration, the CLI collection/image lifecycle, the import and REST-upload round-trips (including nonce, capability, and path-traversal negatives), doctor reconciliation on a real on-disk collection, and the index's mtime self-heal.
+- **Automated end-to-end suite** (`tests/e2e/`, Playwright + `@wordpress/e2e-test-utils-playwright` in real Chromium, `npm run test:e2e`): inserting both blocks in the editor — including opening the gallery's Layout panel and waiting for the ServerSideRender preview, the regression test for both editor bugs — plus a real in-browser Drop Zone upload round-trip (Canvas WebP conversion included), the lightbox's keyboard/focus/scroll behaviour as an anonymous visitor, and the no-JavaScript `<a href>` fallback.
+- A CI job that runs both new suites against `@wordpress/env` on every push.
+
+### Changed
+
+- **The WordPress floor is raised from 6.5 to 6.6.** The compiled blocks depend on the `react-jsx-runtime` script that WordPress ships from 6.6; on 6.5, WordPress silently skips enqueueing the editor scripts, so the blocks never appeared in the editor at all (a bug present since 0.1.0 that only a real browser could reveal — now covered by the e2e suite). Rather than shipping a hand-rolled JSX-runtime polyfill, the minimum version is now one where the editor actually works.
+
 ## [0.2.0] - 2026-06-10
 
 ### Added
@@ -74,6 +86,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.1.0

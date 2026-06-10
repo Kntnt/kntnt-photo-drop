@@ -12,7 +12,7 @@ Guidance for AI coding agents (Claude Code, Copilot, Cursor, Codex, …) working
 
 The ubiquitous language is in [`CONTEXT.md`](CONTEXT.md); use those terms (collection, output contract, descriptor, slug, main image, thumbnail, derived artifact, index, conforming, foreign file, doctor) exactly. Do not invent synonyms.
 
-It is **GPL-2.0-or-later**, PHP 8.4+, WordPress 6.5+. Every WordPress hook the plugin exposes is a filter namespaced **`kntnt_photo_drop_*`** (e.g. `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, `kntnt_photo_drop_list_capability`, `kntnt_photo_drop_max_input_megapixels`).
+It is **GPL-2.0-or-later**, PHP 8.4+, WordPress 6.6+ (6.6 introduced the `react-jsx-runtime` script handle the compiled blocks depend on; on older WordPress the editor scripts are silently skipped). Every WordPress hook the plugin exposes is a filter namespaced **`kntnt_photo_drop_*`** (e.g. `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, `kntnt_photo_drop_list_capability`, `kntnt_photo_drop_max_input_megapixels`).
 
 ## First move: clone the reference and mirror it
 
@@ -58,7 +58,7 @@ This plugin is in **pre-1.0 development**. There are no users, no installations 
 
 ## Toolchain commands
 
-PHP 8.4+ and WordPress 6.5+ are the runtime floor. Install both toolchains once:
+PHP 8.4+ and WordPress 6.6+ are the runtime floor. Install both toolchains once:
 
 ```bash
 composer install        # PHP deps + PSR-4 autoload (Pest, PHPStan, PHPCS, WP stubs)
@@ -83,11 +83,11 @@ npm run lint:css        # Stylelint via wp-scripts
 npm run test:js         # Jest block-JS unit tests via wp-scripts
 ```
 
-Integration and end-to-end layers run against a real WordPress through **`@wordpress/env`** (Docker): `npx wp-env start` boots WordPress with the plugin mounted, and the WP-CLI surface is reachable via `npx wp-env run cli wp kntnt-photo-drop …`. Playwright e2e (`@wordpress/e2e-test-utils-playwright`) drives that instance. See [`docs/testing.md`](docs/testing.md) for the full pyramid and per-component test targets.
+Integration and end-to-end layers run against a real WordPress through **`@wordpress/env`** (Docker): `npm run test:integration` (Pest, `tests/Integration/`) and `npm run test:e2e` (Playwright + `@wordpress/e2e-test-utils-playwright`, `tests/e2e/`) both boot the instance themselves; `npx wp-env start` boots it manually, and the WP-CLI surface is reachable via `npx wp-env run cli wp kntnt-photo-drop …`. Both suites also run in CI. See [`docs/testing.md`](docs/testing.md) for the full pyramid and per-component test targets.
 
 ## Local dev environment
 
-There is no live WordPress on the maintainer's machine. For interactive verification, use `@wordpress/env` (the `.wp-env.json` at the repo root mounts the plugin and sets PHP 8.4 / WP 6.5+). `npx wp-env start` then `http://localhost:8888` (admin `admin` / `password`). REST, CLI, and the admin page are all exercised there. WordPress Playground via `@wp-playground/cli` is the lighter alternative for PHP-only integration checks that need no browser.
+There is no live WordPress on the maintainer's machine. For interactive verification, use `@wordpress/env` (the `.wp-env.json` at the repo root mounts the plugin and sets PHP 8.4 / WP 6.6+). `npx wp-env start` then `http://localhost:8888` (admin `admin` / `password`). REST, CLI, and the admin page are all exercised there. WordPress Playground via `@wp-playground/cli` is the lighter alternative for PHP-only integration checks that need no browser.
 
 ## Cutting a release
 
