@@ -15,6 +15,8 @@ declare( strict_types = 1 );
 
 namespace Kntnt\Photo_Drop\Bootstrap;
 
+use Kntnt\Photo_Drop\Plugin;
+
 /**
  * Handles block and block-category registration for the plugin.
  *
@@ -48,9 +50,14 @@ final class Block_Registrar {
 	 */
 	public function register(): void {
 
-		// Register each block from its compiled build directory.
+		// Register each block from its compiled build directory. A false return
+		// (typically a missing or incomplete build/ output) would otherwise make
+		// the block silently vanish from the inserter, so it is logged loudly.
 		foreach ( self::BLOCK_SLUGS as $slug ) {
-			register_block_type( __DIR__ . '/../../build/blocks/' . $slug );
+			$registered = register_block_type( __DIR__ . '/../../build/blocks/' . $slug );
+			if ( $registered === false ) {
+				Plugin::warning( "Failed to register the block '{$slug}'; check build/blocks/{$slug}/." );
+			}
 		}
 
 	}

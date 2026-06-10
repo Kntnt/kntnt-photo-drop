@@ -7,16 +7,15 @@
  * Collection panel (selector from the editor REST list, start-path control, and a
  * "this folder only" toggle), an Ordering panel, a Layout panel whose revealed
  * controls depend on the mode, a Captions panel whose controls reveal with the
- * content, and a Lightbox toggle — plus a lightweight in-canvas preview that
- * mirrors the chosen layout so the editor reflects the frontend. An empty or
- * dangling collection shows an inline notice rather than a broken frame.
+ * content, and a Lightbox toggle — plus an in-canvas `ServerSideRender` preview,
+ * so the canvas shows the same markup `Render_Gallery` emits on the frontend
+ * (the lightbox view module does not run in the editor, which is fine — the
+ * preview's job is layout and captions). An empty or dangling collection shows
+ * an inline notice rather than a broken frame.
  *
  * The collection list comes from the editor-only endpoint
  * `kntnt-photo-drop/v1/collections` (gated by `edit_posts`), the same list the
- * Drop Zone uses; it is fetched once per mounted block. The preview is
- * deliberately representative, not a byte-exact SSR mirror — the frontend is pure
- * server-rendered HTML, and the preview's job is to convey layout and captions at
- * editing time without a round-trip per keystroke.
+ * Drop Zone uses; it is fetched once per mounted block.
  *
  * @since 0.6.0
  */
@@ -28,12 +27,16 @@ import {
 	ToggleControl,
 	TextControl,
 	RangeControl,
-	UnitControl,
+	// The package exports UnitControl only under its experimental name; this
+	// aliased import is what core blocks themselves do.
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalUnitControl as UnitControl,
 	Notice,
 	Spinner,
 } from '@wordpress/components';
 import { useEffect, useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
+import ServerSideRender from '@wordpress/server-side-render';
 import { __ } from '@wordpress/i18n';
 import type { BlockEditProps } from '@wordpress/blocks';
 import type { JSX } from '@wordpress/element';
@@ -121,9 +124,9 @@ function anchorOptions(): { value: CaptionAnchor; label: string }[] {
 /**
  * Edit component for the Photo Gallery block.
  *
- * Fetches the collection list, drives every inspector panel, and renders a
- * representative in-canvas preview plus the empty/dangling notice. Attribute
- * setters are thin pass-throughs so the wiring stays declarative.
+ * Fetches the collection list, drives every inspector panel, and renders the
+ * server-side preview plus the empty/dangling notice. Attribute setters are
+ * thin pass-throughs so the wiring stays declarative.
  *
  * @since 0.6.0
  *
@@ -649,49 +652,10 @@ export function GalleryEdit( {
 					</Notice>
 				) }
 				{ selected !== null && (
-					<>
-						<p className="kntnt-photo-drop-gallery-editor__target">
-							{
-								/* translators: 1: the collection name, 2: the layout mode label. */
-								__(
-									'Showing “%1$s” as a %2$s.',
-									'kntnt-photo-drop'
-								)
-									.replace( '%1$s', selected.name )
-									.replace(
-										'%2$s',
-										isGrid
-											? __(
-													'uniform grid',
-													'kntnt-photo-drop'
-											  )
-											: __(
-													'justified gallery',
-													'kntnt-photo-drop'
-											  )
-									)
-							}
-						</p>
-						<div
-							className={ `kntnt-photo-drop-gallery-editor__tiles kntnt-photo-drop-gallery-editor__tiles--${ layout }` }
-							aria-hidden="true"
-						>
-							{ Array.from( { length: 6 } ).map(
-								( _value, index ) => (
-									<span
-										key={ index }
-										className="kntnt-photo-drop-gallery-editor__tile"
-									/>
-								)
-							) }
-						</div>
-						<p className="kntnt-photo-drop-gallery-editor__note">
-							{ __(
-								'The gallery is rendered on the published page from the collection’s images.',
-								'kntnt-photo-drop'
-							) }
-						</p>
-					</>
+					<ServerSideRender
+						block="kntnt-photo-drop/gallery"
+						attributes={ attributes }
+					/>
 				) }
 			</div>
 		</div>

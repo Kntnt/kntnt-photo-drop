@@ -24,6 +24,7 @@ use Kntnt\Photo_Drop\Collection\Path_Guard;
 use Kntnt\Photo_Drop\Imaging\Optimizer;
 use Kntnt\Photo_Drop\Imaging\Thumbnailer;
 use Kntnt\Photo_Drop\Plugin;
+use Kntnt\Photo_Drop\Storage\Atomic_Writer;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 
 /**
@@ -171,9 +172,12 @@ final class Ingestor {
 	 * Writes the conforming main bytes, creating the confined parent tree first.
 	 *
 	 * The parent directory is the confined target's own directory, so creating it
-	 * stays inside the guard's confinement. A failure to create the directory or
-	 * write the file is logged and reported as `false` so the caller rejects
-	 * rather than claims a store that did not happen.
+	 * stays inside the guard's confinement. The write itself is atomic
+	 * (temp-and-rename via `Atomic_Writer`), so a concurrent upload of the same
+	 * name or a crash mid-write can never leave a torn main on disk. A failure
+	 * to create the directory or publish the file is logged and reported as
+	 * `false` so the caller rejects rather than claims a store that did not
+	 * happen.
 	 *
 	 * @since 0.3.0
 	 *
@@ -190,10 +194,8 @@ final class Ingestor {
 			return false;
 		}
 
-		// Persist the main bytes; a failed write is a hard failure for this file.
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- The plugin owns this directory tree on disk directly (ADR-0001); WP_Filesystem is the wrong abstraction for mains written outside the Media Library.
-		$written = file_put_contents( $target, $bytes );
-		if ( $written === false ) {
+		// Publish the main atomically; a failed write is a hard failure for this file.
+		if ( ! Atomic_Writer::write( $target, $bytes ) ) {
 			Plugin::error( "Failed to write the main image at {$target}." );
 			return false;
 		}

@@ -60,7 +60,7 @@ final class Encode_Failing_Codec implements Webp_Codec {
 	 * @since 0.3.0
 	 *
 	 * @param string $bytes The raw source bytes.
-	 * @return array{0:int,1:bool}|null The GD probe result.
+	 * @return array{width:int,height:int,is_webp:bool}|null The GD probe result.
 	 */
 	public function probe( string $bytes ): ?array {
 		return $this->gd->probe( $bytes );

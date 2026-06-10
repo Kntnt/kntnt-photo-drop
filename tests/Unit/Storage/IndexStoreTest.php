@@ -6,8 +6,12 @@
  * Every test runs against a real temp directory so the `mtime`-driven self-heal
  * is exercised with real directory mtimes. The dimension reader is injected as
  * a counting stub, so a test can assert exactly how many images were measured —
- * the load-bearing claim that a cache hit reads no image dimensions. WordPress
- * functions (`wp_json_encode`, `wp_mkdir_p`) are stubbed via Brain Monkey.
+ * the load-bearing claim that a cache hit reads no image dimensions. The
+ * store's clock is injected too: tests of quiescent folders push it far forward
+ * so every rebuild persists, and tests of the same-second persist guard freeze
+ * it inside the stamped second — both without sleeping across a real second
+ * boundary. WordPress functions (`wp_json_encode`, `wp_mkdir_p`) are stubbed
+ * via Brain Monkey.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.1.0
@@ -39,6 +43,22 @@ function wire_index_stubs(): void {
 }
 
 /**
+ * Creates a store whose clock sits far past any stamped mtime — a quiescent folder.
+ *
+ * The same-second persist guard (ADR-0003) skips writing an index whose
+ * stamped second is still running on the wall clock. Tests that pin the
+ * cache-hit invariants model folders that have been quiescent past the second
+ * boundary, so the clock is pushed far forward and every rebuild persists —
+ * keeping those invariants observable without sleeping across a real second.
+ *
+ * @param Counting_Dimension_Reader $reader The counting reader to inject.
+ * @return Index_Store The store with a far-future clock.
+ */
+function quiescent_index_store( Counting_Dimension_Reader $reader ): Index_Store {
+	return new Index_Store( $reader, static fn (): int => PHP_INT_MAX );
+}
+
+/**
  * Allocates a fresh temp folder standing in for a collection content folder.
  *
  * @return string The absolute path of the new directory.
@@ -67,14 +87,20 @@ function write_webp( string $folder, string $filename, int $width = 10, int $hei
  *
  * The OS bumps a directory's mtime on any add/remove/rename, but the one-second
  * granularity makes same-second changes invisible. Stamping an explicit mtime
- * models the OS bump faithfully while keeping the test free of sleeps.
+ * models the OS bump faithfully while keeping the test free of sleeps. The
+ * *actual* resulting mtime is read back and returned — Patchwork's stream
+ * wrapper (loaded with Brain Monkey) can land a touch() offset from the
+ * requested second on some platforms, so exact comparisons and frozen test
+ * clocks must key off the returned value, never the requested one.
  *
  * @param string $folder The folder to stamp.
- * @param int    $mtime  The mtime to set.
+ * @param int    $mtime  The mtime to ask for.
+ * @return int The mtime the folder actually carries afterwards.
  */
-function stamp_mtime( string $folder, int $mtime ): void {
+function stamp_mtime( string $folder, int $mtime ): int {
 	touch( $folder, $mtime );
 	clearstatcache( true, $folder );
+	return (int) filemtime( $folder );
 }
 
 /**
@@ -83,7 +109,9 @@ function stamp_mtime( string $folder, int $mtime ): void {
  * @param string $dir The directory to remove.
  */
 function index_remove_tree( string $dir ): void {
-	if ( ! is_dir( $dir ) ) {
+
+	// Remove a symlink with unlink rather than recursing into its target.
+	if ( is_link( $dir ) || ! is_dir( $dir ) ) {
 		@unlink( $dir );
 		return;
 	}
@@ -120,13 +148,14 @@ test( 'a matching dirMtime trusts the index and reads no image dimensions', func
 	wire_index_stubs();
 	$dir = fresh_content_dir();
 
-	// Build the index once (two images measured). The rebuild stamps the folder's
+	// Build the index once (two images measured) with a quiescent-folder clock
+	// so the rebuild persists immediately. The rebuild stamps the folder's
 	// settled mtime, so a second read with no directory change is a cache hit
 	// without any test-side mtime fiddling.
 	write_webp( $dir, 'a.jpg.webp', 10, 6 );
 	write_webp( $dir, 'b.jpg.webp', 20, 12 );
 	$reader = new Counting_Dimension_Reader();
-	$store  = new Index_Store( $reader );
+	$store  = quiescent_index_store( $reader );
 	$store->get_or_rebuild( $dir );
 
 	// The second read trusts the cache: the reader is not invoked again, yet the
@@ -144,11 +173,12 @@ test( 'a fresh store reading a current index measures no image', function (): vo
 	wire_index_stubs();
 	$dir = fresh_content_dir();
 
-	// Build with one store, then read with a brand-new store and its own counting
-	// reader — proving the cache-hit path never reads dimensions, independent of
-	// who built the index.
+	// Build with one store (quiescent clock, so the index persists), then read
+	// with a brand-new default-constructed store and its own counting reader —
+	// proving the cache-hit path never reads dimensions and never consults the
+	// clock, independent of who built the index.
 	write_webp( $dir, 'only.jpg.webp', 30, 20 );
-	( new Index_Store( new Counting_Dimension_Reader() ) )->get_or_rebuild( $dir );
+	quiescent_index_store( new Counting_Dimension_Reader() )->get_or_rebuild( $dir );
 
 	$reader = new Counting_Dimension_Reader();
 	$index  = ( new Index_Store( $reader ) )->get_or_rebuild( $dir );
@@ -164,10 +194,11 @@ test( 'a freshly built index is a stable cache hit on the very next read', funct
 
 	// Creating the hidden thumbnails directory bumps the content folder mtime;
 	// the rebuild stamps the mtime *after* that, so the first build does not
-	// induce a spurious second rebuild. This pins that regression.
+	// induce a spurious second rebuild. This pins that regression. The
+	// quiescent clock lets the first build persist within the test's second.
 	write_webp( $dir, 'stable.jpg.webp', 10, 10 );
 	$reader = new Counting_Dimension_Reader();
-	$store  = new Index_Store( $reader );
+	$store  = quiescent_index_store( $reader );
 	$store->get_or_rebuild( $dir );
 
 	$after_first = $reader->calls;
@@ -185,10 +216,11 @@ test( 'adding a file triggers a rebuild on the next read', function (): void {
 	wire_index_stubs();
 	$dir = fresh_content_dir();
 
-	// Build with one image and pin the matching mtime.
+	// Build with one image (persisted via the quiescent clock) and pin the
+	// matching mtime.
 	write_webp( $dir, 'first.jpg.webp', 10, 10 );
 	$reader = new Counting_Dimension_Reader();
-	$store  = new Index_Store( $reader );
+	$store  = quiescent_index_store( $reader );
 	$index  = $store->get_or_rebuild( $dir );
 	stamp_mtime( $dir, $index->dir_mtime );
 
@@ -208,10 +240,11 @@ test( 'removing a file triggers a rebuild on the next read', function (): void {
 	wire_index_stubs();
 	$dir = fresh_content_dir();
 
-	// Build with two images, pin the matching mtime, then delete one.
+	// Build with two images (persisted via the quiescent clock), pin the
+	// matching mtime, then delete one.
 	write_webp( $dir, 'keep.jpg.webp', 10, 10 );
 	write_webp( $dir, 'drop.jpg.webp', 20, 20 );
-	$store = new Index_Store( new Counting_Dimension_Reader() );
+	$store = quiescent_index_store( new Counting_Dimension_Reader() );
 	$index = $store->get_or_rebuild( $dir );
 	stamp_mtime( $dir, $index->dir_mtime );
 
@@ -228,9 +261,10 @@ test( 'renaming a file triggers a rebuild on the next read', function (): void {
 	wire_index_stubs();
 	$dir = fresh_content_dir();
 
-	// Build with one image, pin the matching mtime, then rename it.
+	// Build with one image (persisted via the quiescent clock), pin the
+	// matching mtime, then rename it.
 	write_webp( $dir, 'old.jpg.webp', 10, 10 );
-	$store = new Index_Store( new Counting_Dimension_Reader() );
+	$store = quiescent_index_store( new Counting_Dimension_Reader() );
 	$index = $store->get_or_rebuild( $dir );
 	stamp_mtime( $dir, $index->dir_mtime );
 
@@ -251,10 +285,10 @@ test( 'a move regenerates both the source and destination indexes', function ():
 	$source      = fresh_content_dir();
 	$destination = fresh_content_dir();
 
-	// Build current indexes for both folders: source has the image, destination
-	// is empty. Pin each folder's matching mtime.
+	// Build current, persisted indexes for both folders: source has the image,
+	// destination is empty. Pin each folder's matching mtime.
 	write_webp( $source, 'moving.jpg.webp', 10, 10 );
-	$store      = new Index_Store( new Counting_Dimension_Reader() );
+	$store      = quiescent_index_store( new Counting_Dimension_Reader() );
 	$src_index  = $store->get_or_rebuild( $source );
 	$dest_index = $store->get_or_rebuild( $destination );
 	stamp_mtime( $source, $src_index->dir_mtime );
@@ -284,12 +318,14 @@ test( 'a hand-deleted index is rebuilt from the directory', function (): void {
 	wire_index_stubs();
 	$dir = fresh_content_dir();
 
-	// Build the index, pin the matching mtime, then hand-delete the index file
-	// without touching the directory mtime.
+	// Build the index, settle the folder in the past, and re-persist so the
+	// cached dirMtime exactly matches the live folder mtime — then hand-delete
+	// the index file without touching the directory.
 	write_webp( $dir, 'survivor.jpg.webp', 15, 9 );
-	$store = new Index_Store( new Counting_Dimension_Reader() );
-	$index = $store->get_or_rebuild( $dir );
-	stamp_mtime( $dir, $index->dir_mtime );
+	$store = quiescent_index_store( new Counting_Dimension_Reader() );
+	$store->get_or_rebuild( $dir );
+	stamp_mtime( $dir, time() - 100 );
+	$store->rebuild( $dir );
 	unlink( $dir . '/' . Index::THUMBNAILS_DIRNAME . '/' . Index::FILENAME );
 
 	// Even though the folder mtime is unchanged, a missing index forces a
@@ -311,10 +347,12 @@ test( 'images are stored sorted ascending by filename', function (): void {
 	$dir = fresh_content_dir();
 
 	// Write images out of order; the rebuilt index must store them ascending.
+	// The quiescent clock makes the rebuild persist, so the on-disk order is
+	// assertable too.
 	write_webp( $dir, 'c.jpg.webp', 10, 10 );
 	write_webp( $dir, 'a.jpg.webp', 10, 10 );
 	write_webp( $dir, 'b.jpg.webp', 10, 10 );
-	$index = ( new Index_Store( new Counting_Dimension_Reader() ) )->get_or_rebuild( $dir );
+	$index = quiescent_index_store( new Counting_Dimension_Reader() )->get_or_rebuild( $dir );
 
 	$files = array_map( static fn ( $entry ) => $entry->file, $index->images );
 	expect( $files )->toBe( [ 'a.jpg.webp', 'b.jpg.webp', 'c.jpg.webp' ] );
@@ -347,11 +385,11 @@ test( 'the rebuild records the folder mtime and each image dimension', function 
 	wire_index_stubs();
 	$dir = fresh_content_dir();
 
-	// Rebuild, then assert the stored dirMtime equals the folder's settled mtime
-	// (taken after the hidden directory exists) and each entry carries its real
-	// pixel dimensions.
+	// Rebuild (persisted via the quiescent clock), then assert the stored
+	// dirMtime equals the folder's settled mtime (taken after the hidden
+	// directory exists) and each entry carries its real pixel dimensions.
 	write_webp( $dir, 'sized.jpg.webp', 24, 16 );
-	$index = ( new Index_Store( new Counting_Dimension_Reader() ) )->get_or_rebuild( $dir );
+	$index = quiescent_index_store( new Counting_Dimension_Reader() )->get_or_rebuild( $dir );
 
 	clearstatcache( true, $dir );
 	expect( $index->dir_mtime )->toBe( filemtime( $dir ) );
@@ -417,6 +455,131 @@ test( 'a real filesystem add bumps the directory mtime and forces a rebuild', fu
 	write_webp( $dir, 'two.jpg.webp', 20, 20 );
 	clearstatcache( true, $dir );
 	expect( $store->get_or_rebuild( $dir )->images )->toHaveCount( 2 );
+
+	index_remove_tree( $dir );
+} );
+
+// ---------------------------------------------------------------------------
+// Same-second persist guard — a stamped second still running is never cached
+// ---------------------------------------------------------------------------
+
+test( 'a rebuild within the stamped second does not persist the index', function (): void {
+	wire_index_stubs();
+	$dir = fresh_content_dir();
+
+	// Pre-create the hidden artifact directory so the rebuild's ensure step
+	// cannot bump the folder mtime, then pin the folder inside the clock's
+	// current second — the window where another mutation could still land
+	// without a visible mtime change.
+	write_webp( $dir, 'racing.jpg.webp', 10, 10 );
+	mkdir( $dir . '/' . Index::THUMBNAILS_DIRNAME, 0700 );
+	$stamped = stamp_mtime( $dir, 1_000_000 );
+	$store   = new Index_Store( new Counting_Dimension_Reader(), static fn (): int => $stamped );
+	$index   = $store->get_or_rebuild( $dir );
+
+	// The fresh index is served in memory, but the cache file stays unwritten —
+	// the next read rebuilds rather than trusting a maybe-stale stamp.
+	expect( $index->images )->toHaveCount( 1 );
+	expect( read_raw_index( $dir ) )->toBeNull();
+
+	index_remove_tree( $dir );
+} );
+
+test( 'the next read after quiescence persists the index and then cache-hits', function (): void {
+	wire_index_stubs();
+	$dir = fresh_content_dir();
+
+	// Freeze the clock inside the folder's stamped second: the first read
+	// rebuilds but, per the persist guard, writes nothing.
+	write_webp( $dir, 'settled.jpg.webp', 10, 10 );
+	mkdir( $dir . '/' . Index::THUMBNAILS_DIRNAME, 0700 );
+	$stamped = stamp_mtime( $dir, 1_000_000 );
+	$now     = $stamped;
+	$clock   = static function () use ( &$now ): int {
+		return $now;
+	};
+	$reader = new Counting_Dimension_Reader();
+	$store  = new Index_Store( $reader, $clock );
+	$store->get_or_rebuild( $dir );
+	expect( read_raw_index( $dir ) )->toBeNull();
+
+	// One second later the folder is quiescent past the stamped second: the
+	// next read rebuilds once more and persists the settled stamp.
+	$now = $stamped + 1;
+	$store->get_or_rebuild( $dir );
+	expect( read_raw_index( $dir )['dirMtime'] )->toBe( $stamped );
+
+	// From here on the cache holds: a further read measures no image.
+	$calls = $reader->calls;
+	$index = $store->get_or_rebuild( $dir );
+	expect( $reader->calls )->toBe( $calls );
+	expect( $index->images )->toHaveCount( 1 );
+
+	index_remove_tree( $dir );
+} );
+
+test( 'an image added in the same second as a rebuild is visible on the next read', function (): void {
+	wire_index_stubs();
+	$dir = fresh_content_dir();
+
+	// First read inside second T: the rebuild sees one image and, per the
+	// persist guard, writes nothing.
+	write_webp( $dir, 'first.jpg.webp', 10, 10 );
+	mkdir( $dir . '/' . Index::THUMBNAILS_DIRNAME, 0700 );
+	$stamped = stamp_mtime( $dir, 1_000_000 );
+	$store   = new Index_Store( new Counting_Dimension_Reader(), static fn (): int => $stamped );
+	expect( $store->get_or_rebuild( $dir )->images )->toHaveCount( 1 );
+
+	// A second upload lands within the same second T, so the folder mtime is
+	// unchanged — the exact interleaving that used to freeze a stale index as
+	// fresh forever. The next read must rebuild and surface both images.
+	write_webp( $dir, 'second.jpg.webp', 20, 20 );
+	stamp_mtime( $dir, 1_000_000 );
+	expect( $store->get_or_rebuild( $dir )->images )->toHaveCount( 2 );
+
+	index_remove_tree( $dir );
+} );
+
+// ---------------------------------------------------------------------------
+// Symlinks — never walked, never indexed
+// ---------------------------------------------------------------------------
+
+test( 'symlinked entries are skipped by the rebuild', function (): void {
+	wire_index_stubs();
+	$dir     = fresh_content_dir();
+	$outside = fresh_content_dir();
+
+	// A symlinked directory (a self-link is a guaranteed walk cycle) and a
+	// symlinked main image must both be treated as foreign and skipped — they
+	// did not enter through the optimisation boundary.
+	write_webp( $dir, 'real.jpg.webp', 10, 10 );
+	write_webp( $outside, 'lured.jpg.webp', 10, 10 );
+	symlink( $dir, $dir . '/loop' );
+	symlink( $outside . '/lured.jpg.webp', $dir . '/lured.jpg.webp' );
+	$index = ( new Index_Store( new Counting_Dimension_Reader() ) )->get_or_rebuild( $dir );
+
+	expect( $index->subdirs )->toBe( [] );
+	expect( array_map( static fn ( $entry ) => $entry->file, $index->images ) )->toBe( [ 'real.jpg.webp' ] );
+
+	index_remove_tree( $dir );
+	index_remove_tree( $outside );
+} );
+
+// ---------------------------------------------------------------------------
+// Atomic persistence — no staging file survives a successful write
+// ---------------------------------------------------------------------------
+
+test( 'a persisted index leaves no staging file in the thumbnails directory', function (): void {
+	wire_index_stubs();
+	$dir = fresh_content_dir();
+
+	// The index is published atomically; a successful persist must leave no
+	// `*.tmp-*` staging file beside index.json.
+	write_webp( $dir, 'tidy.jpg.webp', 10, 10 );
+	quiescent_index_store( new Counting_Dimension_Reader() )->get_or_rebuild( $dir );
+
+	expect( read_raw_index( $dir ) )->not->toBeNull();
+	expect( glob( $dir . '/' . Index::THUMBNAILS_DIRNAME . '/*.tmp-*' ) )->toBe( [] );
 
 	index_remove_tree( $dir );
 } );

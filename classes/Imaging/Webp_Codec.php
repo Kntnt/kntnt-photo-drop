@@ -46,22 +46,32 @@ interface Webp_Codec {
 	public function is_supported(): bool;
 
 	/**
-	 * Probes raw image bytes for their type and pixel width without decoding.
+	 * Probes raw image bytes for their type and pixel dimensions without decoding.
 	 *
-	 * Returns `[ $width, $is_webp ]` for any image the codec recognises, or
-	 * `null` when the bytes are not a decodable image. Kept separate from
-	 * `decode()` so the accept-as-is fast path can decide on width and format
-	 * alone, never allocating a pixel buffer for a source it will pass through.
+	 * Returns `[ 'width' => int, 'height' => int, 'is_webp' => bool ]` for any
+	 * image the codec recognises, or `null` when the bytes are not a recognisable
+	 * image. Kept separate from `decode()` so callers can make cheap decisions —
+	 * the accept-as-is format test, and above all the megapixel input ceiling
+	 * that must reject a decompression bomb *before* any pixel buffer is
+	 * allocated — on header data alone. The probe is header-only and therefore
+	 * advisory: a truncated body still probes fine, so integrity requires a
+	 * full decode.
 	 *
 	 * @since 0.3.0
 	 *
 	 * @param string $bytes The raw source image bytes.
-	 * @return array{0:int,1:bool}|null `[ $width, $is_webp ]`, or null when undecodable.
+	 * @return array{width: int, height: int, is_webp: bool}|null The probed facts, or null when unrecognisable.
 	 */
 	public function probe( string $bytes ): ?array;
 
 	/**
-	 * Decodes raw image bytes into an opaque image handle.
+	 * Decodes raw image bytes into an opaque, upright image handle.
+	 *
+	 * The handle is *upright*: when the source carries an EXIF Orientation tag
+	 * (phones store rotated pixels plus the tag), the codec physically
+	 * rotates/flips the pixels during decode, because the later WebP encode
+	 * strips the tag and would otherwise publish the image sideways. The
+	 * handle's width/height may therefore differ from `probe()`'s.
 	 *
 	 * @since 0.3.0
 	 *

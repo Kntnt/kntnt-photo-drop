@@ -13,7 +13,7 @@
  *
  * For a capable user it reads the selected collection's descriptor and hands the
  * view module everything it needs as a JSON `data-wp-context` island: the slug,
- * the contract (max width and quality) that configures FilePond's downscale and
+ * the contract (max width and quality) that configures the client-side Canvas downscale and
  * the `canvas.toBlob(…, 'image/webp', quality)` encode, the REST URL to POST to,
  * the nonce, and the pre-translated UI strings (the view module cannot reach
  * `@wordpress/i18n`). The client optimisation is a bandwidth optimisation only;
@@ -143,16 +143,19 @@ final class Render_Drop_Zone {
 	private static function render_uploader( string $slug, Descriptor $descriptor ): string {
 
 		// Assemble the per-block context the view module mounts FilePond from. The
-		// nonce is the `wp_rest` token the REST endpoint verifies; the contract
-		// drives the client downscale and the `canvas.toBlob` quality. The i18n
-		// map is pre-translated here because view-script modules cannot reach
-		// `@wordpress/i18n`.
+		// nonce is the `wp_rest` token the REST endpoint verifies; the ajaxUrl is
+		// where the module refreshes an expired nonce (core's `rest-nonce`
+		// admin-ajax action) so a long upload session survives nonce expiry; the
+		// contract drives the client downscale and the `canvas.toBlob` quality.
+		// The i18n map is pre-translated here because view-script modules cannot
+		// reach `@wordpress/i18n`.
 		$context = [
 			'slug'       => $slug,
 			'maxWidth'   => $descriptor->max_width,
 			'quality'    => $descriptor->quality,
 			'uploadUrl'  => rest_url( sprintf( self::UPLOAD_ROUTE_TEMPLATE, $slug ) ),
 			'nonce'      => wp_create_nonce( 'wp_rest' ),
+			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 			'collection' => $descriptor->name,
 			'i18n'       => self::translations(),
 		];
@@ -169,8 +172,10 @@ final class Render_Drop_Zone {
 		// Compose the visible drop area plus the native folder picker the module
 		// upgrades. The instruction text names the collection; the folder input
 		// carries `webkitdirectory` so a directory selection preserves each file's
-		// `webkitRelativePath`. A `data-wp-init` hook hands the element to the view
-		// module, which mounts FilePond over the drop area.
+		// `webkitRelativePath`. The summary line is the single live region (the
+		// per-file list would be far too chatty for a screen reader at batch
+		// scale). A `data-wp-init` hook hands the element to the view module,
+		// which mounts FilePond over the drop area.
 		$heading      = esc_html__( 'Drop photos to upload', 'kntnt-photo-drop' );
 		$instruction  = sprintf(
 			/* translators: %s: the collection's display name. */
@@ -196,7 +201,8 @@ final class Render_Drop_Zone {
 				. '<input type="file" class="kntnt-photo-drop-drop-zone__folder-input" multiple accept="image/*" webkitdirectory directory />'
 				. '</label>'
 				. '</p>'
-				. '<ul class="kntnt-photo-drop-drop-zone__status" data-wp-ignore aria-live="polite"></ul>'
+				. '<p class="kntnt-photo-drop-drop-zone__summary" data-wp-ignore aria-live="polite"></p>'
+				. '<ul class="kntnt-photo-drop-drop-zone__status" data-wp-ignore></ul>'
 				. '</div>',
 			$wrapper,
 			esc_attr( $context_json ),
@@ -212,9 +218,13 @@ final class Render_Drop_Zone {
 	 *
 	 * The view-script module runs as an ES module and cannot import
 	 * `@wordpress/i18n`, so every visitor-facing string the module shows at
-	 * runtime is translated here and passed through the context. Each value is a
-	 * plain string the module inserts as text content, so no output escaping is
-	 * applied here — the module sets `textContent`, never `innerHTML`.
+	 * runtime is translated here and passed through the context. The map covers
+	 * three audiences: the module's own status rows and summary (inserted via
+	 * `textContent`, never `innerHTML`, so no output escaping is applied here),
+	 * the `window.confirm` folder warning, and FilePond's `label*` options —
+	 * which FilePond renders through its own UI, so `labelIdle` may carry the
+	 * conventional `filepond--label-action` span FilePond expects there. The
+	 * `summaryTemplate` tokens are replaced with live counts in the browser.
 	 *
 	 * @since 0.5.0
 	 *
@@ -222,16 +232,31 @@ final class Render_Drop_Zone {
 	 */
 	private static function translations(): array {
 		return [
-			'folderWarningTitle'  => __( 'That looks like a folder', 'kntnt-photo-drop' ),
 			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-			'folderWarningBody'   => __( 'Dropping a folder uploads only its top-level images, not its sub-folders. Use “Select folder” to include sub-folders. Continue with the top-level images?', 'kntnt-photo-drop' ),
-			'folderWarningOk'     => __( 'Continue', 'kntnt-photo-drop' ),
-			'folderWarningCancel' => __( 'Cancel', 'kntnt-photo-drop' ),
-			'outcomeStored'       => __( 'Uploaded', 'kntnt-photo-drop' ),
-			'outcomeReencoded'    => __( 'Uploaded (re-encoded)', 'kntnt-photo-drop' ),
-			'outcomeSkipped'      => __( 'Skipped — already present', 'kntnt-photo-drop' ),
-			'outcomeRejected'     => __( 'Rejected', 'kntnt-photo-drop' ),
-			'uploadFailed'        => __( 'Upload failed', 'kntnt-photo-drop' ),
+			'folderWarningBody'           => __( 'Dropping a folder uploads only its top-level images, not its sub-folders. Use “Select folder” to include sub-folders. Continue with the top-level images?', 'kntnt-photo-drop' ),
+			'outcomeStored'               => __( 'Uploaded', 'kntnt-photo-drop' ),
+			'outcomeReencoded'            => __( 'Uploaded (re-encoded)', 'kntnt-photo-drop' ),
+			'outcomeSkipped'              => __( 'Skipped — already present', 'kntnt-photo-drop' ),
+			'outcomeRejected'             => __( 'Rejected', 'kntnt-photo-drop' ),
+			'uploadFailed'                => __( 'Upload failed', 'kntnt-photo-drop' ),
+			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+			'uploadStalled'               => __( 'Upload stalled — check your connection and try again.', 'kntnt-photo-drop' ),
+			'skippedNotImage'             => __( 'Skipped — not an image', 'kntnt-photo-drop' ),
+			'fileUnreadable'              => __( 'Could not be read', 'kntnt-photo-drop' ),
+			'statusQueued'                => __( 'Queued', 'kntnt-photo-drop' ),
+			'statusConverting'            => __( 'Converting…', 'kntnt-photo-drop' ),
+			'statusUploading'             => __( 'Uploading…', 'kntnt-photo-drop' ),
+			/* translators: {uploaded}, {skipped} and {failed} are replaced with live file counts in the browser. */
+			'summaryTemplate'             => __( '{uploaded} uploaded · {skipped} skipped · {failed} failed', 'kntnt-photo-drop' ), // phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+			'labelIdle'                   => __( 'Drag & drop your photos or <span class="filepond--label-action">Browse</span>', 'kntnt-photo-drop' ),
+			'labelFileProcessing'         => __( 'Uploading', 'kntnt-photo-drop' ),
+			'labelFileProcessingComplete' => __( 'Upload complete', 'kntnt-photo-drop' ),
+			'labelFileProcessingError'    => __( 'Error during upload', 'kntnt-photo-drop' ),
+			'labelFileProcessingAborted'  => __( 'Upload cancelled', 'kntnt-photo-drop' ),
+			'labelTapToCancel'            => __( 'tap to cancel', 'kntnt-photo-drop' ),
+			'labelTapToRetry'             => __( 'tap to retry', 'kntnt-photo-drop' ),
+			'labelTapToUndo'              => __( 'tap to undo', 'kntnt-photo-drop' ),
 		];
 	}
 

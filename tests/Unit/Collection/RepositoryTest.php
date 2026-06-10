@@ -201,6 +201,26 @@ test( 'discover returns an empty map for a root with no collections', function (
 	repo_remove_tree( $basedir );
 } );
 
+test( 'discover reports no collections when the root scan fails', function (): void {
+	$basedir = fresh_basedir();
+	$root    = wire_repository_stubs( $basedir );
+	( new Repository() )->get_root();
+	seed_collection( $root, 'present' );
+
+	// A glob() failure is a transient scan error, not an empty root: discovery
+	// must degrade to an empty map (with a logged warning) rather than act on
+	// a half-known filesystem. The failing scanner is injected because PHP's
+	// real glob() cannot be made to fail deterministically in a test.
+	$failing = new Repository( static fn ( string $pattern ): array|false => false );
+	expect( $failing->discover() )->toBe( [] );
+
+	// The same root through the default scanner still finds the seeded
+	// collection, proving the empty map above came from the failed scan alone.
+	expect( array_keys( ( new Repository() )->discover() ) )->toBe( [ 'present' ] );
+
+	repo_remove_tree( $basedir );
+} );
+
 // ---------------------------------------------------------------------------
 // Slug → path resolution
 // ---------------------------------------------------------------------------

@@ -202,6 +202,14 @@ final class Render_Gallery {
 		$fixed_ratio = self::read_string( $attributes, 'aspectRatio' );
 		$image_fit   = self::read_string( $attributes, 'imageFit' ) === 'contain' ? 'contain' : 'cover';
 
+		// Derive one sizes hint for every cell from the minimum column width: below
+		// it the grid is single-column (the tile spans the viewport), above it a
+		// tile renders near the minimum, so 1.5× the minimum covers wider auto-fill
+		// tracks. The leading `auto` lets browsers with lazy-loading auto-sizes use
+		// the real rendered width; others skip the invalid first entry — keep it first.
+		$min_column = self::pixels( self::read_string( $attributes, 'minimumColumnWidth' ), 320 );
+		$sizes      = sprintf( 'auto, (max-width: %dpx) 100vw, %dpx', $min_column, (int) round( $min_column * 1.5 ) );
+
 		// Build one figure per image, giving each a wrapper style that fixes its
 		// aspect ratio and the object-fit so the grid cell is stable before load.
 		$markup = '';
@@ -213,6 +221,7 @@ final class Render_Gallery {
 				$descriptor,
 				$base_url,
 				$caption,
+				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--grid',
 			);
@@ -262,6 +271,8 @@ final class Render_Gallery {
 
 		// Emit one figure per image, applying its flex-grow / flex-basis; the final
 		// row's images get grow 0 so they keep their natural width and left-align.
+		// Each image's sizes hint is its natural width at the target row height —
+		// the tile's rendered width up to viewports narrower than the tile itself.
 		$markup = '';
 		foreach ( $items as $position => $item ) {
 			$descriptor_flex = $flex[ $position ] ?? [
@@ -276,11 +287,14 @@ final class Render_Gallery {
 				self::format_float( $descriptor_flex['basis'] ),
 				$row_height,
 			);
+			$tile_width      = (int) round( $descriptor_flex['basis'] );
+			$sizes           = sprintf( 'auto, (max-width: %1$dpx) 100vw, %1$dpx', $tile_width );
 			$markup .= self::figure(
 				$item,
 				$descriptor,
 				$base_url,
 				$caption,
+				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--justified',
 			);
@@ -294,18 +308,25 @@ final class Render_Gallery {
 	 * Builds one `<figure>` for an image, with srcset, anchor fallback, and caption.
 	 *
 	 * The thumbnail `<img>` carries the stored `width`/`height` and a responsive
-	 * `srcset`/`sizes` (every thumbnail width plus the main, so the browser never
-	 * upscales a thumbnail), is lazy-loaded, and is wrapped in an `<a>` to the main
-	 * image — the no-JS fallback and the element the lightbox upgrades. The caption,
-	 * when any, is placed above, below, or as an anchored overlay per the settings.
-	 * Every URL and attribute is escaped at the point of output.
+	 * `srcset` (every thumbnail width plus the main, so the browser never upscales
+	 * a thumbnail) with a layout-aware `sizes` hint the caller derives from the
+	 * tile's rendered width — never a blanket `100vw`, which would make desktop
+	 * browsers fetch the full main image for every tile. The image is lazy-loaded
+	 * and wrapped in an `<a>` to the main image — the no-JS fallback and the
+	 * element the lightbox upgrades; the anchor also carries the same srcset as a
+	 * data attribute so the lightbox can show a responsive slide instead of
+	 * forcing the full-resolution main onto every device. The caption, when any,
+	 * is placed above, below, or as an anchored overlay per the settings. Every
+	 * URL and attribute is escaped at the point of output.
 	 *
 	 * @since 0.6.0
+	 * @since 0.2.0 Added the `$sizes` parameter and the anchor's srcset data attribute.
 	 *
 	 * @param Gallery_Item     $item       The image.
 	 * @param Descriptor       $descriptor The collection contract.
 	 * @param string           $base_url   The collection base URL.
 	 * @param Caption_Settings $caption    The resolved caption settings.
+	 * @param string           $sizes      The layout-aware `sizes` attribute value.
 	 * @param string           $item_style The inline style for the figure (layout-specific).
 	 * @param string           $item_class The layout-specific figure class.
 	 * @return string The figure markup.
@@ -315,6 +336,7 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $base_url,
 		Caption_Settings $caption,
+		string $sizes,
 		string $item_style,
 		string $item_class,
 	): string {
@@ -339,20 +361,24 @@ final class Render_Gallery {
 
 		// Compose the lazy, dimensioned <img>, wrapped in an <a href> to the main
 		// image — the no-JS fallback and the lightbox's upgrade hook. The figure
-		// carries the layout-specific class and inline style; the data attribute
-		// hands the main URL to the lightbox without re-parsing the href.
+		// carries the layout-specific class and inline style; the data attributes
+		// hand the main URL and the srcset to the lightbox without re-parsing the
+		// href or the thumbnail markup.
 		$image = sprintf(
-			'<img class="kntnt-photo-drop-gallery__image" src="%1$s" srcset="%2$s" sizes="100vw"'
-				. ' width="%3$d" height="%4$d" loading="lazy" decoding="async" alt="%5$s" />',
+			'<img class="kntnt-photo-drop-gallery__image" src="%1$s" srcset="%2$s" sizes="%3$s"'
+				. ' width="%4$d" height="%5$d" loading="lazy" decoding="async" alt="%6$s" />',
 			esc_url( $smallest ),
 			esc_attr( $srcset ),
+			esc_attr( $sizes ),
 			$item->width,
 			$item->height,
 			esc_attr( $alt ),
 		);
 		$link = sprintf(
-			'<a class="kntnt-photo-drop-gallery__link" href="%1$s" data-kntnt-photo-drop-full="%1$s">%2$s</a>',
+			'<a class="kntnt-photo-drop-gallery__link" href="%1$s" data-kntnt-photo-drop-full="%1$s"'
+				. ' data-kntnt-photo-drop-srcset="%2$s">%3$s</a>',
 			esc_url( $main_url ),
+			esc_attr( $srcset ),
 			$image,
 		);
 
@@ -433,13 +459,16 @@ final class Render_Gallery {
 	 * style variables on the inner container; mode B applies the justified flex
 	 * container. The outer wrapper is core's block-supports wrapper (alignment,
 	 * colour, typography, spacing, anchor) plus the project class and a lightbox
-	 * flag and the Interactivity directives the view module reads. When the
-	 * lightbox is enabled the wrapper also carries the Interactivity `init` hook
-	 * and the per-block context (the counter announcement template), and a hidden
-	 * overlay is appended for the view module to drive — all gated on the flag so
-	 * a lightbox-off gallery emits no enhancement markup and the anchors navigate.
+	 * flag and the Interactivity directives the view module reads. The
+	 * Interactivity `init` hook is bound whenever the view module has work to do:
+	 * when the lightbox is enabled, and for the justified layout regardless (the
+	 * view module corrects the server's assumed-width last-row flags against the
+	 * real container). The per-block context (the counter announcement template)
+	 * and the hidden overlay are appended only when the lightbox is enabled, so a
+	 * lightbox-off gallery emits no lightbox markup and the anchors navigate.
 	 *
 	 * @since 0.6.0
+	 * @since 0.2.0 The `init` hook is also bound for the justified layout with the lightbox off.
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @param string              $layout     The resolved layout token.
@@ -467,17 +496,20 @@ final class Render_Gallery {
 		}
 
 		// Compose the block-supports wrapper: the project class, the Interactivity
-		// namespace, and the lightbox flag the view module reads. When the lightbox
-		// is on, add the `init` hook and the per-block context so the controller
-		// mounts; when off, neither is emitted and the anchors keep navigating.
+		// namespace, and the lightbox flag the view module reads. The `init` hook
+		// is bound when there is anything to enhance — the lightbox, or the
+		// justified layout's client-side last-row correction; the per-block
+		// context exists only for the lightbox.
 		$enabled        = self::read_bool( $attributes, 'enableLightbox', true );
 		$wrapper_attrs  = [
 			'class'                          => 'kntnt-photo-drop-gallery',
 			'data-wp-interactive'            => 'kntnt-photo-drop/gallery',
 			'data-kntnt-photo-drop-lightbox' => $enabled ? 'true' : 'false',
 		];
+		if ( $enabled || $layout === self::LAYOUT_JUSTIFIED ) {
+			$wrapper_attrs['data-wp-init'] = 'callbacks.init';
+		}
 		if ( $enabled ) {
-			$wrapper_attrs['data-wp-init']    = 'callbacks.init';
 			$wrapper_attrs['data-wp-context'] = self::lightbox_context();
 		}
 		$wrapper = get_block_wrapper_attributes( $wrapper_attrs );
@@ -527,15 +559,19 @@ final class Render_Gallery {
 	 * Builds the hidden lightbox overlay markup the view module drives.
 	 *
 	 * A single dialog-role overlay per gallery, hidden until a thumbnail is
-	 * clicked: a backdrop, the previous/next/close controls, the live image, and a
-	 * polite live region announcing the position. Every label is translatable and
-	 * the structure carries the WAI-ARIA dialog semantics (`role="dialog"`,
-	 * `aria-modal`, an `aria-label`); the view module toggles `hidden`, swaps the
-	 * image `src`/`alt`, and updates the counter. The overlay reuses each
-	 * thumbnail's own `<a href>` data as its slide source, so it adds no image
-	 * URLs of its own to escape — only static, translated chrome.
+	 * clicked: a backdrop, the previous/next/close controls, the live image, a
+	 * polite live region announcing the position, and a hidden load-failure
+	 * message. Every label is translatable and the structure carries the WAI-ARIA
+	 * dialog semantics (`role="dialog"`, `aria-modal`, an `aria-label`); the view
+	 * module toggles `hidden`, swaps the image `src`/`srcset`/`alt`, updates the
+	 * counter, and unhides the failure message when a slide's image errors. The
+	 * failure message is translated here because view-script modules cannot
+	 * translate at runtime. The overlay reuses each thumbnail's own `<a href>`
+	 * data as its slide source, so it adds no image URLs of its own to escape —
+	 * only static, translated chrome.
 	 *
 	 * @since 0.7.0
+	 * @since 0.2.0 Added the hidden load-failure message element.
 	 *
 	 * @return string The escaped overlay markup.
 	 */
@@ -547,9 +583,11 @@ final class Render_Gallery {
 		$close_label  = esc_attr__( 'Close', 'kntnt-photo-drop' );
 		$prev_label   = esc_attr__( 'Previous image', 'kntnt-photo-drop' );
 		$next_label   = esc_attr__( 'Next image', 'kntnt-photo-drop' );
+		$error_text   = esc_html__( 'The image could not be loaded.', 'kntnt-photo-drop' );
 
-		// Compose the dialog: backdrop, controls, the live image, and the polite
-		// counter region. The image starts empty; the view module fills it on open.
+		// Compose the dialog: backdrop, controls, the live image, the polite
+		// counter region, and the hidden failure message. The image starts empty;
+		// the view module fills it on open.
 		return sprintf(
 			'<div class="kntnt-photo-drop-lightbox" role="dialog" aria-modal="true" aria-label="%1$s" hidden>'
 				. '<button type="button" class="kntnt-photo-drop-lightbox__close" aria-label="%2$s">&times;</button>'
@@ -559,11 +597,13 @@ final class Render_Gallery {
 				. '</figure>'
 				. '<button type="button" class="kntnt-photo-drop-lightbox__next" aria-label="%4$s">&rsaquo;</button>'
 				. '<p class="kntnt-photo-drop-lightbox__counter" aria-live="polite"></p>'
+				. '<p class="kntnt-photo-drop-lightbox__error" role="alert" hidden>%5$s</p>'
 				. '</div>',
 			$dialog_label,
 			$close_label,
 			$prev_label,
 			$next_label,
+			$error_text,
 		);
 
 	}
@@ -732,21 +772,24 @@ final class Render_Gallery {
 	}
 
 	/**
-	 * Returns the editor-only notice markup, or `''` for a logged-out visitor.
+	 * Returns the editor-only notice markup, or `''` for anyone who cannot edit.
 	 *
 	 * A dangling, empty, or imageless collection renders nothing for the public —
-	 * a visitor never learns a collection is gone — but a logged-in editor sees an
-	 * inline notice so the broken reference is visible while building the page.
+	 * a visitor never learns a collection is gone — but a user who can edit posts
+	 * sees an inline notice so the broken reference is visible while building the
+	 * page. The gate is the `edit_posts` capability, not mere authentication, so
+	 * a logged-in subscriber is treated as the public.
 	 *
 	 * @since 0.6.0
+	 * @since 0.2.0 Gated on `edit_posts` instead of `is_user_logged_in()`.
 	 *
-	 * @return string The notice markup for an editor, or '' for the public.
+	 * @return string The notice markup for a user who can edit, or '' otherwise.
 	 */
 	private static function dangling_output(): string {
 
-		// Show the broken-reference notice only to a logged-in user who can edit;
-		// the public sees nothing at all.
-		if ( ! is_user_logged_in() ) {
+		// Show the broken-reference notice only to a user who can edit posts; the
+		// public — including logged-in users without editing rights — sees nothing.
+		if ( ! current_user_can( 'edit_posts' ) ) {
 			return '';
 		}
 		$notice_class = 'kntnt-photo-drop-gallery kntnt-photo-drop-gallery--notice';

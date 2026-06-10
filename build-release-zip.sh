@@ -5,8 +5,8 @@
 # Reads the version from the plugin file's Version: header, runs production
 # composer and npm builds, copies the runtime artefacts into a staging
 # directory under a single top-level folder, and zips the result. The dev
-# composer install is restored at the end so the working tree returns to
-# development mode.
+# composer install is restored by the EXIT trap — on success and on failure
+# alike — so the working tree always returns to development mode.
 #
 # Arguments: none.
 #
@@ -54,9 +54,20 @@ zip_name="${plugin_slug}.zip"
 echo "Building ${zip_name} (version ${version})"
 
 # Build a temporary staging directory and ensure it is removed on any exit.
+# The same trap restores the development composer install when the --no-dev
+# install below has run, so a failed npm/zip step never strands the working
+# tree in production mode. The dirty flag makes the restore idempotent: it is
+# reset after the restore so the trap can never double-restore.
 staging_dir="$( mktemp -d )"
+dev_deps_dirty=0
 cleanup() {
 	rm -rf "$staging_dir"
+	if [[ "${dev_deps_dirty}" -eq 1 ]]; then
+		echo "Restoring development composer install"
+		composer install --quiet \
+			|| echo "Warning: could not restore dev dependencies; run 'composer install' manually." >&2
+		dev_deps_dirty=0
+	fi
 }
 trap cleanup EXIT
 
@@ -64,7 +75,10 @@ target="${staging_dir}/${plugin_slug}"
 mkdir -p "$target"
 
 # Run a production composer install so vendor/ contains only runtime deps.
+# Mark the tree dirty first, so the EXIT trap restores dev deps even when
+# this very install (or any later step) fails.
 echo "Running composer install --no-dev --optimize-autoloader"
+dev_deps_dirty=1
 composer install --no-dev --optimize-autoloader --quiet
 
 # Run npm ci + npm run build so build/ is fresh and consistent.
@@ -105,11 +119,8 @@ fi
 output_zip="${project_root}/${zip_name}"
 rm -f "$output_zip"
 
-# Zip the staging folder so the archive contains a single top-level directory.
-( cd "$staging_dir" && zip -r -q "$output_zip" "$plugin_slug" )
-
-# Restore the development composer install so the working tree is usable again.
-echo "Restoring development composer install"
-composer install --quiet
+# Zip the staging folder so the archive contains a single top-level directory,
+# excluding macOS filesystem junk that must never ship in a release.
+( cd "$staging_dir" && zip -r -q "$output_zip" "$plugin_slug" -x "*.DS_Store" -x "*__MACOSX*" )
 
 echo "Created: ${output_zip}"

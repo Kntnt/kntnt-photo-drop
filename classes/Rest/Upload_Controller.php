@@ -40,11 +40,13 @@ use Kntnt\Photo_Drop\Storage\Descriptor;
  * because each collection carries its own immutable contract. The external
  * interface is two callbacks — `check_permission()` and `upload()` — wired to
  * one route; everything between the trust boundary and the filesystem is hidden
- * behind the `Ingestor`'s single deep method.
+ * behind the `Ingestor`'s single deep method. Deliberately not `final`: the
+ * protected `create_ingestor()` factory is the seam a test subclass overrides
+ * to exercise the codec-missing failure path.
  *
  * @since 0.4.0
  */
-final class Upload_Controller {
+class Upload_Controller {
 
 	/**
 	 * The REST namespace under which the upload route is registered.
@@ -136,7 +138,14 @@ final class Upload_Controller {
 					self::RELATIVE_PATH_PARAM => [
 						'type'              => 'string',
 						'required'          => true,
-						'sanitize_callback' => 'sanitize_text_field',
+						// A type gate only, deliberately not sanitize_text_field:
+						// that would strip every %xx sequence and collapse
+						// whitespace *before* Path_Guard — the real sanitiser,
+						// which rejects NUL/control/traversal/schemes and
+						// realpath-confines the target — ever saw the raw bytes,
+						// and would silently rename legitimate filenames that
+						// contain %xx-lookalikes or double spaces.
+						'sanitize_callback' => static fn ( mixed $value ): string => is_string( $value ) ? $value : '',
 					],
 				],
 			]
@@ -233,13 +242,45 @@ final class Upload_Controller {
 		}
 		$relative_path = $this->read_relative_path( $request );
 
+		// Build the per-collection ingestor; construction throws when no PHP codec
+		// on the host can encode WebP — a server misconfiguration, not a client
+		// fault — so it is answered with an actionable 500 instead of surfacing as
+		// an opaque uncaught throw.
+		try {
+			$ingestor = $this->create_ingestor( $collection_path, $descriptor );
+		} catch ( \RuntimeException $e ) {
+			Plugin::error( "Upload refused for collection {$slug}: {$e->getMessage()}" );
+			$message = __(
+				'The server cannot encode WebP images. Enable PHP\'s GD or Imagick extension with WebP support.',
+				'kntnt-photo-drop'
+			);
+			return new \WP_Error( 'kntnt_photo_drop_no_codec', $message, [ 'status' => 500 ] );
+		}
+
 		// Drive the shared ingestion path: confine the relative target, re-enforce
 		// the contract, write the main plus thumbnails, leave the index untouched.
-		$ingestor = new Ingestor( $collection_path, $descriptor );
-		$result   = $ingestor->ingest( $source_bytes, $relative_path );
+		$result = $ingestor->ingest( $source_bytes, $relative_path );
 
 		return $this->respond( $result );
 
+	}
+
+	/**
+	 * Builds the ingestor for one resolved collection — the test seam.
+	 *
+	 * Protected so a test subclass can substitute a throwing or faked factory;
+	 * production always binds the real `Ingestor` with its default GD-backed
+	 * engine.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string     $collection_path Absolute path to the resolved collection root.
+	 * @param Descriptor $descriptor      The collection's output contract.
+	 * @return Ingestor The per-collection ingestor.
+	 * @throws \RuntimeException When no codec on the host can encode WebP.
+	 */
+	protected function create_ingestor( string $collection_path, Descriptor $descriptor ): Ingestor {
+		return new Ingestor( $collection_path, $descriptor );
 	}
 
 	/**
@@ -341,10 +382,12 @@ final class Upload_Controller {
 	/**
 	 * Reads the caller-supplied relative target path verbatim.
 	 *
-	 * The value is *not* path-sanitised here: hard sanitisation and `realpath`
-	 * confinement are the `Path_Guard`'s job inside the `Ingestor`, and that guard
-	 * must see the raw bytes (including any encoded traversal) to reject them. Any
-	 * non-string is normalised to an empty string, which the guard resolves to the
+	 * The value is *not* path-sanitised anywhere on the request path: the
+	 * registered `sanitize_callback` is a pure type gate (non-strings become
+	 * `''`) and this reader passes the string through untouched, because hard
+	 * sanitisation and `realpath` confinement are the `Path_Guard`'s job inside
+	 * the `Ingestor`, and that guard must see the raw bytes (including any
+	 * encoded traversal) to reject them. An empty string resolves to the
 	 * collection root and pairs with the uploaded file's own basename.
 	 *
 	 * @since 0.4.0

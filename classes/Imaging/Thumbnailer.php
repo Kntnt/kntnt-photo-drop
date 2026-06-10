@@ -19,6 +19,7 @@ declare( strict_types = 1 );
 namespace Kntnt\Photo_Drop\Imaging;
 
 use Kntnt\Photo_Drop\Plugin;
+use Kntnt\Photo_Drop\Storage\Atomic_Writer;
 use Kntnt\Photo_Drop\Storage\Index;
 
 /**
@@ -68,7 +69,9 @@ final class Thumbnailer {
 	 * main's width is skipped — the main serves that role itself — and an empty
 	 * width list writes nothing. Returns the absolute paths actually written, so a
 	 * caller (the doctor) can reconcile against them. An unreadable or undecodable
-	 * main yields an empty list rather than an error: the next doctor run heals it.
+	 * main — including one whose declared dimensions exceed the megapixel input
+	 * ceiling, which is refused before any decode — yields an empty list rather
+	 * than an error: the next doctor run heals it.
 	 *
 	 * @since 0.3.0
 	 *
@@ -90,6 +93,15 @@ final class Thumbnailer {
 		// to heal, so an empty list is the right degraded answer here.
 		$bytes = $this->read_main( $main_path );
 		if ( $bytes === null ) {
+			return [];
+		}
+
+		// Refuse to decode a main whose declared pixel area exceeds the input
+		// ceiling — a foreign or tampered file that large would OOM-kill the
+		// worker; the same ceiling guards every decode path in the plugin.
+		$probe = $this->codec->probe( $bytes );
+		if ( $probe === null || ! Input_Ceiling::allows( $probe['width'], $probe['height'] ) ) {
+			Plugin::warning( "Refused to decode the main at {$main_path}: unrecognisable or over the input ceiling." );
 			return [];
 		}
 		$image = $this->codec->decode( $bytes );
@@ -187,10 +199,10 @@ final class Thumbnailer {
 			return null;
 		}
 
-		// Persist the thumbnail bytes; a failed write leaves the doctor to heal it.
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- The plugin owns this directory tree on disk directly (ADR-0001); WP_Filesystem is the wrong abstraction for thumbnails written outside the Media Library.
-		$ok = file_put_contents( $path, $encoded );
-		if ( $ok === false ) {
+		// Publish the thumbnail atomically so a concurrent reader (or a re-derive
+		// of the same name) never observes a torn file; a failed write leaves the
+		// doctor to heal it.
+		if ( ! Atomic_Writer::write( $path, $encoded ) ) {
 			Plugin::warning( "Failed to write the thumbnail at {$path}." );
 			return null;
 		}

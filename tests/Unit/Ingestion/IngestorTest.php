@@ -32,9 +32,14 @@ use Kntnt\Photo_Drop\Storage\Index;
  * recreation works against a real temp tree.
  */
 function wire_ingestor_stubs(): void {
+
+	// Real recursive mkdir for the directory helper, and a no-op for the memory
+	// raise the optimiser performs before decoding.
 	Functions\when( 'wp_mkdir_p' )->alias(
 		static fn ( string $dir ): bool => is_dir( $dir ) || mkdir( $dir, 0700, true )
 	);
+	Functions\when( 'wp_raise_memory_limit' )->justReturn( true );
+
 }
 
 /**
@@ -185,6 +190,26 @@ test( 'an undecodable source is rejected with nothing written', function (): voi
 	ingest_remove_tree( $root );
 } );
 
+test( 'a decompression bomb declaring huge dimensions is a per-file rejection, not a fatal', function (): void {
+	wire_ingestor_stubs();
+	$root       = fresh_collection_root();
+	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+
+	// A PNG header declaring 100000×100000 pixels with no body: the probe
+	// reports ten gigapixels, so the ingestion path must reject this one file
+	// before any decode could OOM-kill the whole batch.
+	$ihdr_data = pack( 'N', 100000 ) . pack( 'N', 100000 ) . "\x08\x06\x00\x00\x00";
+	$ihdr      = pack( 'N', 13 ) . 'IHDR' . $ihdr_data . pack( 'N', crc32( 'IHDR' . $ihdr_data ) );
+	$bomb      = "\x89PNG\r\n\x1a\n" . $ihdr;
+
+	$result = gd_ingestor( $root, $descriptor )->ingest( $bomb, 'bomb.png' );
+
+	expect( $result->outcome )->toBe( Ingest_Outcome::Rejected );
+	expect( is_file( $root . '/bomb.png.webp' ) )->toBeFalse();
+
+	ingest_remove_tree( $root );
+} );
+
 // ---------------------------------------------------------------------------
 // Sub-directory recreation, confined by Path_Guard
 // ---------------------------------------------------------------------------
@@ -242,6 +267,27 @@ test( 'ingestion derives thumbnails but never writes the index', function (): vo
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp' ) )->toBeTrue();
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/' . Index::FILENAME ) )->toBeFalse();
+
+	ingest_remove_tree( $root );
+} );
+
+// ---------------------------------------------------------------------------
+// Mains and thumbnails are published atomically
+// ---------------------------------------------------------------------------
+
+test( 'a stored main and its thumbnails leave no staging files behind', function (): void {
+	wire_ingestor_stubs();
+	$root       = fresh_collection_root();
+	$descriptor = new Descriptor( 'X', 1920, 80, [ 320 ] );
+
+	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 1000, 800 ), 'photo.jpg' );
+
+	// The atomic writer stages every file as `<target>.tmp-<random>` beside its
+	// target; a clean ingest publishes the main and thumbnail and removes every
+	// staging file from both locations.
+	expect( $result->outcome )->toBe( Ingest_Outcome::Reencoded );
+	expect( glob( $root . '/*.tmp-*' ) )->toBe( [] );
+	expect( glob( $root . '/' . Index::THUMBNAILS_DIRNAME . '/*/*.tmp-*' ) )->toBe( [] );
 
 	ingest_remove_tree( $root );
 } );

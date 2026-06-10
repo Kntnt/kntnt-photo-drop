@@ -7,10 +7,12 @@
  * double, with a real collection established first via `Collection_Command`, so
  * each effect is asserted on real disk through the real GD-backed engine: import
  * optimises to the target contract and is idempotent, requires an existing
- * collection, recreates confined sub-directories and rejects hostile paths, and
- * reports a per-file outcome that is exactly one of the four cases; delete
- * removes a main and its thumbnails, prompts unless `--yes`, and never deletes a
- * foreign file.
+ * collection, recreates confined sub-directories and rejects hostile paths,
+ * reports a per-file outcome that is exactly one of the four cases, exits
+ * non-zero when *every* source was rejected (a partial failure keeps success
+ * plus a counted warning), and surfaces a missing WebP codec as a CLI error;
+ * delete removes a main and its thumbnails, prompts unless `--yes`, and never
+ * deletes a foreign file.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.3.0
@@ -22,6 +24,8 @@ use Brain\Monkey\Functions;
 use Kntnt\Photo_Drop\Cli\Collection_Command;
 use Kntnt\Photo_Drop\Cli\Image_Command;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Ingestion\Ingestor;
+use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
 use Tests\Unit\Fixtures\Cli_Halt;
 use Tests\Unit\Fixtures\Format_Items_Recorder;
@@ -253,16 +257,24 @@ test( 'import rejects a hostile relative path and writes nothing', function (): 
 	establish_collection( 'trip', 1920, 80 );
 
 	// A source whose relative path tries to escape the collection root must be
-	// rejected; the only file in the collection stays the descriptor.
+	// rejected; the only file in the collection stays the descriptor. As the sole
+	// source it makes the batch a total failure, which now halts with an error —
+	// the working directory is restored before asserting either way.
 	$cwd = getcwd();
 	mkdir( $basedir . '/outside', 0700, true );
 	write_jpeg_source( $basedir . '/outside', 'evil.jpg', 800, 600 );
 	chdir( $basedir );
-	make_image_command()->import( [ 'trip', '../outside/evil.jpg' ], [] );
+	$threw = false;
+	try {
+		make_image_command()->import( [ 'trip', '../outside/evil.jpg' ], [] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
 	chdir( $cwd === false ? sys_get_temp_dir() : $cwd );
 
+	expect( $threw )->toBeTrue();
 	expect( Format_Items_Recorder::$rows[0]['outcome'] )->toBe( 'rejected' );
-	expect( glob( $root . 'trip/*' ) )->toBe( [ $root . 'trip/collection.json' ] );
+	expect( glob( $root . 'trip/*.webp' ) )->toBe( [] );
 
 	image_remove_tree( $basedir );
 } );
@@ -283,6 +295,82 @@ test( 'one failing source never aborts the batch', function (): void {
 	expect( $outcomes )->toContain( 'rejected' );
 	expect( $outcomes )->toContain( 'reencoded' );
 	expect( is_file( $root . 'trip/good.jpg.webp' ) )->toBeTrue();
+
+	image_remove_tree( $basedir );
+} );
+
+test( 'a partial failure keeps the success exit but warns with counts', function (): void {
+	$basedir = fresh_image_basedir();
+	wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+	$good   = write_jpeg_source( $basedir, 'good.jpg', 1000, 800 );
+	$broken = $basedir . '/broken.jpg';
+	file_put_contents( $broken, 'not an image' );
+
+	make_image_command()->import( [ 'trip', $broken, $good ], [] );
+
+	// The batch still succeeds (exit 0 — one bad file never aborts the run), but
+	// the rejection count is flagged in a warning a script can grep for.
+	expect( WP_CLI::$errors )->toBe( [] );
+	expect( WP_CLI::$successes )->toHaveCount( 1 );
+	expect( implode( "\n", WP_CLI::$warnings ) )->toContain( '1 of 2 source(s) were rejected' );
+
+	image_remove_tree( $basedir );
+} );
+
+test( 'import halts with a non-zero exit when every source was rejected', function (): void {
+	$basedir = fresh_image_basedir();
+	$root    = wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+	$broken_a = $basedir . '/broken-a.jpg';
+	$broken_b = $basedir . '/broken-b.jpg';
+	file_put_contents( $broken_a, 'not an image' );
+	file_put_contents( $broken_b, 'still not an image' );
+
+	// A batch in which every source failed must be scriptable as a failure: the
+	// per-file table is still rendered first, then the run ends with an error.
+	$threw = false;
+	try {
+		make_image_command()->import( [ 'trip', $broken_a, $broken_b ], [] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( Format_Items_Recorder::$rows )->toHaveCount( 2 );
+	expect( WP_CLI::$errors )->toHaveCount( 1 );
+	expect( WP_CLI::$errors[0] )->toContain( 'all 2 source(s) were rejected' );
+	expect( WP_CLI::$successes )->toBe( [] );
+	expect( glob( $root . 'trip/*.webp' ) )->toBe( [] );
+
+	image_remove_tree( $basedir );
+} );
+
+test( 'import surfaces a missing WebP codec as an actionable error', function (): void {
+	$basedir = fresh_image_basedir();
+	$root    = wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+	$source = write_jpeg_source( $basedir, 'IMG.jpg', 800, 600 );
+
+	// The injected factory mimics the Optimizer constructor on a host where no
+	// codec can encode WebP; the command must convert that throw into a CLI error
+	// (mirroring the REST controller) instead of crashing, before any ingestion.
+	WP_CLI::reset();
+	Format_Items_Recorder::reset();
+	$no_codec = static fn ( string $path, Descriptor $descriptor ): Ingestor
+		=> throw new RuntimeException( 'No image codec on this host can encode WebP (need GD or Imagick).' );
+	$command  = new Image_Command( new Repository(), $no_codec );
+	$threw = false;
+	try {
+		$command->import( [ 'trip', $source ], [] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( WP_CLI::$errors )->toHaveCount( 1 );
+	expect( WP_CLI::$errors[0] )->toContain( 'WebP' );
+	expect( glob( $root . 'trip/*.webp' ) )->toBe( [] );
 
 	image_remove_tree( $basedir );
 } );

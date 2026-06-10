@@ -65,6 +65,46 @@ final class Repository {
 	private const SLUG_PATTERN = '/^[a-z0-9]+(?:-[a-z0-9]+)*$/';
 
 	/**
+	 * The filename of the directory-listing guard seeded into plugin-owned dirs.
+	 *
+	 * Public so the doctor can recognise the guard at a collection root as a
+	 * plugin file rather than reporting it as foreign.
+	 *
+	 * @since 0.2.0
+	 * @var string
+	 */
+	public const LISTING_GUARD_FILENAME = 'index.php';
+
+	/**
+	 * The directory scanner `discover()` enumerates root entries with.
+	 *
+	 * Wraps the `glob()` builtin behind an injectable closure so its rare
+	 * `false` return — a transient filesystem error PHP cannot be made to
+	 * produce deterministically in a test — can still be exercised. Production
+	 * code constructs the repository with no arguments and scans through the
+	 * real builtin.
+	 *
+	 * @since 0.2.0
+	 * @var \Closure(string):(array<int,string>|false)
+	 */
+	private readonly \Closure $scanner;
+
+	/**
+	 * Constructs the repository with an optional directory scanner.
+	 *
+	 * Defaults to a `glob( …, GLOB_ONLYDIR )` wrapper, so production callers
+	 * construct it with no arguments; tests inject a failing scanner to pin
+	 * how discovery degrades when the root scan errors.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param (\Closure(string):(array<int,string>|false))|null $scanner Glob-shaped scanner, or null for the default.
+	 */
+	public function __construct( ?\Closure $scanner = null ) {
+		$this->scanner = $scanner ?? static fn ( string $pattern ): array|false => glob( $pattern, GLOB_ONLYDIR );
+	}
+
+	/**
 	 * Returns the absolute path to the uploads root, ensuring it exists.
 	 *
 	 * The root is `wp_upload_dir()['basedir'] . '/kntnt-photo-drop/'`, made
@@ -138,13 +178,21 @@ final class Repository {
 			return [];
 		}
 
+		// A glob() failure is a transient scan error, not an empty root: report
+		// no collections, but log it distinctly so collections vanishing from
+		// the admin page and blocks can be traced to the failed scan rather
+		// than mistaken for a genuinely empty root.
+		$directories = ( $this->scanner )( $root . '*' );
+		if ( $directories === false ) {
+			Plugin::warning( "The collection scan failed (glob() errored) at {$root}; reporting no collections." );
+			return [];
+		}
+
 		// Enumerate immediate sub-directories whose name is a valid slug and
 		// which hold a descriptor. A non-slug directory (junk, a half-renamed
-		// folder) is silently skipped: it is simply not a collection. glob()
-		// returns false on error, which we normalise to an empty list.
+		// folder) is silently skipped: it is simply not a collection.
 		$collections = [];
-		$directories = glob( $root . '*', GLOB_ONLYDIR );
-		foreach ( ( $directories === false ? [] : $directories ) as $directory ) {
+		foreach ( $directories as $directory ) {
 			$slug = basename( $directory );
 			if ( ! $this->is_valid_slug( $slug ) ) {
 				continue;
@@ -222,8 +270,9 @@ final class Repository {
 	 * This is the write counterpart to `resolve_slug()`: it owns the one
 	 * filesystem mutation the lifecycle needs (an `mkdir` under the root), so
 	 * the command above stays thin and free of path arithmetic. It establishes
-	 * the directory only — the descriptor is written separately by the caller
-	 * via `Descriptor::write()`, keeping the directory and its `collection.json`
+	 * the directory (seeded with the same directory-listing guard the root
+	 * carries) — the descriptor is written separately by the caller via
+	 * `Descriptor::write()`, keeping the directory and its `collection.json`
 	 * as two explicit steps the caller can order and report on.
 	 *
 	 * Returns `null` (creating nothing) when the slug is malformed, the root is
@@ -264,6 +313,11 @@ final class Repository {
 			Plugin::error( "Failed to create the collection directory at {$path}." );
 			return null;
 		}
+
+		// Shield the new collection from directory listing, exactly as the root
+		// is shielded: a server with autoindex enabled must not be able to
+		// enumerate the images or the descriptor.
+		$this->seed_listing_guard( $path );
 
 		return $path;
 
@@ -374,9 +428,31 @@ final class Repository {
 		}
 
 		// Seed a blank index.php so directory listing cannot enumerate paths.
-		// A pre-existing guard file is honoured; a failed write is logged but
-		// not fatal, since listing may already be disabled at the server level.
-		$index_file = $root . 'index.php';
+		$this->seed_listing_guard( $root );
+
+		return true;
+
+	}
+
+	/**
+	 * Seeds a blank `index.php` ("Silence is golden") guard into a directory.
+	 *
+	 * Shared by the root (`ensure_root()`) and every newly created collection
+	 * directory (`create_collection()`), so a server without an explicit
+	 * listing-off configuration cannot enumerate images, descriptors, or
+	 * collection paths. Idempotent: a pre-existing guard file is honoured. A
+	 * failed write is logged but not fatal, since listing may already be
+	 * disabled at the server level.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string $directory Absolute path of the directory to shield.
+	 */
+	private function seed_listing_guard( string $directory ): void {
+
+		// Write the guard only when missing, so an existing file (ours or a
+		// site owner's own) is never clobbered.
+		$index_file = trailingslashit( $directory ) . self::LISTING_GUARD_FILENAME;
 		if ( ! is_file( $index_file ) ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- The plugin owns this directory tree on disk directly (ADR-0001); WP_Filesystem is the wrong abstraction for a guard file written outside the Media Library.
 			$written = file_put_contents( $index_file, "<?php\n// Silence is golden.\n" );
@@ -384,8 +460,6 @@ final class Repository {
 				Plugin::warning( "Could not write the directory-listing guard at {$index_file}." );
 			}
 		}
-
-		return true;
 
 	}
 

@@ -42,6 +42,10 @@ final class Justified_Layout {
 	 * The browser re-flows from the real width via flexbox, so this only decides
 	 * how many images the server groups into each row; a typical content width is
 	 * a sound assumption and keeps the last-row detection close to what renders.
+	 * Because the real container can wrap rows differently, the server's last-row
+	 * flags are only the no-JS/first-paint fallback: the gallery view module
+	 * re-derives the actual last row from the rendered offsets and overrides the
+	 * inline `flex-grow` accordingly.
 	 *
 	 * @since 0.6.0
 	 * @var int

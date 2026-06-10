@@ -38,14 +38,14 @@ use Kntnt\Photo_Drop\Storage\Descriptor;
  * The uploads basedir is a real temp directory and the baseurl a recognisable
  * sentinel, so the `Repository`, `Descriptor`, `Path_Guard`, and `Index_Store`
  * all run against the real filesystem while the emitted URLs are assertable. The
- * escapers and i18n are pass-throughs; `is_user_logged_in` is parameterised so a
- * test can render as the public or as a logged-in editor.
+ * escapers and i18n are pass-throughs; `current_user_can` is parameterised so a
+ * test can render as the public or as a user who can edit.
  *
- * @param string $basedir   Temp directory standing in for the uploads basedir.
- * @param bool   $logged_in What `is_user_logged_in()` should return.
+ * @param string $basedir  Temp directory standing in for the uploads basedir.
+ * @param bool   $can_edit What `current_user_can()` should return.
  * @return void
  */
-function wire_gallery_stubs( string $basedir, bool $logged_in = false ): void {
+function wire_gallery_stubs( string $basedir, bool $can_edit = false ): void {
 
 	Functions\when( 'wp_upload_dir' )->justReturn(
 		[
@@ -75,7 +75,7 @@ function wire_gallery_stubs( string $basedir, bool $logged_in = false ): void {
 	Functions\when( 'apply_filters' )->alias(
 		static fn ( string $hook, mixed $value ): mixed => $value
 	);
-	Functions\when( 'is_user_logged_in' )->justReturn( $logged_in );
+	Functions\when( 'current_user_can' )->justReturn( $can_edit );
 	Functions\when( 'get_block_wrapper_attributes' )->alias(
 		static function ( array $args = [] ): string {
 			$parts = [];
@@ -172,7 +172,7 @@ function gallery_block_stub(): \WP_Block {
  * @param array<string,mixed>                                $attributes The block attributes (merged over defaults).
  * @param array<int,array{path:string,width:int,height:int}> $images The images to seed.
  * @param Descriptor                                         $descriptor The collection contract.
- * @param bool                                               $logged_in  Whether to render as a logged-in editor.
+ * @param bool                                               $can_edit   Whether to render as a user who can edit.
  * @param string|null                                        $basedir_out Receives the temp basedir for cleanup.
  * @return string The rendered HTML.
  */
@@ -180,13 +180,13 @@ function render_seeded_gallery(
 	array $attributes,
 	array $images,
 	Descriptor $descriptor,
-	bool $logged_in,
+	bool $can_edit,
 	?string &$basedir_out,
 ): string {
 
 	$basedir     = fresh_gallery_basedir();
 	$basedir_out = $basedir;
-	wire_gallery_stubs( $basedir, $logged_in );
+	wire_gallery_stubs( $basedir, $can_edit );
 	$collection = seed_gallery_collection( $basedir, 'photos', $descriptor );
 	foreach ( $images as $image ) {
 		write_gallery_image( $collection, $image['path'], $image['width'], $image['height'] );
@@ -215,7 +215,7 @@ test( 'the srcset lists every thumbnail width below the main plus the main, at r
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -243,7 +243,7 @@ test( 'a thumbnail width at or above the main width is dropped from the srcset',
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -252,6 +252,67 @@ test( 'a thumbnail width at or above the main width is dropped from the srcset',
 	expect( $html )->toContain( '320w' );
 	expect( $html )->toContain( '500w' );
 	expect( $html )->not->toContain( '2000w' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// sizes — layout-aware hints, never a blanket 100vw
+// ---------------------------------------------------------------------------
+
+test( 'the grid layout derives one sizes hint from the minimum column width', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$html       = render_seeded_gallery(
+		[
+			'layout'             => 'grid',
+			'minimumColumnWidth' => '300px',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 1200,
+				'height' => 800,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// Below the minimum column width the grid is single-column (full viewport);
+	// above it a tile renders near the minimum, so the cap is 1.5× the minimum.
+	// The leading `auto` is the lazy-loading auto-sizes entry and must come first.
+	expect( $html )->toContain( 'sizes="auto, (max-width: 300px) 100vw, 450px"' );
+	expect( $html )->not->toContain( 'sizes="100vw"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the justified layout derives a per-image sizes hint from the natural tile width', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$html       = render_seeded_gallery(
+		[
+			'layout'          => 'justified',
+			'targetRowHeight' => 200,
+		],
+		[
+			[
+				'path'   => 'wide.jpg.webp',
+				'width'  => 1200,
+				'height' => 800,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// A 3:2 image at a 200px row height renders ~300px wide, so the hint caps at
+	// that natural width while a narrower viewport still gets the full-width case.
+	expect( $html )->toContain( 'sizes="auto, (max-width: 300px) 100vw, 300px"' );
+	expect( $html )->not->toContain( 'sizes="100vw"' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -273,7 +334,7 @@ test( 'each image carries its stored dimensions and loads lazily', function (): 
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -298,7 +359,7 @@ test( 'the grid layout sets an aspect-ratio from the stored dimensions by defaul
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -331,15 +392,21 @@ test( 'every image is wrapped in an anchor to its full main image', function ():
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
 	// The anchor is the no-JS fallback and the lightbox upgrade hook; both images
-	// carry one to their own main URL.
+	// carry one to their own main URL, plus the slide srcset the lightbox reads so
+	// the overlay image is responsive rather than always full-resolution.
 	expect( substr_count( $html, '<a class="kntnt-photo-drop-gallery__link"' ) )->toBe( 2 );
 	expect( $html )->toContain( 'href="https://example.test/uploads/kntnt-photo-drop/photos/a.jpg.webp"' );
 	expect( $html )->toContain( 'data-kntnt-photo-drop-full=' );
+	expect( $html )->toContain(
+		'data-kntnt-photo-drop-srcset="'
+			. 'https://example.test/uploads/kntnt-photo-drop/photos/.kntnt-thumbnails/320/a.jpg.webp 320w, '
+			. 'https://example.test/uploads/kntnt-photo-drop/photos/a.jpg.webp 800w"'
+	);
 
 	gallery_remove_tree( $basedir );
 } );
@@ -374,7 +441,7 @@ test( 'recursive ordering is natural sort by full relative path, ascending', fun
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -410,7 +477,7 @@ test( 'descending order reverses the natural sort', function (): void {
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -438,7 +505,7 @@ test( 'this-folder-only excludes images in sub-folders', function (): void {
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -475,7 +542,7 @@ test( 'the start path scopes the gallery to a sub-folder', function (): void {
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -499,7 +566,7 @@ test( 'a traversing start path is rejected and renders nothing for the public', 
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -527,7 +594,7 @@ test( 'a request-time path superglobal is ignored — only the attribute is read
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -559,7 +626,7 @@ test( 'the grid layout emits the grid container and a min-column variable', func
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -585,7 +652,7 @@ test( 'the justified layout emits per-image flex-grow and flex-basis', function 
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -618,7 +685,7 @@ test( 'a filename caption renders the humanised name under the image', function 
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -645,7 +712,7 @@ test( 'a path caption renders a breadcrumb with the collection name and separato
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -675,7 +742,7 @@ test( 'an overlay caption carries its anchor class and colour variables', functi
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -700,7 +767,7 @@ test( 'the none caption content emits no figcaption at all', function (): void {
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -716,7 +783,7 @@ test( 'the none caption content emits no figcaption at all', function (): void {
 test( 'a dangling collection renders nothing for the public', function (): void {
 
 	$basedir = fresh_gallery_basedir();
-	wire_gallery_stubs( $basedir, logged_in: false );
+	wire_gallery_stubs( $basedir, can_edit: false );
 
 	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
 
@@ -725,15 +792,33 @@ test( 'a dangling collection renders nothing for the public', function (): void 
 	gallery_remove_tree( $basedir );
 } );
 
-test( 'a dangling collection renders an editor-only notice for a logged-in user', function (): void {
+test( 'a dangling collection renders an editor-only notice for a user who can edit', function (): void {
 
 	$basedir = fresh_gallery_basedir();
-	wire_gallery_stubs( $basedir, logged_in: true );
+	wire_gallery_stubs( $basedir, can_edit: true );
 
 	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
 
 	expect( $html )->toContain( 'kntnt-photo-drop-gallery--notice' );
 	expect( $html )->toContain( 'no collection selected' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the dangling notice is gated on the edit_posts capability specifically', function (): void {
+
+	// Pin the capability check itself: grant every capability except edit_posts,
+	// so the notice can only vanish because the gate asks for edit_posts — a
+	// logged-in user without editing rights is treated as the public.
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir );
+	Functions\when( 'current_user_can' )->alias(
+		static fn ( string $capability ): bool => $capability !== 'edit_posts'
+	);
+
+	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
+
+	expect( $html )->toBe( '' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -745,7 +830,7 @@ test( 'an empty but valid collection renders nothing for the public', function (
 		[],
 		[],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -759,7 +844,7 @@ test( 'an empty but valid collection renders nothing for the public', function (
 test( 'an empty collection attribute renders nothing for the public', function (): void {
 
 	$basedir = fresh_gallery_basedir();
-	wire_gallery_stubs( $basedir, logged_in: false );
+	wire_gallery_stubs( $basedir, can_edit: false );
 
 	$html = Render_Gallery::render( [ 'collection' => '' ], '', gallery_block_stub() );
 
@@ -785,18 +870,21 @@ test( 'the lightbox is wired by default: the overlay, init hook, and flag are pr
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
 	// enableLightbox defaults true: the flag is on, the Interactivity init hook
-	// and per-block context are bound, and the hidden dialog overlay is emitted.
+	// and per-block context are bound, and the hidden dialog overlay is emitted
+	// with its server-translated load-failure message.
 	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="true"' );
 	expect( $html )->toContain( 'data-wp-init="callbacks.init"' );
 	expect( $html )->toContain( 'counterTemplate' );
 	expect( $html )->toContain( 'class="kntnt-photo-drop-lightbox"' );
 	expect( $html )->toContain( 'role="dialog"' );
 	expect( $html )->toContain( 'aria-modal="true"' );
+	expect( $html )->toContain( 'kntnt-photo-drop-lightbox__error' );
+	expect( $html )->toContain( 'The image could not be loaded.' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -819,7 +907,7 @@ test( 'the no-JS anchor fallback still wraps every image when the lightbox is on
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
@@ -844,19 +932,50 @@ test( 'with the lightbox off, no overlay or init hook is emitted but the anchors
 			],
 		],
 		$descriptor,
-		logged_in: false,
+		can_edit: false,
 		basedir_out: $basedir,
 	);
 
-	// The flag is off: no enhancement markup at all (no overlay, no init hook, no
-	// context), yet the anchor still wraps the image so a click navigates to it.
-	// The flag attribute itself still reflects the off state.
+	// The flag is off and the grid needs no client-side correction: no enhancement
+	// markup at all (no overlay, no init hook, no context), yet the anchor still
+	// wraps the image so a click navigates to it. The flag attribute itself still
+	// reflects the off state.
 	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="false"' );
 	expect( $html )->not->toContain( 'data-wp-init' );
 	expect( $html )->not->toContain( 'role="dialog"' );
 	expect( $html )->not->toContain( 'class="kntnt-photo-drop-lightbox"' );
 	expect( $html )->toContain( '<a class="kntnt-photo-drop-gallery__link"' );
 	expect( $html )->toContain( 'href="https://example.test/uploads/kntnt-photo-drop/photos/a.jpg.webp"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a justified gallery binds the init hook even with the lightbox off', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'layout'         => 'justified',
+			'enableLightbox' => false,
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The justified layout's last-row flags are corrected client-side, so the
+	// init hook must run regardless of the lightbox flag — but the lightbox
+	// overlay and context stay gated on the flag.
+	expect( $html )->toContain( 'data-wp-init="callbacks.init"' );
+	expect( $html )->not->toContain( 'role="dialog"' );
+	expect( $html )->not->toContain( 'counterTemplate' );
 
 	gallery_remove_tree( $basedir );
 } );

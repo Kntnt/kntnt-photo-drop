@@ -97,6 +97,10 @@ function bind_http_api_stubs( array|\WP_Error $response ): void {
 
 /**
  * Wires the helper-function stubs that the Updater uses indirectly.
+ *
+ * The stubbed running WordPress version (6.8.1) deliberately differs from the
+ * seeded RequiresWP header (6.5) so the tests can tell `tested` (the running
+ * version) and `requires` (the header floor) apart.
  */
 function bind_misc_helper_stubs(): void {
 
@@ -107,12 +111,25 @@ function bind_misc_helper_stubs(): void {
 	);
 
 	Functions\when( 'get_bloginfo' )->alias(
-		static fn ( string $key ): string => $key === 'version' ? '6.5' : '',
+		static fn ( string $key ): string => $key === 'version' ? '6.8.1' : '',
 	);
 
 	Functions\when( 'wp_parse_url' )->alias(
 		static fn ( string $uri, int $component = -1 ): mixed => parse_url( $uri, $component ),
 	);
+}
+
+/**
+ * Stubs the site-transient release cache as empty and silently writable.
+ *
+ * The default for tests that exercise the fetch path: every read misses so
+ * the Updater always goes to the (stubbed) network, and writes are absorbed.
+ * Cache-behaviour tests wire their own expectations instead of calling this.
+ */
+function bind_release_cache_stubs(): void {
+
+	Functions\when( 'get_site_transient' )->justReturn( false );
+	Functions\when( 'set_site_transient' )->justReturn( true );
 }
 
 /**
@@ -145,6 +162,7 @@ it( 'returns the transient unchanged when checked is empty', function (): void {
 		'body'          => '{}',
 	] );
 	bind_misc_helper_stubs();
+	bind_release_cache_stubs();
 	seed_plugin_state(
 		'/var/www/wp-content/plugins/kntnt-photo-drop/kntnt-photo-drop.php',
 		[
@@ -174,6 +192,7 @@ it( 'leaves the transient untouched when the plugin URI is not a GitHub URL', fu
 		'body'          => '{}',
 	] );
 	bind_misc_helper_stubs();
+	bind_release_cache_stubs();
 	seed_plugin_state(
 		'/path/to/kntnt-photo-drop.php',
 		[
@@ -198,6 +217,7 @@ it( 'leaves the transient untouched when wp_remote_get returns a WP_Error', func
 
 	bind_http_api_stubs( new \WP_Error() );
 	bind_misc_helper_stubs();
+	bind_release_cache_stubs();
 	seed_plugin_state(
 		'/path/to/kntnt-photo-drop.php',
 		[
@@ -237,6 +257,7 @@ it( 'does not advertise an update when the release has no application/zip asset'
 		'body'          => $body,
 	] );
 	bind_misc_helper_stubs();
+	bind_release_cache_stubs();
 	seed_plugin_state(
 		'/path/to/kntnt-photo-drop.php',
 		[
@@ -277,6 +298,7 @@ it( 'does not advertise an update when the released version is not newer', funct
 		'body'          => $body,
 	] );
 	bind_misc_helper_stubs();
+	bind_release_cache_stubs();
 	seed_plugin_state(
 		'/path/to/kntnt-photo-drop.php',
 		[
@@ -324,12 +346,14 @@ it( 'injects an update record when a newer release with a ZIP asset is available
 		'body'          => $body,
 	] );
 	bind_misc_helper_stubs();
+	bind_release_cache_stubs();
 	seed_plugin_state(
 		'/var/www/wp-content/plugins/kntnt-photo-drop/kntnt-photo-drop.php',
 		[
-			'Version'    => '0.1.0',
-			'PluginURI'  => 'https://github.com/Kntnt/kntnt-photo-drop',
-			'RequiresWP' => '6.5',
+			'Version'     => '0.1.0',
+			'PluginURI'   => 'https://github.com/Kntnt/kntnt-photo-drop',
+			'RequiresWP'  => '6.5',
+			'RequiresPHP' => '8.4',
 		],
 	);
 
@@ -340,6 +364,8 @@ it( 'injects an update record when a newer release with a ZIP asset is available
 	$plugin_key = 'kntnt-photo-drop/kntnt-photo-drop.php';
 	expect( $result->response )->toHaveKey( $plugin_key );
 
+	// `tested` carries the running WordPress version (it means "tested up to"),
+	// while `requires`/`requires_php` carry the plugin header's floors.
 	$update = $result->response[ $plugin_key ];
 	expect( $update )->toBeInstanceOf( \stdClass::class )
 		->and( $update->slug )->toBe( 'kntnt-photo-drop' )
@@ -347,7 +373,9 @@ it( 'injects an update record when a newer release with a ZIP asset is available
 		->and( $update->new_version )->toBe( '1.2.0' )
 		->and( $update->package )->toBe( $package )
 		->and( $update->url )->toBe( 'https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v1.2.0' )
-		->and( $update->tested )->toBe( '6.5' );
+		->and( $update->tested )->toBe( '6.8.1' )
+		->and( $update->requires )->toBe( '6.5' )
+		->and( $update->requires_php )->toBe( '8.4' );
 } );
 
 // ---------------------------------------------------------------------------
@@ -361,6 +389,7 @@ it( 'does not advertise an update when the GitHub API returns a non-200 status',
 		'body'          => '{}',
 	] );
 	bind_misc_helper_stubs();
+	bind_release_cache_stubs();
 	seed_plugin_state(
 		'/path/to/kntnt-photo-drop.php',
 		[
@@ -402,4 +431,215 @@ it( 'returns an array unchanged when a third-party caller passes an array', func
 	$result = ( new Updater() )->check_for_updates( $payload );
 
 	expect( $result )->toBe( $payload );
+} );
+
+// ---------------------------------------------------------------------------
+// Release cache — a site transient keeps the updater off the GitHub API,
+// which allows only 60 unauthenticated requests per hour per IP while the
+// update filter fires several times per admin load.
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a decoded v1.2.0 release array carrying a ZIP asset and a body,
+ * shaped like the cached payload get_latest_github_release() stores.
+ *
+ * @return array<mixed> The canned release.
+ */
+function canned_release(): array {
+	return [
+		'tag_name'    => 'v1.2.0',
+		'html_url'    => 'https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v1.2.0',
+		'zipball_url' => 'https://api.github.com/repos/Kntnt/kntnt-photo-drop/zipball/v1.2.0',
+		'body'        => 'Fixed things.',
+		'assets'      => [
+			[
+				'content_type'         => 'application/zip',
+				'browser_download_url' => 'https://github.com/Kntnt/kntnt-photo-drop/releases/download/v1.2.0/'
+					. 'kntnt-photo-drop.zip',
+			],
+		],
+	];
+}
+
+it( 'serves the release from the site-transient cache without calling GitHub', function (): void {
+
+	// Any network call fails the test — the cached release must suffice.
+	Functions\expect( 'wp_remote_get' )->never();
+	Functions\when( 'get_site_transient' )->justReturn( canned_release() );
+	bind_misc_helper_stubs();
+	seed_plugin_state(
+		'/var/www/wp-content/plugins/kntnt-photo-drop/kntnt-photo-drop.php',
+		[
+			'Version'     => '0.1.0',
+			'PluginURI'   => 'https://github.com/Kntnt/kntnt-photo-drop',
+			'RequiresWP'  => '6.5',
+			'RequiresPHP' => '8.4',
+		],
+	);
+
+	$result = ( new Updater() )->check_for_updates( checked_transient() );
+
+	expect( $result->response )->toHaveKey( 'kntnt-photo-drop/kntnt-photo-drop.php' );
+} );
+
+it( 'caches the decoded release for six hours after a successful fetch', function (): void {
+
+	bind_http_api_stubs( [
+		'response_code' => 200,
+		'body'          => (string) json_encode( canned_release() ),
+	] );
+	bind_misc_helper_stubs();
+	Functions\when( 'get_site_transient' )->justReturn( false );
+	Functions\expect( 'set_site_transient' )
+		->once()
+		->with(
+			Updater::RELEASE_TRANSIENT,
+			\Mockery::on(
+				static fn ( mixed $value ): bool => is_array( $value ) && ( $value['tag_name'] ?? null ) === 'v1.2.0',
+			),
+			21600,
+		)
+		->andReturn( true );
+	seed_plugin_state(
+		'/var/www/wp-content/plugins/kntnt-photo-drop/kntnt-photo-drop.php',
+		[
+			'Version'     => '0.1.0',
+			'PluginURI'   => 'https://github.com/Kntnt/kntnt-photo-drop',
+			'RequiresWP'  => '6.5',
+			'RequiresPHP' => '8.4',
+		],
+	);
+
+	$result = ( new Updater() )->check_for_updates( checked_transient() );
+
+	expect( $result->response )->toHaveKey( 'kntnt-photo-drop/kntnt-photo-drop.php' );
+} );
+
+it( 'caches a short-lived failure marker when GitHub returns a non-200 status', function (): void {
+
+	bind_http_api_stubs( [
+		'response_code' => 403,
+		'body'          => '',
+	] );
+	bind_misc_helper_stubs();
+	Functions\when( 'get_site_transient' )->justReturn( false );
+
+	// The failure marker is any non-array value, cached far shorter (15 min)
+	// than a successful lookup so a rate-limited host recovers quickly.
+	Functions\expect( 'set_site_transient' )
+		->once()
+		->with(
+			Updater::RELEASE_TRANSIENT,
+			\Mockery::on( static fn ( mixed $value ): bool => ! is_array( $value ) && $value !== false ),
+			900,
+		)
+		->andReturn( true );
+	seed_plugin_state(
+		'/path/to/kntnt-photo-drop.php',
+		[
+			'Version'    => '0.1.0',
+			'PluginURI'  => 'https://github.com/Kntnt/kntnt-photo-drop',
+			'RequiresWP' => '6.5',
+		],
+	);
+
+	$result = ( new Updater() )->check_for_updates( checked_transient() );
+
+	expect( $result->response )->toBe( [] );
+} );
+
+it( 'skips the GitHub call while a cached failure marker is in force', function (): void {
+
+	// The cached sentinel must short-circuit the lookup: no network request, no
+	// cache write, and no advertised update.
+	Functions\expect( 'wp_remote_get' )->never();
+	Functions\expect( 'set_site_transient' )->never();
+	Functions\when( 'get_site_transient' )->justReturn( 'unavailable' );
+	bind_misc_helper_stubs();
+	seed_plugin_state(
+		'/path/to/kntnt-photo-drop.php',
+		[
+			'Version'    => '0.1.0',
+			'PluginURI'  => 'https://github.com/Kntnt/kntnt-photo-drop',
+			'RequiresWP' => '6.5',
+		],
+	);
+
+	$result = ( new Updater() )->check_for_updates( checked_transient() );
+
+	expect( $result->response )->toBe( [] );
+} );
+
+// ---------------------------------------------------------------------------
+// plugins_api — the "View version details" modal is answered locally, since
+// the slug does not exist on wordpress.org.
+// ---------------------------------------------------------------------------
+
+it( 'short-circuits plugins_api with release-backed details for this plugin', function (): void {
+
+	// The cached release feeds the modal; no network call is allowed.
+	Functions\expect( 'wp_remote_get' )->never();
+	Functions\when( 'get_site_transient' )->justReturn( canned_release() );
+	bind_misc_helper_stubs();
+	Functions\when( 'wpautop' )->alias(
+		static fn ( string $text ): string => '<p>' . $text . '</p>',
+	);
+	Functions\when( 'wp_kses_post' )->returnArg( 1 );
+	seed_plugin_state(
+		'/var/www/wp-content/plugins/kntnt-photo-drop/kntnt-photo-drop.php',
+		[
+			'Name'        => 'Kntnt Photo Drop',
+			'Version'     => '0.1.0',
+			'PluginURI'   => 'https://github.com/Kntnt/kntnt-photo-drop',
+			'Author'      => 'Thomas Barregren',
+			'RequiresWP'  => '6.5',
+			'RequiresPHP' => '8.4',
+		],
+	);
+
+	$args       = new \stdClass();
+	$args->slug = 'kntnt-photo-drop';
+
+	$result = ( new Updater() )->plugin_information( false, 'plugin_information', $args );
+
+	$package = 'https://github.com/Kntnt/kntnt-photo-drop/releases/download/v1.2.0/kntnt-photo-drop.zip';
+	expect( $result )->toBeInstanceOf( \stdClass::class )
+		->and( $result->name )->toBe( 'Kntnt Photo Drop' )
+		->and( $result->slug )->toBe( 'kntnt-photo-drop' )
+		->and( $result->version )->toBe( '1.2.0' )
+		->and( $result->author )->toBe( 'Thomas Barregren' )
+		->and( $result->homepage )->toBe( 'https://github.com/Kntnt/kntnt-photo-drop' )
+		->and( $result->requires )->toBe( '6.5' )
+		->and( $result->requires_php )->toBe( '8.4' )
+		->and( $result->tested )->toBe( '6.8.1' )
+		->and( $result->download_link )->toBe( $package )
+		->and( $result->sections )->toBe( [ 'changelog' => '<p>Fixed things.</p>' ] );
+} );
+
+it( 'passes plugins_api through untouched for another plugin slug', function (): void {
+
+	bind_misc_helper_stubs();
+	seed_plugin_state(
+		'/path/to/kntnt-photo-drop.php',
+		[
+			'Version'   => '0.1.0',
+			'PluginURI' => 'https://github.com/Kntnt/kntnt-photo-drop',
+		],
+	);
+
+	$args       = new \stdClass();
+	$args->slug = 'akismet';
+
+	$result = ( new Updater() )->plugin_information( false, 'plugin_information', $args );
+
+	expect( $result )->toBeFalse();
+} );
+
+it( 'passes plugins_api through untouched for another action', function (): void {
+
+	$existing = new \stdClass();
+
+	$result = ( new Updater() )->plugin_information( $existing, 'query_plugins', new \stdClass() );
+
+	expect( $result )->toBe( $existing );
 } );

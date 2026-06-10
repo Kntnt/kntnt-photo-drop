@@ -91,3 +91,34 @@ test( 'an absent or blank ignore value applies only the built-in list', function
 	'empty string' => [ '' ],
 	'only a comma' => [ ',' ],
 ] );
+
+// ---------------------------------------------------------------------------
+// The built-in / caller split — the two lists carry different authority
+// ---------------------------------------------------------------------------
+
+test( 'matches_builtin sees only the OS-junk list, never a caller glob', function (): void {
+
+	// The built-in half runs before main classification, so it must answer for
+	// OS junk alone — a caller glob has no say there.
+	$matcher = new Ignore_Matcher( 'raw/*' );
+	expect( $matcher->matches_builtin( '._photo.jpg.webp' ) )->toBeTrue();
+	expect( $matcher->matches_builtin( 'sub/.DS_Store' ) )->toBeTrue();
+	expect( $matcher->matches_builtin( 'raw/photo.jpg.webp' ) )->toBeFalse();
+} );
+
+test( 'matches_caller sees only the caller globs, never the built-in list', function (): void {
+
+	// The caller half is consulted only for non-mains, so it must answer for the
+	// --ignore globs alone — OS junk is the built-in half's job.
+	$matcher = new Ignore_Matcher( 'raw/*' );
+	expect( $matcher->matches_caller( 'raw/IMG.dng' ) )->toBeTrue();
+	expect( $matcher->matches_caller( '.DS_Store' ) )->toBeFalse();
+	expect( $matcher->matches_caller( 'kept/IMG.dng' ) )->toBeFalse();
+} );
+
+test( 'matches stays the union of the two halves', function (): void {
+	$matcher = new Ignore_Matcher( '*.tmp' );
+	expect( $matcher->matches( 'Thumbs.db' ) )->toBeTrue();
+	expect( $matcher->matches( 'scratch.tmp' ) )->toBeTrue();
+	expect( $matcher->matches( 'notes.txt' ) )->toBeFalse();
+} );

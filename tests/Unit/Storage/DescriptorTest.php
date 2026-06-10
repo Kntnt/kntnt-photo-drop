@@ -147,6 +147,41 @@ test( 'the written file carries the schema and the fixed key order', function ()
 	descriptor_remove_tree( $dir );
 } );
 
+test( 'a successful write leaves no staging file beside the descriptor', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	// The descriptor is published atomically (temp file, then rename); a
+	// successful write must leave no `*.tmp-*` staging file beside the
+	// irreplaceable collection.json.
+	expect( ( new Descriptor( 'Atomic', 1920, 80, [ 640 ] ) )->write( $dir ) )->toBeTrue();
+	expect( glob( $dir . '/*.tmp-*' ) )->toBe( [] );
+	expect( is_file( $dir . '/' . Descriptor::FILENAME ) )->toBeTrue();
+
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'a failed write reports false and leaves an existing descriptor intact', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	// Publish a first descriptor, then make the directory unwritable so the
+	// atomic stage cannot be created: the live collection.json must survive
+	// byte-for-byte — this is the file a torn write would brick.
+	( new Descriptor( 'Original', 1920, 80, [ 640 ] ) )->write( $dir );
+	$before = file_get_contents( $dir . '/' . Descriptor::FILENAME );
+	chmod( $dir, 0500 );
+	set_error_handler( static fn (): bool => true );
+	$result = ( new Descriptor( 'Replacement', 800, 50, [] ) )->write( $dir );
+	restore_error_handler();
+	chmod( $dir, 0700 );
+
+	expect( $result )->toBeFalse();
+	expect( file_get_contents( $dir . '/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	descriptor_remove_tree( $dir );
+} );
+
 test( 'a re-write with unchanged data is byte-identical', function (): void {
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();

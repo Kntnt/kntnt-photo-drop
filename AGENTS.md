@@ -12,7 +12,7 @@ Guidance for AI coding agents (Claude Code, Copilot, Cursor, Codex, …) working
 
 The ubiquitous language is in [`CONTEXT.md`](CONTEXT.md); use those terms (collection, output contract, descriptor, slug, main image, thumbnail, derived artifact, index, conforming, foreign file, doctor) exactly. Do not invent synonyms.
 
-It is **GPL-2.0-or-later**, PHP 8.4+, WordPress 6.5+. Every WordPress hook the plugin exposes is a filter namespaced **`kntnt_photo_drop_*`** (e.g. `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, `kntnt_photo_drop_list_capability`).
+It is **GPL-2.0-or-later**, PHP 8.4+, WordPress 6.5+. Every WordPress hook the plugin exposes is a filter namespaced **`kntnt_photo_drop_*`** (e.g. `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, `kntnt_photo_drop_list_capability`, `kntnt_photo_drop_max_input_megapixels`).
 
 ## First move: clone the reference and mirror it
 

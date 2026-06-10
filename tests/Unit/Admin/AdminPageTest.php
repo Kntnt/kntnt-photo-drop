@@ -249,6 +249,55 @@ test( 'the edit form shows the contract disabled and submits only the name', fun
 } );
 
 // ---------------------------------------------------------------------------
+// List view — an unreadable subdirectory must not white-screen the page
+// ---------------------------------------------------------------------------
+
+test( 'the list renders a dash for a collection whose subtree cannot be read', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+
+	// Two collections: one healthy with a single main on disk, one holding a
+	// subdirectory the walker cannot open (chmod 000 makes the recursive count
+	// throw mid-iteration).
+	seed_admin_collection( $root, 'open', 'Open', 1920, 80 );
+	file_put_contents( $root . 'open/photo.jpg.webp', 'main' );
+	seed_admin_collection( $root, 'locked', 'Locked', 1920, 80 );
+	mkdir( $root . 'locked/sealed', 0700, true );
+	chmod( $root . 'locked/sealed', 0000 );
+
+	// List-view stubs the shared render wiring does not cover.
+	Functions\when( 'wp_kses_post' )->returnArg( 1 );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [ 'page' => Admin_Page::MENU_SLUG ];
+
+	// The page must render the whole list — the locked row with an unknown
+	// count, the healthy row with its live count — instead of dying on the
+	// unreadable directory, and the aborted walk must be logged. Permissions
+	// are restored even when the assertions fail, so the temp tree can always
+	// be removed.
+	$log      = (string) tempnam( sys_get_temp_dir(), 'kntnt-log-' );
+	$previous = ini_set( 'error_log', $log );
+	try {
+		ob_start();
+		( new Admin_Page( new Repository() ) )->render_page();
+		$html    = (string) ob_get_clean();
+		$written = (string) file_get_contents( $log );
+
+		expect( $html )->toContain( '<td>—</td>' );
+		expect( $html )->toContain( '<td>1</td>' );
+		expect( $written )->toContain( '[WARNING]' )->toContain( 'locked' );
+	} finally {
+		ini_set( 'error_log', (string) $previous );
+		unlink( $log );
+		chmod( $root . 'locked/sealed', 0700 );
+		$_GET = [];
+		admin_remove_tree( $basedir );
+	}
+} );
+
+// ---------------------------------------------------------------------------
 // Menu registration and the capability gate
 // ---------------------------------------------------------------------------
 

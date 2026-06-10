@@ -9,6 +9,9 @@
 .kntnt-photo-drop-lightbox {
 	// A fixed, full-viewport modal layer above the page; `hidden` (toggled by the
 	// view module) removes it from layout and the accessibility tree entirely.
+	// Horizontal pans are the swipe gesture (pinch-zoom stays native) and the
+	// overscroll containment stops touch scrolling from rubber-banding the page
+	// behind the modal.
 	position: fixed;
 	inset: 0;
 	z-index: 999999;
@@ -17,6 +20,8 @@
 	justify-content: center;
 	padding: clamp(0.5rem, 4vw, 3rem);
 	background: rgba(0, 0, 0, 0.9);
+	touch-action: pinch-zoom;
+	overscroll-behavior: contain;
 
 	&[hidden] {
 		display: none;
@@ -24,6 +29,8 @@
 
 	&__figure {
 		// The figure holds the image centred and never exceeds the padded viewport.
+		// It is the positioning context for the loading spinner.
+		position: relative;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -41,6 +48,49 @@
 		width: auto;
 		height: auto;
 		object-fit: contain;
+	}
+
+	// While the current slide is loading, the (still-previous) image dims and a
+	// spinner sits over the figure, so a slow link never looks like a stale
+	// photo under an already-updated counter.
+	&--loading &__image {
+		opacity: 0.4;
+	}
+
+	&--loading &__figure::after {
+		content: "";
+		position: absolute;
+		top: calc(50% - 1.5rem);
+		left: calc(50% - 1.5rem);
+		width: 3rem;
+		height: 3rem;
+		border: 3px solid rgba(255, 255, 255, 0.3);
+		border-top-color: #fff;
+		border-radius: 50%;
+		animation: kntnt-photo-drop-lightbox-spin 0.8s linear infinite;
+	}
+
+	// A failed slide hides the broken-image glyph; the view module unhides the
+	// server-translated failure message in its place.
+	&--error &__image {
+		visibility: hidden;
+	}
+
+	&__error {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		margin: 0;
+		padding: 0.5rem 1rem;
+		font-size: 1rem;
+		color: #fff;
+		background: rgba(0, 0, 0, 0.5);
+		border-radius: 1rem;
+		transform: translate(-50%, -50%);
+
+		&[hidden] {
+			display: none;
+		}
 	}
 
 	// The three controls position themselves first (lowest specificity), so the
@@ -101,5 +151,21 @@
 		background: rgba(0, 0, 0, 0.5);
 		border-radius: 1rem;
 		transform: translateX(-50%);
+	}
+}
+
+// The loading spinner's rotation; reduced-motion users keep the static ring
+// (the dimmed image is the primary loading signal either way).
+@keyframes kntnt-photo-drop-lightbox-spin {
+
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.kntnt-photo-drop-lightbox--loading .kntnt-photo-drop-lightbox__figure::after {
+		animation: none;
 	}
 }

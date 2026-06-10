@@ -225,6 +225,14 @@ add_filter( 'kntnt_photo_drop_list_capability', fn() => 'upload_files' );
 
 The capability required to read the collection-list REST route (`GET /wp-json/kntnt-photo-drop/v1/collections`), which the block editor uses to populate its collection selectors. Default: `edit_posts`.
 
+### `kntnt_photo_drop_max_input_megapixels`
+
+```php
+add_filter( 'kntnt_photo_drop_max_input_megapixels', fn() => 100 );
+```
+
+The largest source image, in megapixels, the server will decode during ingestion (`image import` and the REST upload). Sources declaring more pixels are rejected per-file before any decode, so a decompression bomb or an oversized original cannot exhaust PHP's memory and kill the request. Default: `50`.
+
 ## Development
 
 ### Build from source

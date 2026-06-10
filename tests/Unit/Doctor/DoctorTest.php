@@ -7,11 +7,13 @@
  * real thumbnailer, real index store). It covers the design's Doctor contract:
  * report-only lists every drift and changes nothing; `--repair` creates missing
  * thumbnails, refreshes the index, and removes orphans; `--repair --force`
- * re-derives everything after a thumbnail-width change; an image below a width is
- * not flagged; a contract-violating main is warned but never processed or
- * deleted; foreign files honour the ignore list, `--ignore`, and `--show-ignored`
- * (and a `.thumbnails` dir is foreign); and mains are never altered, foreign
- * files never deleted (hashed before/after).
+ * re-derives everything after a thumbnail-width change and prunes the buckets of
+ * de-configured widths; an image below a width is not flagged; a
+ * contract-violating main is warned but never processed or deleted; foreign
+ * files honour the ignore list, `--ignore`, and `--show-ignored` (and a
+ * `.thumbnails` dir is foreign); a caller glob never de-classifies a main; mains
+ * are never altered, foreign files never deleted (hashed before/after); and a
+ * planted symlink is never followed, written through, or unlinked.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.4.0
@@ -132,8 +134,12 @@ function doctor_descriptor( array $widths, ?int $max_width = 1920 ): Descriptor 
 /**
  * Builds a doctor for a root and descriptor with no extra ignore globs.
  *
- * Uses the production GD-backed engine end to end (default codec, thumbnailer,
- * index store), so the tests exercise real pixel work and a real index rebuild.
+ * Uses the production GD-backed engine end to end (default codec, thumbnailer)
+ * so the tests exercise real pixel work and a real index rebuild. The index
+ * store gets a future clock: its same-second persist guard would otherwise make
+ * "was the index written?" assertions racy, since a whole test runs inside one
+ * mtime second (and APFS can stamp a directory mtime a full second ahead of
+ * `time()`, so the margin is generous).
  *
  * @param string      $root         The collection root.
  * @param Descriptor  $descriptor   The collection's contract and widths.
@@ -141,7 +147,8 @@ function doctor_descriptor( array $widths, ?int $max_width = 1920 ): Descriptor 
  * @return Doctor The doctor under test.
  */
 function make_doctor( string $root, Descriptor $descriptor, ?string $ignore_globs = null ): Doctor {
-	return new Doctor( $root, $descriptor, new Ignore_Matcher( $ignore_globs ) );
+	$index_store = new Index_Store( null, static fn (): int => time() + 5 );
+	return new Doctor( $root, $descriptor, new Ignore_Matcher( $ignore_globs ), null, null, $index_store );
 }
 
 /**
@@ -390,6 +397,24 @@ test( 'foreign warnings honour the built-in ignore list', function (): void {
 	doctor_remove_tree( $root );
 } );
 
+test( 'the root listing guard is a plugin file, not a foreign file', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor( [ 320 ] )->write( $root );
+
+	// The repository seeds index.php into every collection root; the doctor
+	// must treat it like the descriptor. A same-named file in a sub-folder is
+	// user content and stays foreign.
+	file_put_contents( $root . '/index.php', "<?php\n// Silence is golden.\n" );
+	mkdir( $root . '/trip' );
+	file_put_contents( $root . '/trip/index.php', '<?php echo "user content";' );
+
+	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+
+	expect( finding_paths( $report, Finding_Kind::Foreign ) )->toBe( [ 'trip/index.php' ] );
+
+	doctor_remove_tree( $root );
+} );
+
 test( 'a --ignore glob extends the ignore list', function (): void {
 	$root = doctor_fresh_root();
 	doctor_descriptor( [ 320 ] )->write( $root );
@@ -442,6 +467,195 @@ test( 'repair never alters a main image and never deletes a foreign file', funct
 	expect( md5_file( $main ) )->toBe( $main_hash );
 	expect( is_file( $root . '/notes.txt' ) )->toBeTrue();
 	expect( md5_file( $root . '/notes.txt' ) )->toBe( $foreign_hash );
+
+	doctor_remove_tree( $root );
+} );
+
+// ---------------------------------------------------------------------------
+// Symlinks: the doctor never deletes or writes through a planted link
+// ---------------------------------------------------------------------------
+
+test( 'repair deletes and writes nothing through a symlinked width directory', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor( [ 320 ] )->write( $root );
+	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
+
+	// Plant a symlinked configured width bucket pointing at an outside directory
+	// holding a file with no surviving main — pre-fix, the orphan scan would walk
+	// through the link and --repair would delete the outside file; the missing
+	// 320 thumbnail would be written through the link too.
+	$outside = doctor_fresh_root();
+	$victim  = write_doctor_main( $outside, 'victim.jpg.webp', 320 );
+	$victim_hash = md5_file( $victim );
+	mkdir( $root . '/' . Index::THUMBNAILS_DIRNAME, 0700, true );
+	symlink( $outside, $root . '/' . Index::THUMBNAILS_DIRNAME . '/320' );
+
+	// Plant a second, *de-configured* symlinked width bucket so the forced prune
+	// is proven to skip links as well.
+	$outside_stale = doctor_fresh_root();
+	$stale_victim  = write_doctor_main( $outside_stale, 'stale.jpg.webp', 320 );
+	symlink( $outside_stale, $root . '/' . Index::THUMBNAILS_DIRNAME . '/640' );
+
+	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, true );
+
+	// Nothing behind either link was deleted or altered, nothing was written into
+	// the outside directories, no orphan was flagged, and both links survive.
+	expect( md5_file( $victim ) )->toBe( $victim_hash );
+	expect( array_values( array_diff( scandir( $outside ), [ '.', '..' ] ) ) )->toBe( [ 'victim.jpg.webp' ] );
+	expect( is_file( $stale_victim ) )->toBeTrue();
+	expect( array_values( array_diff( scandir( $outside_stale ), [ '.', '..' ] ) ) )->toBe( [ 'stale.jpg.webp' ] );
+	expect( $report->of_kind( Finding_Kind::Orphan_Derived ) )->toBe( [] );
+	expect( $report->pruned )->toBe( 0 );
+	expect( is_link( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320' ) )->toBeTrue();
+	expect( is_link( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640' ) )->toBeTrue();
+
+	doctor_remove_tree( $root );
+	doctor_remove_tree( $outside );
+	doctor_remove_tree( $outside_stale );
+} );
+
+test( 'repair writes nothing through a symlinked content directory', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor( [ 320 ] )->write( $root );
+
+	// Plant a symlinked content directory pointing at an outside directory with a
+	// main-shaped file — pre-fix, the walk would descend through the link and a
+	// forced repair would write thumbnails and an index *outside* the collection.
+	$outside = doctor_fresh_root();
+	write_doctor_main( $outside, 'victim.jpg.webp', 1600 );
+	$before = array_values( array_diff( scandir( $outside ), [ '.', '..' ] ) );
+	symlink( $outside, $root . '/away' );
+
+	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, true );
+
+	// The outside directory gained no artifacts dir, no index, no thumbnails —
+	// its contents are exactly what they were — and no finding references the
+	// linked path at all.
+	expect( is_dir( $outside . '/' . Index::THUMBNAILS_DIRNAME ) )->toBeFalse();
+	expect( array_values( array_diff( scandir( $outside ), [ '.', '..' ] ) ) )->toBe( $before );
+	$paths = array_map( static fn ( $f ): string => $f->path, $report->findings );
+	expect( array_filter( $paths, static fn ( string $p ): bool => str_starts_with( $p, 'away' ) ) )->toBe( [] );
+
+	doctor_remove_tree( $root );
+	doctor_remove_tree( $outside );
+} );
+
+test( 'repair never unlinks a planted symlink file nor writes through a dangling one', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor( [ 320 ] )->write( $root );
+	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
+
+	// Plant, inside a *real* width bucket, a dangling symlink at the exact path
+	// of the missing 320 thumbnail (a write through it would land outside) and an
+	// orphan-shaped symlink pointing at an outside file (an unlink through the
+	// scan would remove a link the plugin does not own).
+	$outside = doctor_fresh_root();
+	$victim  = write_doctor_main( $outside, 'victim.jpg.webp', 320 );
+	$bucket  = $root . '/' . Index::THUMBNAILS_DIRNAME . '/320';
+	mkdir( $bucket, 0700, true );
+	symlink( $outside . '/spawned.webp', $bucket . '/photo.jpg.webp' );
+	symlink( $victim, $bucket . '/ghost.jpg.webp' );
+
+	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+
+	// Nothing was written through the dangling link, the orphan-shaped link was
+	// neither flagged nor removed, and the outside file is untouched.
+	expect( file_exists( $outside . '/spawned.webp' ) )->toBeFalse();
+	expect( is_link( $bucket . '/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_link( $bucket . '/ghost.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $victim ) )->toBeTrue();
+	expect( $report->of_kind( Finding_Kind::Orphan_Derived ) )->toBe( [] );
+
+	doctor_remove_tree( $root );
+	doctor_remove_tree( $outside );
+} );
+
+// ---------------------------------------------------------------------------
+// A caller --ignore glob never de-classifies a stored main
+// ---------------------------------------------------------------------------
+
+test( 'a caller --ignore glob matching a main leaves it a main and its thumbnails intact', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor( [ 320 ] )->write( $root );
+	mkdir( $root . '/raw', 0700, true );
+	$main = write_doctor_main( $root . '/raw', 'photo.jpg.webp', 1600 );
+
+	// Establish the derived artifacts first, then doctor with a glob covering the
+	// whole sub-tree — pre-fix, the glob de-classified the main and its thumbnail
+	// became a deletable orphan.
+	make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	$thumb = $root . '/raw/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp';
+	expect( is_file( $thumb ) )->toBeTrue();
+
+	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ), 'raw/*' )->run( true, false );
+
+	// The main is still classified as a main (not foreign, not ignored), nothing
+	// was flagged orphan, and the thumbnail survived the repair.
+	expect( finding_paths( $report, Finding_Kind::Foreign ) )->not->toContain( 'raw/photo.jpg.webp' );
+	expect( finding_paths( $report, Finding_Kind::Ignored ) )->not->toContain( 'raw/photo.jpg.webp' );
+	expect( $report->of_kind( Finding_Kind::Orphan_Derived ) )->toBe( [] );
+	expect( is_file( $thumb ) )->toBeTrue();
+	expect( is_file( $main ) )->toBeTrue();
+
+	doctor_remove_tree( $root );
+} );
+
+test( 'the built-in list still pre-empts a main-shaped AppleDouble under a caller glob', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor( [ 320 ] )->write( $root );
+	mkdir( $root . '/raw', 0700, true );
+	file_put_contents( $root . '/raw/._photo.jpg.webp', 'junk' );
+
+	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ), 'raw/*' )->run( false, false );
+
+	// The AppleDouble lookalike is OS junk before it could ever look like a main:
+	// it is ignored, demands no thumbnail, and violates no contract.
+	expect( finding_paths( $report, Finding_Kind::Ignored ) )->toBe( [ 'raw/._photo.jpg.webp' ] );
+	expect( $report->of_kind( Finding_Kind::Missing_Derived ) )->toBe( [] );
+	expect( $report->of_kind( Finding_Kind::Contract_Violation ) )->toBe( [] );
+
+	doctor_remove_tree( $root );
+} );
+
+// ---------------------------------------------------------------------------
+// --repair --force prunes the width buckets of de-configured widths
+// ---------------------------------------------------------------------------
+
+test( 'force prunes the width directories a thumbnail-width change de-configured', function (): void {
+	$root = doctor_fresh_root();
+
+	// Establish at width 640 and repair so the 640 bucket holds a thumbnail.
+	doctor_descriptor( [ 640 ] )->write( $root );
+	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
+	make_doctor( $root, doctor_descriptor( [ 640 ] ) )->run( true, false );
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
+
+	// The width filter changed to [320]; a forced repair re-derives everything —
+	// which includes retiring the now-unconfigured 640 bucket, not just adding 320.
+	$narrower = doctor_descriptor( [ 320 ] );
+	$narrower->write( $root );
+	$report = make_doctor( $root, $narrower )->run( true, true );
+
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeFalse();
+	expect( is_dir( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640' ) )->toBeFalse();
+	expect( $report->pruned )->toBe( 1 );
+
+	doctor_remove_tree( $root );
+} );
+
+test( 'a repair without force never prunes a de-configured width directory', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor( [ 640 ] )->write( $root );
+	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
+	make_doctor( $root, doctor_descriptor( [ 640 ] ) )->run( true, false );
+
+	// A plain repair under the new widths adds what is missing but retires
+	// nothing — pruning is --force's documented job.
+	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
+	expect( $report->pruned )->toBe( 0 );
 
 	doctor_remove_tree( $root );
 } );

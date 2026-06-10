@@ -21,6 +21,7 @@ declare( strict_types = 1 );
 
 use Brain\Monkey\Functions;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Ingestion\Ingestor;
 use Kntnt\Photo_Drop\Rest\Upload_Controller;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
@@ -67,6 +68,7 @@ function wire_upload_stubs( string $basedir, bool $nonce_ok, bool $cap_ok, ?stri
 	Functions\when( 'wp_json_encode' )->alias(
 		static fn ( mixed $data, int $flags = 0 ): string|false => json_encode( $data, $flags )
 	);
+	Functions\when( 'wp_raise_memory_limit' )->justReturn( true );
 
 	// The nonce verifier returns a truthy tick (1) or false, matching core.
 	Functions\when( 'wp_verify_nonce' )->justReturn( $nonce_ok ? 1 : false );
@@ -197,6 +199,33 @@ function rest_request(
 		);
 	}
 	return $request;
+}
+
+/**
+ * Captures the route configuration that register_routes() registers.
+ *
+ * Stubs `register_rest_route()` to record its configuration array — exactly
+ * what production WordPress receives — so tests can assert the registered
+ * argument schema and drive request parameters through the same
+ * `sanitize_callback` production applies before the handler runs.
+ *
+ * @param Upload_Controller $controller The controller whose route to capture.
+ * @return array<string, mixed> The captured route configuration.
+ */
+function capture_route_config( Upload_Controller $controller ): array {
+
+	// Record the configuration the controller hands to WordPress.
+	$captured = [];
+	Functions\when( 'register_rest_route' )->alias(
+		static function ( string $route_namespace, string $route, array $config ) use ( &$captured ): bool {
+			$captured = $config;
+			return true;
+		}
+	);
+	$controller->register_routes();
+
+	return $captured;
+
 }
 
 /**
@@ -344,6 +373,28 @@ test( 'an already-conforming WebP POSTed directly is stored as-is with a stored 
 // Path traversal and realpath confinement
 // ---------------------------------------------------------------------------
 
+test( 'the relativePath sanitiser is a pure type gate that preserves raw bytes', function (): void {
+
+	// The registered callback must pass strings through verbatim — %xx
+	// sequences, doubled spaces, even NUL bytes intact, so Path_Guard (the real
+	// sanitiser) sees the raw bytes — and normalise non-strings to the empty
+	// string. The slug keeps the strict text-field sanitiser: it addresses a
+	// directory, never carries a filename.
+	$basedir = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$config = capture_route_config( new Upload_Controller( new Repository() ) );
+
+	$sanitize = $config['args']['relativePath']['sanitize_callback'];
+	expect( $sanitize( '%2e%2e%2fescape.jpg' ) )->toBe( '%2e%2e%2fescape.jpg' );
+	expect( $sanitize( 'with  double  spaces.jpg' ) )->toBe( 'with  double  spaces.jpg' );
+	expect( $sanitize( "nul\x00byte.jpg" ) )->toBe( "nul\x00byte.jpg" );
+	expect( $sanitize( [ 'not', 'a', 'string' ] ) )->toBe( '' );
+	expect( $sanitize( null ) )->toBe( '' );
+	expect( $config['args']['slug']['sanitize_callback'] )->toBe( 'sanitize_text_field' );
+
+	rest_remove_tree( $basedir );
+} );
+
 test( 'a hostile relativePath is rejected with nothing written outside the root', function ( string $hostile ): void {
 
 	// Every hostile target is rejected as 422 with no file written; the collection
@@ -354,7 +405,13 @@ test( 'a hostile relativePath is rejected with nothing written outside the root'
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
-	$response = $controller->upload( rest_request( 'photos', $hostile, rest_jpeg( 400, 300 ) ) );
+	// Drive the hostile value through the exact sanitize_callback production
+	// registers, so upload() sees the same bytes WordPress would deliver —
+	// keeping this adversarial dataset meaningful end to end (the previous
+	// sanitize_text_field would have mangled the encoded entries before the
+	// guard ever saw them).
+	$sanitize = capture_route_config( $controller )['args']['relativePath']['sanitize_callback'];
+	$response = $controller->upload( rest_request( 'photos', $sanitize( $hostile ), rest_jpeg( 400, 300 ) ) );
 
 	expect( $response->get_status() )->toBe( 422 );
 	expect( $response->get_data()['outcome'] )->toBe( 'rejected' );
@@ -498,6 +555,47 @@ test( 'every per-file response outcome is one of the four legal values', functio
 	expect( $reencoded->get_data()['outcome'] )->toBe( 'reencoded' );
 	expect( $skipped->get_data()['outcome'] )->toBe( 'skipped' );
 	expect( $rejected->get_data()['outcome'] )->toBe( 'rejected' );
+
+	rest_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// A host without a WebP codec is a clean 500, never an uncaught throw
+// ---------------------------------------------------------------------------
+
+test( 'a missing WebP codec yields an actionable 500 instead of an uncaught throw', function (): void {
+
+	// A test subclass whose ingestor factory throws the optimiser's
+	// construction error stands in for a PHP without GD/Imagick WebP support:
+	// the handler must answer with a translated, actionable 500 — and write
+	// nothing — rather than letting the RuntimeException escape as an opaque
+	// server error.
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = new class( new Repository() ) extends Upload_Controller {
+
+		/**
+		 * Throws the codec-missing construction error the real Ingestor raises.
+		 *
+		 * @param string     $collection_path Ignored.
+		 * @param Descriptor $descriptor      Ignored.
+		 * @throws \RuntimeException Always.
+		 */
+		protected function create_ingestor( string $collection_path, Descriptor $descriptor ): Ingestor {
+			throw new \RuntimeException( 'No image codec on this host can encode WebP.' );
+		}
+
+	};
+
+	$response = $controller->upload( rest_request( 'photos', 'IMG.jpg', rest_jpeg( 400, 300 ) ) );
+
+	expect( $response )->toBeInstanceOf( WP_Error::class );
+	expect( $response->get_error_code() )->toBe( 'kntnt_photo_drop_no_codec' );
+	expect( $response->get_error_data()['status'] )->toBe( 500 );
+	expect( $response->get_error_message() )->toContain( 'WebP' );
+	expect( glob( $path . '/*' ) )->toBe( [ $path . '/collection.json' ] );
 
 	rest_remove_tree( $basedir );
 } );

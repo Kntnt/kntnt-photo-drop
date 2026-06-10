@@ -4,19 +4,23 @@
  *
  * One controller is created per gallery wrapper whose `enableLightbox` flag is
  * on. It progressively enhances the server-rendered `<a href="full.webp">`
- * thumbnails into a modal image viewer: a click opens the overlay on the clicked
- * image instead of navigating (so browser history is never touched — the
- * deciding flaw of a CSS `:target` lightbox, ADR-0007), and prev/next, keyboard,
- * swipe, and the close affordances page or dismiss it. With the flag off, or
- * with JavaScript disabled, no controller is created and the anchors navigate to
- * the full image unchanged.
+ * thumbnails into a modal image viewer: a plain primary click opens the overlay
+ * on the clicked image instead of navigating (so browser history is never
+ * touched — the deciding flaw of a CSS `:target` lightbox, ADR-0007; a modified
+ * click — new tab, new window — is left to the browser), and prev/next,
+ * keyboard, swipe, and the close affordances page or dismiss it. While open,
+ * the page behind the modal is scroll-locked and the keyboard is handled at the
+ * document level, so focus drifting to a non-focusable click target never
+ * deadens Escape or the arrows. With the flag off, or with JavaScript disabled,
+ * no controller is created and the anchors navigate to the full image
+ * unchanged.
  *
  * All navigation state lives in the pure {@link LightboxState} reducer; this
  * module reads the DOM, asks the reducers (`open`/`next`/`prev`/`first`/`last`,
  * `actionForKey`, `actionForSwipe`) what to do, and reflects the result back
  * onto the overlay. The overlay markup itself is emitted server-side by
  * `Render_Gallery` and escaped there; the controller only fills in the live
- * `src`, caption, counter, and `aria` state.
+ * `src`/`srcset`, caption, counter, loading/error state, and `aria` state.
  *
  * @since 0.7.0
  */
@@ -37,14 +41,44 @@ import {
 import { actionForSwipe } from './lightbox-swipe';
 
 /**
+ * How long after the last transition the neighbour preload waits, in
+ * milliseconds.
+ *
+ * Holding an arrow key fires transitions far faster than this, so a held key
+ * schedules no downloads at all until the visitor settles on an image —
+ * without the debounce, paging a thousand-image gallery starts hundreds of
+ * uncancellable full-image requests.
+ *
+ * @since 0.2.0
+ */
+const PRELOAD_DELAY = 150;
+
+/**
+ * The overlay class toggled while the current slide's image is loading.
+ *
+ * @since 0.2.0
+ */
+const LOADING_CLASS = 'kntnt-photo-drop-lightbox--loading';
+
+/**
+ * The overlay class toggled when the current slide's image failed to load.
+ *
+ * @since 0.2.0
+ */
+const ERROR_CLASS = 'kntnt-photo-drop-lightbox--error';
+
+/**
  * The per-image data the controller reads off each thumbnail anchor: the full
- * image URL it points at and the accessible label to announce when shown.
+ * image URL it points at, the responsive srcset the server mirrored onto the
+ * anchor, and the accessible label to announce when shown.
  *
  * @since 0.7.0
  */
 interface LightboxSlide {
 	/** The full-resolution image URL (the anchor's `href`). */
 	readonly url: string;
+	/** The slide's responsive srcset (the anchor's srcset data attribute). */
+	readonly srcset: string;
 	/** The accessible label for the image (the thumbnail's `alt`). */
 	readonly label: string;
 }
@@ -61,6 +95,7 @@ interface OverlayRefs {
 	readonly previous: HTMLButtonElement;
 	readonly forward: HTMLButtonElement;
 	readonly dismiss: HTMLButtonElement;
+	readonly failure: HTMLElement;
 }
 
 /**
@@ -88,10 +123,20 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 	const dismiss = overlay.querySelector< HTMLButtonElement >(
 		'.kntnt-photo-drop-lightbox__close'
 	);
-	if ( ! image || ! counter || ! previous || ! forward || ! dismiss ) {
+	const failure = overlay.querySelector< HTMLElement >(
+		'.kntnt-photo-drop-lightbox__error'
+	);
+	if (
+		! image ||
+		! counter ||
+		! previous ||
+		! forward ||
+		! dismiss ||
+		! failure
+	) {
 		return null;
 	}
-	return { overlay, image, counter, previous, forward, dismiss };
+	return { overlay, image, counter, previous, forward, dismiss, failure };
 }
 
 /**
@@ -121,6 +166,26 @@ export class GalleryLightbox {
 
 	/** The counter announcement template, e.g. `"%1$d of %2$d"`. */
 	readonly #counterTemplate: string;
+
+	/**
+	 * The document keydown listener, bound while the lightbox is open.
+	 *
+	 * @param event - The keyboard event from the document.
+	 */
+	readonly #documentKeydown = ( event: KeyboardEvent ): void =>
+		this.#onKeydown( event );
+
+	/** The root element's inline `overflow` before the scroll lock, restored on close. */
+	#previousOverflow = '';
+
+	/** The pending neighbour-preload timer, or `null` when none is scheduled. */
+	#preloadTimer: ReturnType< typeof setTimeout > | null = null;
+
+	/** The slide URLs already handed to the browser for preloading. */
+	readonly #warmed = new Set< string >();
+
+	/** The URL of the slide currently in the overlay image, or `null` before the first. */
+	#currentUrl: string | null = null;
 
 	/**
 	 * Wires a lightbox onto a gallery's anchors and overlay, when the markup is
@@ -169,6 +234,7 @@ export class GalleryLightbox {
 		this.#counterTemplate = counterTemplate;
 		this.#slides = links.map( ( link ) => ( {
 			url: link.dataset.kntntPhotoDropFull ?? link.href,
+			srcset: link.dataset.kntntPhotoDropSrcset ?? '',
 			label: link.querySelector< HTMLImageElement >( 'img' )?.alt ?? '',
 		} ) );
 		this.#state = createLightboxState( links.length );
@@ -176,20 +242,34 @@ export class GalleryLightbox {
 	}
 
 	/**
-	 * Binds the trigger, control, and global listeners.
+	 * Binds the trigger, control, and image-state listeners.
 	 *
-	 * Each thumbnail click opens the lightbox on that image and suppresses the
-	 * navigation; the overlay's own controls and the keyboard/swipe gestures page
-	 * or dismiss it; a backdrop click closes. The keyboard and swipe listeners are
-	 * scoped to the overlay so they engage only while it is open.
+	 * Each plain primary thumbnail click opens the lightbox on that image and
+	 * suppresses the navigation; a modified click (new tab, new window, download)
+	 * is left to the browser. The overlay's own controls and the swipe gestures
+	 * page or dismiss it; a backdrop click closes. The keyboard listener is *not*
+	 * bound here: clicking the enlarged image or counter blurs focus to `body`,
+	 * which would deaden an overlay-scoped listener, so `#open` binds it at the
+	 * document level and `#close` removes it again.
 	 *
 	 * @since 0.7.0
 	 */
 	#bind(): void {
-		// Turn each thumbnail into a lightbox trigger: open on the clicked index
-		// and call preventDefault so the anchor never navigates (no history entry).
+		// Turn each thumbnail into a lightbox trigger: a plain primary click opens
+		// on the clicked index and calls preventDefault so the anchor never
+		// navigates (no history entry); any modifier or non-primary button keeps
+		// the browser's own behaviour (open in new tab/window, download, …).
 		this.#links.forEach( ( link, index ) => {
 			link.addEventListener( 'click', ( event ) => {
+				if (
+					event.metaKey ||
+					event.ctrlKey ||
+					event.shiftKey ||
+					event.altKey ||
+					event.button !== 0
+				) {
+					return;
+				}
 				event.preventDefault();
 				this.#open( index, link );
 			} );
@@ -212,11 +292,12 @@ export class GalleryLightbox {
 			}
 		} );
 
-		// Keyboard control while open: the pure mapper decides the action, then the
-		// recognised keys are consumed so the page beneath does not also react.
-		this.#refs.overlay.addEventListener( 'keydown', ( event ) => {
-			this.#onKeydown( event );
-		} );
+		// Reflect the slide image's network state: clear the loading veil when it
+		// arrives, or swap it for the server-translated failure message.
+		this.#refs.image.addEventListener( 'load', () =>
+			this.#setLoading( false )
+		);
+		this.#refs.image.addEventListener( 'error', () => this.#showError() );
 
 		// Touch paging while open: record the start point, decide on release.
 		this.#bindSwipe();
@@ -225,14 +306,27 @@ export class GalleryLightbox {
 	/**
 	 * Records touch endpoints and pages the lightbox on a qualifying swipe.
 	 *
+	 * A gesture that ever involves a second finger is a pinch, not a swipe: the
+	 * later touchstart would overwrite the recorded start point and produce a
+	 * garbage delta, so the whole gesture is flagged multi-touch and the pure
+	 * decision discards it. The decision runs only when the last finger lifts.
+	 *
 	 * @since 0.7.0
 	 */
 	#bindSwipe(): void {
 		let startX = 0;
 		let startY = 0;
+		let multiTouch = false;
 		this.#refs.overlay.addEventListener(
 			'touchstart',
 			( event ) => {
+				// A second finger marks the whole gesture multi-touch; only a fresh
+				// single-finger gesture resets the flag and records a start point.
+				if ( event.touches.length > 1 ) {
+					multiTouch = true;
+					return;
+				}
+				multiTouch = false;
 				const touch = event.changedTouches[ 0 ];
 				if ( touch ) {
 					startX = touch.clientX;
@@ -244,13 +338,19 @@ export class GalleryLightbox {
 		this.#refs.overlay.addEventListener(
 			'touchend',
 			( event ) => {
+				// Decide only when the last finger has lifted, handing the pure
+				// decision the delta and whether the gesture stayed single-touch.
+				if ( event.touches.length !== 0 ) {
+					return;
+				}
 				const touch = event.changedTouches[ 0 ];
 				if ( ! touch ) {
 					return;
 				}
 				const action = actionForSwipe(
 					touch.clientX - startX,
-					touch.clientY - startY
+					touch.clientY - startY,
+					{ multiTouch }
 				);
 				if ( action === 'next' ) {
 					this.#apply( next );
@@ -266,17 +366,23 @@ export class GalleryLightbox {
 	 * Maps a key press to a reducer transition while the lightbox is open.
 	 *
 	 * Tab is deliberately left unmapped so the focus trap (installed on open)
-	 * keeps owning it; every other recognised key is consumed.
+	 * keeps owning it, and a held Alt/Ctrl/Meta leaves the key to the browser
+	 * (Alt/Cmd+ArrowLeft is browser back); every other recognised key is
+	 * consumed.
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param event - The keyboard event from the overlay.
+	 * @param event - The keyboard event from the document.
 	 */
 	#onKeydown( event: KeyboardEvent ): void {
 		if ( ! this.#state.open ) {
 			return;
 		}
-		const action: LightboxKeyAction = actionForKey( event.key );
+		const action: LightboxKeyAction = actionForKey( event.key, {
+			alt: event.altKey,
+			ctrl: event.ctrlKey,
+			meta: event.metaKey,
+		} );
 		if ( action === 'none' ) {
 			return;
 		}
@@ -292,6 +398,12 @@ export class GalleryLightbox {
 	/**
 	 * Opens the lightbox at an index, remembering the trigger for focus return.
 	 *
+	 * While open, the page behind the modal is scroll-locked (the root element's
+	 * prior inline `overflow` is remembered and restored on close) and the
+	 * keyboard is handled at the document level — clicking the enlarged image or
+	 * the counter blurs focus to `body`, where an overlay-scoped listener would
+	 * never hear Escape or the arrows again.
+	 *
 	 * @since 0.7.0
 	 *
 	 * @param index   - The image index to show.
@@ -301,20 +413,39 @@ export class GalleryLightbox {
 		this.#trigger = trigger;
 		this.#state = open( this.#state, index );
 		this.#refs.overlay.hidden = false;
+
+		// Lock the page scroll behind the modal and take over the keyboard at the
+		// document level for as long as the lightbox stays open.
+		const doc = this.#refs.overlay.ownerDocument;
+		this.#previousOverflow = doc.documentElement.style.overflow;
+		doc.documentElement.style.overflow = 'hidden';
+		doc.addEventListener( 'keydown', this.#documentKeydown );
+
 		this.#render();
 		this.#releaseTrap = trapFocus( this.#refs.overlay );
 		this.#refs.dismiss.focus();
 	}
 
 	/**
-	 * Closes the lightbox, releases the focus trap, and restores focus to the
-	 * trigger.
+	 * Closes the lightbox, undoes the open-state side effects, and restores
+	 * focus to the trigger.
 	 *
 	 * @since 0.7.0
 	 */
 	#close(): void {
 		this.#state = close( this.#state );
 		this.#refs.overlay.hidden = true;
+
+		// Undo the open-state side effects: the scroll lock, the document-level
+		// keyboard listener, and any preload still waiting on the debounce.
+		const doc = this.#refs.overlay.ownerDocument;
+		doc.documentElement.style.overflow = this.#previousOverflow;
+		doc.removeEventListener( 'keydown', this.#documentKeydown );
+		if ( this.#preloadTimer !== null ) {
+			clearTimeout( this.#preloadTimer );
+			this.#preloadTimer = null;
+		}
+
 		this.#releaseTrap?.();
 		this.#releaseTrap = null;
 		this.#trigger?.focus();
@@ -335,7 +466,8 @@ export class GalleryLightbox {
 
 	/**
 	 * Reflects the current state onto the overlay: image, caption, counter, the
-	 * prev/next availability, and the neighbour preload.
+	 * prev/next availability, the loading/error state, and the debounced
+	 * neighbour preload.
 	 *
 	 * @since 0.7.0
 	 */
@@ -345,8 +477,24 @@ export class GalleryLightbox {
 			return;
 		}
 
-		// Swap in the current image and its label; the alt doubles as the caption.
-		this.#refs.image.src = slide.url;
+		// Swap in the current image — responsive via the mirrored srcset, so a
+		// phone never downloads the full-resolution main — raising the loading
+		// veil and clearing any failure from the previous slide. A re-render of
+		// the same slide skips the swap so the veil cannot stick without a
+		// pending load event.
+		if ( slide.url !== this.#currentUrl ) {
+			this.#currentUrl = slide.url;
+			this.#setLoading( true );
+			this.#refs.overlay.classList.remove( ERROR_CLASS );
+			this.#refs.failure.hidden = true;
+			if ( slide.srcset !== '' ) {
+				this.#refs.image.srcset = slide.srcset;
+				this.#refs.image.sizes = '100vw';
+			}
+			this.#refs.image.src = slide.url;
+		}
+
+		// The alt doubles as the caption.
 		this.#refs.image.alt = slide.label;
 
 		// Announce the position via the live-region counter (1-based for humans).
@@ -359,12 +507,59 @@ export class GalleryLightbox {
 		this.#refs.previous.hidden = single;
 		this.#refs.forward.hidden = single;
 
-		this.#preloadNeighbours();
+		this.#schedulePreload();
+	}
+
+	/**
+	 * Toggles the loading veil over the slide image.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param loading - Whether the current slide's image is still loading.
+	 */
+	#setLoading( loading: boolean ): void {
+		this.#refs.overlay.classList.toggle( LOADING_CLASS, loading );
+	}
+
+	/**
+	 * Shows the load-failure state: the veil drops, the broken image hides, and
+	 * the server-translated failure message appears in its place.
+	 *
+	 * @since 0.2.0
+	 */
+	#showError(): void {
+		this.#setLoading( false );
+		this.#refs.overlay.classList.add( ERROR_CLASS );
+		this.#refs.failure.hidden = false;
+	}
+
+	/**
+	 * Schedules the neighbour preload, debounced behind {@link PRELOAD_DELAY}.
+	 *
+	 * Every transition resets the timer, so a held arrow key pages freely and
+	 * only the image the visitor settles on gets its neighbours warmed —
+	 * without this, holding ArrowRight on a large gallery starts hundreds of
+	 * uncancellable downloads.
+	 *
+	 * @since 0.2.0
+	 */
+	#schedulePreload(): void {
+		if ( this.#preloadTimer !== null ) {
+			clearTimeout( this.#preloadTimer );
+		}
+		this.#preloadTimer = setTimeout( () => {
+			this.#preloadTimer = null;
+			this.#preloadNeighbours();
+		}, PRELOAD_DELAY );
 	}
 
 	/**
 	 * Warms the browser cache for the images adjacent to the current one, so a
 	 * prev/next press shows the neighbour without a visible load.
+	 *
+	 * Each slide is handed to the browser at most once per page view (the warmed
+	 * set), and the preload carries the slide's srcset and the overlay's sizes
+	 * so the browser warms the same rendition the overlay will actually show.
 	 *
 	 * @since 0.7.0
 	 */
@@ -375,10 +570,16 @@ export class GalleryLightbox {
 				continue;
 			}
 			const slide = this.#slides[ position ];
-			if ( slide ) {
-				const preload = new Image();
-				preload.src = slide.url;
+			if ( ! slide || this.#warmed.has( slide.url ) ) {
+				continue;
 			}
+			this.#warmed.add( slide.url );
+			const preload = new Image();
+			if ( slide.srcset !== '' ) {
+				preload.srcset = slide.srcset;
+				preload.sizes = '100vw';
+			}
+			preload.src = slide.url;
 		}
 	}
 }

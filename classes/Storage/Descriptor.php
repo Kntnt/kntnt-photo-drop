@@ -178,7 +178,10 @@ final readonly class Descriptor {
 	 * `thumbnailWidths`) and the output is pretty-printed with unescaped slashes
 	 * and unicode, so the file is human-readable and a re-write with unchanged
 	 * data produces byte-identical output — keeping diffs and any content-hash
-	 * comparison stable. Returns whether the write succeeded.
+	 * comparison stable. The file is published through `Atomic_Writer`, so a
+	 * reader (or a crash) only ever observes the old descriptor or the complete
+	 * new one, never a torn or truncated file. Returns whether the write
+	 * succeeded.
 	 *
 	 * @since 0.1.0
 	 *
@@ -197,12 +200,12 @@ final readonly class Descriptor {
 			return false;
 		}
 
-		// Persist the bytes; the plugin owns this tree directly, so it writes the
-		// file rather than routing through the Media Library abstraction.
+		// Publish the bytes atomically. The descriptor is the one irreplaceable
+		// file, so a crash or full disk mid-write must never replace the live
+		// `collection.json` with a truncated copy — the writer stages a temp
+		// file, verifies the full length landed, and renames it into place.
 		$file = self::path_for( $collection_path );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- The plugin owns this directory tree on disk directly (ADR-0001); WP_Filesystem is the wrong abstraction for files written outside the Media Library.
-		$written = file_put_contents( $file, $json . "\n" );
-		if ( $written === false ) {
+		if ( ! Atomic_Writer::write( $file, $json . "\n" ) ) {
 			Plugin::error( "Failed to write the collection descriptor at {$file}." );
 			return false;
 		}

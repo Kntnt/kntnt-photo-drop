@@ -8,12 +8,13 @@
  * `lightbox.ts` records `touchstart`/`touchend` coordinates, hands the delta
  * here, and acts on the result.
  *
- * The decision has two guards a naive sign check misses: a minimum horizontal
- * distance (so a stationary tap or a tiny jitter is not a swipe) and a
- * dominance check (the horizontal travel must exceed the vertical, so a mostly-
- * vertical scroll gesture is left to the browser rather than hijacked as a
- * page). Both thresholds are parameters with sensible defaults, kept pure so the
- * boundary cases are unit-testable.
+ * The decision has three guards a naive sign check misses: a minimum horizontal
+ * distance (so a stationary tap or a tiny jitter is not a swipe), a dominance
+ * check (the horizontal travel must exceed the vertical, so a mostly-vertical
+ * scroll gesture is left to the browser rather than hijacked as a page), and a
+ * multi-touch flag (a gesture that ever involved a second finger — a pinch —
+ * produces garbage deltas and must never page). All knobs are options with
+ * sensible defaults, kept pure so the boundary cases are unit-testable.
  *
  * @since 0.7.0
  */
@@ -37,29 +38,54 @@ export type SwipeAction = 'prev' | 'next' | 'none';
 export const DEFAULT_SWIPE_THRESHOLD = 30;
 
 /**
+ * The optional knobs of the swipe decision.
+ *
+ * @since 0.2.0
+ */
+export interface SwipeOptions {
+	/** Minimum horizontal travel to register, in pixels; defaults to {@link DEFAULT_SWIPE_THRESHOLD}. */
+	readonly threshold?: number;
+	/** Whether the gesture ever involved more than one touch point; defaults to `false`. */
+	readonly multiTouch?: boolean;
+}
+
+/**
  * Decides which way a swipe pages the lightbox, or that it does not.
  *
  * A swipe counts only when its horizontal travel meets the threshold *and*
  * dominates the vertical travel — otherwise a short flick or a mostly-vertical
- * scroll is left alone (`'none'`). A leftward swipe (negative `deltaX`, the
- * content dragged toward the next image) yields `'next'`; a rightward swipe
- * yields `'prev'`.
+ * scroll is left alone (`'none'`). A gesture flagged multi-touch is always
+ * `'none'`: a second finger means a pinch, and the recorded deltas are garbage.
+ * A leftward swipe (negative `deltaX`, the content dragged toward the next
+ * image) yields `'next'`; a rightward swipe yields `'prev'`.
  *
  * @since 0.7.0
+ * @since 0.2.0 The threshold moved into `options`, joined by the multi-touch flag.
  *
- * @param deltaX    - Horizontal travel: end X minus start X, in pixels.
- * @param deltaY    - Vertical travel: end Y minus start Y, in pixels.
- * @param threshold - Minimum horizontal travel to register, in pixels; defaults to {@link DEFAULT_SWIPE_THRESHOLD}.
+ * @param deltaX  - Horizontal travel: end X minus start X, in pixels.
+ * @param deltaY  - Vertical travel: end Y minus start Y, in pixels.
+ * @param options - The optional threshold and multi-touch flag.
  * @return The paging action, or `'none'` when the gesture does not qualify.
  */
 export function actionForSwipe(
 	deltaX: number,
 	deltaY: number,
-	threshold: number = DEFAULT_SWIPE_THRESHOLD
+	options: SwipeOptions = {}
 ): SwipeAction {
+	const { threshold = DEFAULT_SWIPE_THRESHOLD, multiTouch = false } = options;
+
+	// A pinch is never a page: once a second finger has touched, the deltas no
+	// longer describe one finger's travel and the gesture is discarded whole.
+	if ( multiTouch ) {
+		return 'none';
+	}
+
+	// Require the horizontal travel to clear the threshold and dominate the
+	// vertical, then map the direction onto the paging action.
 	const absX = Math.abs( deltaX );
 	if ( absX < threshold || absX <= Math.abs( deltaY ) ) {
 		return 'none';
 	}
+
 	return deltaX < 0 ? 'next' : 'prev';
 }

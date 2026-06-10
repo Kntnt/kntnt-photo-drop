@@ -17,8 +17,14 @@
 		cursor: pointer;
 	}
 
-	&__status {
+	&__summary {
 		margin: 0.75rem 0 0;
+		font-size: 0.9em;
+		font-weight: 600;
+	}
+
+	&__status {
+		margin: 0.25rem 0 0;
 		padding: 0;
 		list-style: none;
 	}
@@ -26,5 +32,15 @@
 	&__status-item {
 		padding: 0.2rem 0;
 		font-size: 0.9em;
+
+		// Transient rows (queued/converting/uploading) read as in-progress;
+		// terminal rows keep full strength.
+		&--pending {
+			opacity: 0.7;
+		}
+
+		&--failed {
+			color: #b32d2e; // WordPress core's error red, readable on light themes.
+		}
 	}
 }

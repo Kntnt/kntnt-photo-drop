@@ -293,10 +293,12 @@ final class Collection_Command {
 	 * The diagnostic the design calls for: the main image is the unit of truth, and
 	 * the doctor finds every place a derived artifact has drifted from the mains.
 	 * It is report-only by default — the report *is* the dry run, so nothing on disk
-	 * changes. `--repair` acts: it creates missing thumbnails, refreshes the index,
-	 * and removes orphan thumbnails. `--repair --force` re-derives everything
-	 * (regenerates all thumbnails, rebuilds all indexes), the path to take after a
-	 * `kntnt_photo_drop_thumbnail_width` change. A main that violates the immutable
+	 * changes, and the command exits non-zero when actionable findings exist so a
+	 * monitoring script can trip on drift. `--repair` acts: it creates missing
+	 * thumbnails, refreshes the index, and removes orphan thumbnails. `--repair
+	 * --force` re-derives everything (regenerates all thumbnails, rebuilds all
+	 * indexes, prunes the width directories of de-configured widths), the path to
+	 * take after a `kntnt_photo_drop_thumbnail_width` change. A main that violates the immutable
 	 * contract (over the ceiling, or not WebP — only arrivable by an out-of-band
 	 * copy) is warned about, never processed in place, never deleted; a foreign file
 	 * is warned about, never deleted — even with `--repair`. The built-in OS-junk
@@ -313,7 +315,7 @@ final class Collection_Command {
 	 * : Act on the findings instead of only reporting them.
 	 *
 	 * [--force]
-	 * : With --repair, re-derive every thumbnail and rebuild every index (use after a thumbnail-width change).
+	 * : With --repair, re-derive every thumbnail, rebuild every index, and prune de-configured width directories.
 	 *
 	 * [--ignore=<glob>]
 	 * : Extra foreign-file globs to ignore, comma-separated (e.g. "*.tmp,raw/*").
@@ -379,7 +381,10 @@ final class Collection_Command {
 	 * the whole picture at a glance, raises a `WP_CLI::warning` for each
 	 * contract-violating main and foreign file (the two states a human must resolve
 	 * by hand), lists the ignored files only when `--show-ignored` is set, and
-	 * closes with a one-line summary reflecting whether the run reported or repaired.
+	 * closes with a one-line summary reflecting whether the run reported or
+	 * repaired. A report-only run that found actionable findings closes through
+	 * `WP_CLI::error()` — after the full report — so a monitoring script can trip
+	 * on the non-zero exit; a repair (the act applied) keeps exit 0.
 	 *
 	 * @since 0.4.0
 	 *
@@ -391,14 +396,11 @@ final class Collection_Command {
 
 		// Render every actionable finding as one table; the ignored ones are held back
 		// for the optional --show-ignored listing so the main table stays signal.
-		$actionable = array_filter(
-			$report->findings,
-			static fn ( Finding $finding ): bool => $finding->kind !== Finding_Kind::Ignored,
-		);
+		$actionable = $this->actionable_findings( $report );
 		if ( $actionable !== [] ) {
 			Utils\format_items(
 				'table',
-				array_map( static fn ( Finding $finding ): array => $finding->to_row(), array_values( $actionable ) ),
+				array_map( static fn ( Finding $finding ): array => $finding->to_row(), $actionable ),
 				[ 'kind', 'path', 'detail' ],
 			);
 		}
@@ -422,17 +424,46 @@ final class Collection_Command {
 		}
 
 		// Close with a summary whose wording matches the mode: a dry-run count when
-		// reporting, the created/removed tallies when repairing.
-		WP_CLI::success( $this->doctor_summary( $slug, $report ) );
+		// reporting, the created/removed tallies when repairing. A report-only run
+		// with actionable findings exits non-zero so monitoring can trip on it; a
+		// repair that applied cleanly keeps exit 0.
+		$summary = $this->doctor_summary( $slug, $report );
+		if ( ! $report->repaired && $actionable !== [] ) {
+			WP_CLI::error( $summary );
+			return;
+		}
+		WP_CLI::success( $summary );
 
+	}
+
+	/**
+	 * Returns the report's actionable findings — everything but the ignored ones.
+	 *
+	 * "Actionable" is what a `--repair` would address or a human must resolve, so
+	 * it drives the finding table, the dry-run count, and the report-only exit
+	 * code alike.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param Doctor_Report $report The diagnosis to filter.
+	 * @return array<int,Finding> The non-ignored findings, in their original order.
+	 */
+	private function actionable_findings( Doctor_Report $report ): array {
+		return array_values(
+			array_filter(
+				$report->findings,
+				static fn ( Finding $finding ): bool => $finding->kind !== Finding_Kind::Ignored,
+			),
+		);
 	}
 
 	/**
 	 * Composes the doctor's one-line closing summary for the run's mode.
 	 *
 	 * In report-only mode the summary counts the actionable findings (the dry run);
-	 * in repair mode it reports what was created and removed. Either way it names the
-	 * collection so a multi-collection session stays legible.
+	 * in repair mode it reports what was created and removed — and, when a forced
+	 * repair retired de-configured width buckets, what was pruned. Either way it
+	 * names the collection so a multi-collection session stays legible.
 	 *
 	 * @since 0.4.0
 	 *
@@ -442,22 +473,20 @@ final class Collection_Command {
 	 */
 	private function doctor_summary( string $slug, Doctor_Report $report ): string {
 
-		// A repaired run reports its effect; a report-only run reports the finding
-		// counts it would act on, since the report is the dry run.
+		// A repaired run reports its effect, mentioning the pruned stale-width
+		// thumbnails only when a forced run actually retired any.
 		if ( $report->repaired ) {
-			$created = $report->created;
-			$removed = $report->removed;
-			return "Doctored '{$slug}': created {$created} derived artifact(s), removed {$removed} orphan(s).";
+			$summary = "Doctored '{$slug}': created {$report->created} derived artifact(s), "
+				. "removed {$report->removed} orphan(s).";
+			if ( $report->pruned > 0 ) {
+				$summary .= " Pruned {$report->pruned} stale-width thumbnail(s).";
+			}
+			return $summary;
 		}
 
-		// Count the actionable findings (everything but the ignored ones) so the
-		// dry-run summary reflects what a --repair would address.
-		$actionable = count(
-			array_filter(
-				$report->findings,
-				static fn ( Finding $finding ): bool => $finding->kind !== Finding_Kind::Ignored,
-			),
-		);
+		// A report-only run reports the finding count it would act on, since the
+		// report is the dry run.
+		$actionable = count( $this->actionable_findings( $report ) );
 
 		return "Doctored '{$slug}' (report-only): {$actionable} finding(s). Re-run with --repair to act.";
 

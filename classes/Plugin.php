@@ -19,6 +19,7 @@ use Kntnt\Photo_Drop\Bootstrap\Block_Registrar;
 use Kntnt\Photo_Drop\Cli\Collection_Command;
 use Kntnt\Photo_Drop\Cli\Image_Command;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Imaging\Optimizer;
 use Kntnt\Photo_Drop\Rest\Collections_Controller;
 use Kntnt\Photo_Drop\Rest\Upload_Controller;
 
@@ -278,6 +279,18 @@ final class Plugin {
 	 */
 	private function __construct() {
 
+		// Load the plugin's translations on init, before any later-registered
+		// surface resolves its strings. The plugin is distributed via GitHub,
+		// so wordpress.org language packs never apply — the shipped languages/
+		// directory is the only source, and a missing one is harmless.
+		add_action( 'init', [ $this, 'load_textdomain' ] );
+
+		// Surface an error notice in the admin when the host cannot encode WebP
+		// at all — without it, activation succeeds and then every upload fails
+		// with no admin-visible explanation. The hook only fires on admin
+		// screens, and the callback gates on `activate_plugins`.
+		add_action( 'admin_notices', [ $this, 'render_webp_support_notice' ] );
+
 		// Bootstrap block registration and the custom "Kntnt" block category.
 		$block_registrar = new Block_Registrar();
 		add_action( 'init', [ $block_registrar, 'register' ] );
@@ -326,9 +339,59 @@ final class Plugin {
 		// Wire the GitHub-Releases auto-updater into WordPress's plugin update
 		// check. It runs admin-side only, comparing the installed version with
 		// the latest GitHub release and advertising an update when a newer one
-		// ships a ZIP asset (matched by content_type — see Updater).
+		// ships a ZIP asset (matched by content_type — see Updater). The
+		// plugins_api filter backs the update row's "View version details"
+		// modal with the same cached release, since the plugin is not hosted
+		// on wordpress.org.
 		$updater = new Updater();
 		add_filter( 'pre_set_site_transient_update_plugins', [ $updater, 'check_for_updates' ] );
+		add_filter( 'plugins_api', [ $updater, 'plugin_information' ], 10, 3 );
+
+	}
+
+	/**
+	 * Loads the plugin's translations from its languages/ directory.
+	 *
+	 * Wired to `init`. The header declares `Domain Path: /languages`, and since
+	 * the plugin is distributed via GitHub there are no wordpress.org language
+	 * packs — this call is the only way shipped translations load. A missing
+	 * languages/ directory is harmless.
+	 *
+	 * @since 0.2.0
+	 */
+	public function load_textdomain(): void {
+		$relative_path = dirname( plugin_basename( self::get_plugin_file() ) ) . '/languages';
+		load_plugin_textdomain( 'kntnt-photo-drop', false, $relative_path );
+	}
+
+	/**
+	 * Renders an admin error notice when the host cannot encode WebP at all.
+	 *
+	 * Wired to `admin_notices`. Every ingestion path converts to WebP, so a
+	 * host with neither GD-with-WebP nor Imagick-with-WebP fails every upload;
+	 * this notice is the admin-visible explanation. It is gated to users with
+	 * `activate_plugins` — the ones who can act on a server-level problem —
+	 * and renders nothing when a capable codec exists (the common case).
+	 *
+	 * @since 0.2.0
+	 */
+	public function render_webp_support_notice(): void {
+
+		// Only users who can act on a server-level problem see the notice;
+		// anyone else would only be alarmed by a message they cannot fix.
+		if ( ! current_user_can( 'activate_plugins' ) ) {
+			return;
+		}
+
+		// A WebP-capable codec exists — the common case; render nothing.
+		if ( Optimizer::is_available() ) {
+			return;
+		}
+
+		// Name the problem and the concrete remedies so the notice is actionable.
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$message = __( 'Kntnt Photo Drop cannot create WebP images on this server, so every upload and import will fail. Ask your host to enable the PHP GD extension with WebP support, or the PHP Imagick extension with WebP support.', 'kntnt-photo-drop' );
+		echo '<div class="notice notice-error"><p>' . esc_html( $message ) . '</p></div>';
 
 	}
 

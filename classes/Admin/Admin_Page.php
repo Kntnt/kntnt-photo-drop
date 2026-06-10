@@ -29,6 +29,7 @@ namespace Kntnt\Photo_Drop\Admin;
 use Kntnt\Photo_Drop\Cli\Collection_Input;
 use Kntnt\Photo_Drop\Collection\Image_Name;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Plugin;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
 
@@ -604,6 +605,11 @@ final class Admin_Page {
 		$quality_cell   = $descriptor !== null ? (string) $descriptor->quality : '—';
 		$thumbs_cell    = $descriptor !== null ? $this->format_thumbnail_widths( $descriptor->thumbnail_widths ) : '—';
 
+		// The image count is read live from disk; an unreadable subtree yields an
+		// unknown count, rendered as a dash rather than failing the whole page.
+		$count       = $this->count_images( $path );
+		$images_cell = $count === null ? '—' : (string) $count;
+
 		echo '<tr>';
 		echo '<td><strong>' . esc_html( $name ) . '</strong>' . wp_kses_post( $actions ) . '</td>';
 		echo '<td><code>' . esc_html( $slug ) . '</code></td>';
@@ -611,7 +617,7 @@ final class Admin_Page {
 		echo '<td>' . esc_html( $quality_cell ) . '</td>';
 		echo '<td>' . esc_html__( 'WebP', 'kntnt-photo-drop' ) . '</td>';
 		echo '<td>' . esc_html( $thumbs_cell ) . '</td>';
-		echo '<td>' . esc_html( (string) $this->count_images( $path ) ) . '</td>';
+		echo '<td>' . esc_html( $images_cell ) . '</td>';
 		echo '</tr>';
 
 	}
@@ -946,31 +952,41 @@ final class Admin_Page {
 	 * excluding the hidden `.kntnt-thumbnails/` directories (which hold derived
 	 * thumbnails and the index, not mains). Walks the tree once; a collection with
 	 * no mains counts zero. The count is read live from disk, so it reflects the
-	 * current filesystem rather than any cached tally.
+	 * current filesystem rather than any cached tally. An unopenable
+	 * subdirectory aborts the walk and yields `null` — the caller renders an
+	 * unknown count instead of the whole page (and its Delete escape hatch)
+	 * dying on one bad directory.
 	 *
 	 * @since 0.5.0
 	 *
 	 * @param string $path The absolute collection directory path.
-	 * @return int The number of stored main images.
+	 * @return int|null The number of stored main images, or null when the tree
+	 *                  could not be fully read.
 	 */
-	private function count_images( string $path ): int {
+	private function count_images( string $path ): ?int {
 
-		// Walk the tree, skipping the hidden thumbnails directories so only mains are
-		// counted; a `.webp` file outside those directories is a stored main.
-		$count    = 0;
-		$iterator = new \RecursiveIteratorIterator(
-			new \RecursiveCallbackFilterIterator(
-				new \RecursiveDirectoryIterator( $path, \FilesystemIterator::SKIP_DOTS ),
-				static fn ( \SplFileInfo $info ): bool => $info->getFilename() !== Index::THUMBNAILS_DIRNAME,
-			),
-		);
-		foreach ( $iterator as $info ) {
-			$is_main = $info instanceof \SplFileInfo
-				&& $info->isFile()
-				&& str_ends_with( strtolower( $info->getFilename() ), '.webp' );
-			if ( $is_main ) {
-				++$count;
+		// Walk the tree, skipping the hidden thumbnails directories so only mains
+		// are counted; a `.webp` file outside those directories is a stored main.
+		// An unopenable directory throws mid-walk; the count is then unknown.
+		try {
+			$count    = 0;
+			$iterator = new \RecursiveIteratorIterator(
+				new \RecursiveCallbackFilterIterator(
+					new \RecursiveDirectoryIterator( $path, \FilesystemIterator::SKIP_DOTS ),
+					static fn ( \SplFileInfo $info ): bool => $info->getFilename() !== Index::THUMBNAILS_DIRNAME,
+				),
+			);
+			foreach ( $iterator as $info ) {
+				$is_main = $info instanceof \SplFileInfo
+					&& $info->isFile()
+					&& str_ends_with( strtolower( $info->getFilename() ), '.webp' );
+				if ( $is_main ) {
+					++$count;
+				}
 			}
+		} catch ( \UnexpectedValueException $exception ) {
+			Plugin::warning( "Cannot count the images under {$path}: {$exception->getMessage()}" );
+			return null;
 		}
 
 		return $count;

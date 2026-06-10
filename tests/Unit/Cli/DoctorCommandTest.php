@@ -9,9 +9,11 @@
  * test double (which records output and turns error() into a catchable
  * exception) plus the format_items recorder, asserting: an unknown slug halts;
  * `--force` without `--repair` is rejected; a report-only run renders the
- * findings table and a dry-run summary while changing nothing; `--repair` reports
- * its effect; foreign and contract warnings are raised; and `--show-ignored`
- * reveals the skipped files.
+ * findings table and a dry-run summary while changing nothing, and exits
+ * non-zero when actionable findings exist (clean runs and repairs keep exit 0);
+ * `--repair` reports its effect and `--repair --force` surfaces the pruned
+ * stale-width thumbnails; foreign and contract warnings are raised; and
+ * `--show-ignored` reveals the skipped files.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.4.0
@@ -187,27 +189,55 @@ test( 'doctor rejects --force without --repair', function (): void {
 } );
 
 // ---------------------------------------------------------------------------
-// Report-only: renders the findings table, summarises, changes nothing
+// Report-only: renders the findings table, summarises, changes nothing,
+// and the exit code reflects whether anything actionable was found
 // ---------------------------------------------------------------------------
 
-test( 'doctor report-only renders the findings and changes nothing', function (): void {
+test( 'doctor report-only renders the findings, changes nothing, and exits non-zero', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
 	$path    = establish_doctor_collection( $root, 'trip', [ 320 ] );
 	$main    = write_command_main( $path, 'photo.jpg.webp', 1600 );
 	$command = make_doctor_command();
 
+	// A report-only run with actionable findings ends through WP_CLI::error() so
+	// a monitoring script can trip on the non-zero exit — after the full report.
 	$before = md5_file( $main );
-	$command->doctor( [ 'trip' ], [] );
+	$threw  = false;
+	try {
+		$command->doctor( [ 'trip' ], [] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
 
-	// The findings table was rendered with the kind/path/detail columns, a dry-run
-	// summary was emitted, and no thumbnail was written (report-only is the dry run).
+	// The findings table was rendered with the kind/path/detail columns before the
+	// halt, the dry-run summary travelled in the error line, and no thumbnail was
+	// written (report-only is the dry run).
+	expect( $threw )->toBeTrue();
 	expect( Format_Items_Recorder::$fields )->toBe( [ 'kind', 'path', 'detail' ] );
 	expect( Format_Items_Recorder::$rows )->not->toBe( [] );
-	expect( WP_CLI::$successes )->toHaveCount( 1 );
-	expect( WP_CLI::$successes[0] )->toContain( 'report-only' );
+	expect( WP_CLI::$errors )->toHaveCount( 1 );
+	expect( WP_CLI::$errors[0] )->toContain( 'report-only' );
+	expect( WP_CLI::$successes )->toBe( [] );
 	expect( md5_file( $main ) )->toBe( $before );
 	expect( is_dir( $path . '/' . Index::THUMBNAILS_DIRNAME ) )->toBeFalse();
+
+	doctor_command_remove_tree( $basedir );
+} );
+
+test( 'doctor report-only exits cleanly when nothing is actionable', function (): void {
+	$basedir = fresh_doctor_command_basedir();
+	$root    = wire_doctor_command_stubs( $basedir );
+	establish_doctor_collection( $root, 'trip', [ 320 ] );
+	$command = make_doctor_command();
+
+	// A collection with nothing to act on closes with a success — exit 0 — so a
+	// monitoring script only trips when there is real drift.
+	$command->doctor( [ 'trip' ], [] );
+
+	expect( WP_CLI::$errors )->toBe( [] );
+	expect( WP_CLI::$successes )->toHaveCount( 1 );
+	expect( WP_CLI::$successes[0] )->toContain( 'report-only' );
 
 	doctor_command_remove_tree( $basedir );
 } );
@@ -225,9 +255,38 @@ test( 'doctor --repair creates the thumbnail and reports the effect', function (
 
 	$command->doctor( [ 'trip' ], [ 'repair' => '1' ] );
 
-	// The thumbnail now exists and the summary reports what was created.
+	// The thumbnail now exists, the summary reports what was created, and a clean
+	// apply keeps exit 0 — no error was raised.
 	expect( is_file( $path . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp' ) )->toBeTrue();
 	expect( WP_CLI::$successes[0] )->toContain( 'created' );
+	expect( WP_CLI::$errors )->toBe( [] );
+
+	doctor_command_remove_tree( $basedir );
+} );
+
+test( 'doctor --repair --force prunes a de-configured width and surfaces it', function (): void {
+	$basedir = fresh_doctor_command_basedir();
+	$root    = wire_doctor_command_stubs( $basedir );
+	$path    = establish_doctor_collection( $root, 'trip', [ 640 ] );
+	write_command_main( $path, 'photo.jpg.webp', 1600 );
+	make_doctor_command()->doctor( [ 'trip' ], [ 'repair' => '1' ] );
+	expect( is_file( $path . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
+
+	// The width filter changed to [320]; the documented rollout is a forced
+	// repair, which must also retire the 640 bucket and say so in the summary.
+	( new Descriptor( 'Trip', 1920, 80, [ 320 ] ) )->write( $path );
+	$command = make_doctor_command();
+	$command->doctor(
+		[ 'trip' ],
+		[
+			'repair' => '1',
+			'force'  => '1',
+		],
+	);
+
+	expect( is_file( $path . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_dir( $path . '/' . Index::THUMBNAILS_DIRNAME . '/640' ) )->toBeFalse();
+	expect( WP_CLI::$successes[0] )->toContain( 'Pruned 1' );
 
 	doctor_command_remove_tree( $basedir );
 } );
@@ -246,9 +305,18 @@ test( 'doctor warns about a foreign file and a contract-violating main', functio
 	file_put_contents( $path . '/notes.txt', 'a note' );
 	$command = make_doctor_command();
 
-	$command->doctor( [ 'trip' ], [] );
+	// Both findings are actionable, so the report-only run halts after the full
+	// report — the warnings must already have been printed by then.
+	$halted = false;
+	try {
+		$command->doctor( [ 'trip' ], [] );
+	} catch ( Cli_Halt ) {
+		$halted = true;
+	}
 
-	// Each warned state produced a WP_CLI warning line naming the path.
+	// Each warned state produced a WP_CLI warning line naming the path before
+	// the non-zero exit.
+	expect( $halted )->toBeTrue();
 	$warnings = implode( "\n", WP_CLI::$warnings );
 	expect( $warnings )->toContain( 'raw.webp' );
 	expect( $warnings )->toContain( 'notes.txt' );

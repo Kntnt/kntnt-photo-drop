@@ -19,12 +19,14 @@ declare( strict_types = 1 );
 namespace Kntnt\Photo_Drop\Doctor;
 
 /**
- * An immutable `{ findings, created, removed, repaired }` doctor result.
+ * An immutable `{ findings, created, removed, pruned, repaired }` doctor result.
  *
  * `findings` is the full diagnosis regardless of mode. `created` and `removed`
- * count the derived artifacts a repair wrote and deleted (zero in report-only
- * mode). `repaired` records whether acting happened at all, so a command can
- * tell "report-only, nothing to do" apart from "repaired, nothing to do".
+ * count the derived artifacts a repair wrote and deleted, and `pruned` counts
+ * the stale-width thumbnails a forced repair retired after a thumbnail-width
+ * change (all zero in report-only mode). `repaired` records whether acting
+ * happened at all, so a command can tell "report-only, nothing to do" apart
+ * from "repaired, nothing to do".
  *
  * @since 0.4.0
  */
@@ -38,12 +40,14 @@ final readonly class Doctor_Report {
 	 * @param array<int,Finding> $findings The full list of typed findings.
 	 * @param int                $created  Derived artifacts created by a repair.
 	 * @param int                $removed  Orphaned artifacts removed by a repair.
+	 * @param int                $pruned   Stale-width thumbnails removed by a forced repair.
 	 * @param bool               $repaired Whether the run acted (true) or only reported (false).
 	 */
 	public function __construct(
 		public array $findings,
 		public int $created = 0,
 		public int $removed = 0,
+		public int $pruned = 0,
 		public bool $repaired = false,
 	) {}
 

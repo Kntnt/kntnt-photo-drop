@@ -8,7 +8,7 @@
  * gets nothing and, crucially, no nonce — and that a capable user with a real
  * temp-dir collection gets the drop area plus a nonce configured from the
  * descriptor. Only the WordPress seams are stubbed (`current_user_can`,
- * `apply_filters`, the escapers, `rest_url`, `wp_create_nonce`,
+ * `apply_filters`, the escapers, `rest_url`, `admin_url`, `wp_create_nonce`,
  * `get_block_wrapper_attributes`); the `Repository` and `Descriptor` run against
  * a real collection on disk, the same harness pattern the upload tests use.
  *
@@ -68,10 +68,14 @@ function wire_render_stubs( string $basedir, bool $cap_ok ): void {
 	);
 	Functions\when( 'current_user_can' )->justReturn( $cap_ok );
 
-	// The render path builds an absolute upload URL and a nonce; the stubs return
-	// recognisable sentinels the assertions search the markup for.
+	// The render path builds an absolute upload URL, the admin-ajax URL the
+	// nonce refresh targets, and a nonce; the stubs return recognisable
+	// sentinels the assertions search the markup for.
 	Functions\when( 'rest_url' )->alias(
 		static fn ( string $path ): string => 'https://example.test/wp-json/' . $path
+	);
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
 	);
 	Functions\when( 'wp_create_nonce' )->justReturn( 'test-nonce-abc123' );
 	Functions\when( 'get_block_wrapper_attributes' )->alias(
@@ -203,6 +207,40 @@ test( 'the emitted context carries the contract and upload URL for the slug', fu
 	expect( $html )->toContain( 'collections' );
 	expect( $html )->toContain( 'photos' );
 	expect( $html )->toContain( 'images' );
+
+	render_remove_tree( $basedir );
+} );
+
+test( 'the emitted context carries the ajax URL for nonce refresh', function (): void {
+
+	// The view module recovers from an expired nonce via core's `rest-nonce`
+	// admin-ajax action, so the context must carry the admin-ajax URL.
+	$basedir = fresh_render_basedir();
+	wire_render_stubs( $basedir, cap_ok: true );
+	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+
+	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
+
+	expect( $html )->toContain( '"ajaxUrl"' );
+	expect( $html )->toContain( 'admin-ajax.php' );
+
+	render_remove_tree( $basedir );
+} );
+
+test( 'the markup carries the summary line and the translated FilePond labels', function (): void {
+
+	// The keyed status report needs the summary element, and the i18n map must
+	// carry the FilePond labels so the visible uploader UI is translatable.
+	$basedir = fresh_render_basedir();
+	wire_render_stubs( $basedir, cap_ok: true );
+	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+
+	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
+
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__summary' );
+	expect( $html )->toContain( '"labelIdle"' );
+	expect( $html )->toContain( '"labelFileProcessingError"' );
+	expect( $html )->toContain( '"summaryTemplate"' );
 
 	render_remove_tree( $basedir );
 } );

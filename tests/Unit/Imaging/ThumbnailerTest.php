@@ -190,3 +190,46 @@ test( 'the static thumbnail_path helper matches the written location', function 
 
 	thumb_remove_tree( $folder );
 } );
+
+// ---------------------------------------------------------------------------
+// The megapixel input ceiling guards the thumbnailer's decode too
+// ---------------------------------------------------------------------------
+
+test( 'a main over the megapixel input ceiling is refused before decode', function (): void {
+	$folder = fresh_thumb_dir();
+	$main   = write_main_image( $folder, 'big.jpg.webp', 200, 200 );
+
+	// Filter the ceiling down to 0.01 MP (10 000 px) so the 40 000 px main is
+	// over it: the thumbnailer must refuse to decode — a foreign or tampered
+	// main this large would OOM the worker — and derive nothing.
+	Functions\when( 'apply_filters' )->alias(
+		static function ( string $hook, mixed $value ): mixed {
+			return $hook === 'kntnt_photo_drop_max_input_megapixels' ? 0.01 : $value;
+		}
+	);
+
+	$written = gd_thumbnailer()->generate( $main, 'big.jpg.webp', [ 100 ], 80 );
+
+	expect( $written )->toBe( [] );
+	expect( is_dir( $folder . '/' . Index::THUMBNAILS_DIRNAME ) )->toBeFalse();
+
+	thumb_remove_tree( $folder );
+} );
+
+// ---------------------------------------------------------------------------
+// Thumbnails are published atomically
+// ---------------------------------------------------------------------------
+
+test( 'thumbnail writes leave no staging files behind', function (): void {
+	$folder = fresh_thumb_dir();
+	$main   = write_main_image( $folder, 'photo.jpg.webp', 2000, 1200 );
+
+	$written = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', [ 320, 640 ], 80 );
+
+	// The atomic writer stages under `<target>.tmp-<random>` beside the target;
+	// a clean run publishes both thumbnails and removes every staging file.
+	expect( $written )->toHaveCount( 2 );
+	expect( glob( $folder . '/' . Index::THUMBNAILS_DIRNAME . '/*/*.tmp-*' ) )->toBe( [] );
+
+	thumb_remove_tree( $folder );
+} );

@@ -22,6 +22,7 @@ namespace Kntnt\Photo_Drop\Cli;
 use Kntnt\Photo_Drop\Collection\Image_Name;
 use Kntnt\Photo_Drop\Collection\Path_Guard;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Ingestion\Ingest_Outcome;
 use Kntnt\Photo_Drop\Ingestion\Ingest_Result;
 use Kntnt\Photo_Drop\Ingestion\Ingestor;
 use Kntnt\Photo_Drop\Storage\Descriptor;
@@ -52,19 +53,34 @@ final class Image_Command {
 	private readonly Image_Input $input;
 
 	/**
+	 * The factory producing the batch's ingestor for a collection and contract.
+	 *
+	 * @since 0.2.0
+	 * @var \Closure(string, Descriptor): Ingestor
+	 */
+	private readonly \Closure $ingestor_factory;
+
+	/**
 	 * Constructs the command with the collection repository it resolves against.
 	 *
 	 * The input helper is a stateless collaborator the command owns directly; it
-	 * takes no dependencies, so it is constructed here rather than injected.
+	 * takes no dependencies, so it is constructed here rather than injected. The
+	 * ingestor factory defaults to constructing the production `Ingestor` — whose
+	 * optimiser throws when no codec on the host can encode WebP — and is
+	 * injectable so a test can drive that misconfigured-host error path.
 	 *
 	 * @since 0.3.0
 	 *
-	 * @param Repository $repository The read side of "the filesystem is the source of truth".
+	 * @param Repository                                  $repository       The collection resolver.
+	 * @param \Closure(string, Descriptor): Ingestor|null $ingestor_factory The factory, or null for production.
 	 */
 	public function __construct(
 		private readonly Repository $repository,
+		?\Closure $ingestor_factory = null,
 	) {
-		$this->input = new Image_Input();
+		$this->input            = new Image_Input();
+		$this->ingestor_factory = $ingestor_factory
+			?? static fn ( string $path, Descriptor $descriptor ): Ingestor => new Ingestor( $path, $descriptor );
 	}
 
 	/**
@@ -126,10 +142,21 @@ final class Image_Command {
 		}
 
 		// Build one ingestor for the whole batch (one anchored Path_Guard, one
-		// fixed contract), then ingest each source, collecting a row per file.
+		// fixed contract). Its optimiser throws when no codec on the host can
+		// encode WebP; that is a host misconfiguration the operator must fix, so
+		// it surfaces as an actionable error — mirroring the REST controller —
+		// rather than an uncaught exception.
 		$overwrite = isset( $assoc_args['overwrite'] );
-		$ingestor  = new Ingestor( $path, $descriptor );
-		$rows      = array_map(
+		try {
+			$ingestor = ( $this->ingestor_factory )( $path, $descriptor );
+		} catch ( \RuntimeException $exception ) {
+			WP_CLI::error( "Cannot import: {$exception->getMessage()}" );
+			return;
+		}
+
+		// Ingest each source, collecting a row per file; one failing source never
+		// aborts the batch.
+		$rows = array_map(
 			fn ( string $source ): array => $this->import_one( $ingestor, $source, $overwrite ),
 			$sources,
 		);
@@ -265,8 +292,11 @@ final class Image_Command {
 	 *
 	 * Uses WP-CLI's `format_items()` for the table (so the operator gets the same
 	 * `table`/`csv`/`json` shape the rest of the CLI uses), then summarises the
-	 * outcome counts. A batch with any rejection still succeeds overall — one bad
-	 * file never aborts the run — but the summary makes the rejections visible.
+	 * outcome counts. Per-file isolation holds — one bad file never aborts the
+	 * run — but the exit code must stay scriptable: a batch in which *every*
+	 * source was rejected ends with `WP_CLI::error()` (non-zero exit) after the
+	 * table, while a partial failure keeps the success exit and flags the
+	 * rejection count in a warning line.
 	 *
 	 * @since 0.3.0
 	 *
@@ -288,6 +318,21 @@ final class Image_Command {
 				array_values( $counts ),
 			),
 		);
+
+		// A batch where every source was rejected is a total failure a script must
+		// be able to trip on; the table above already told the per-file story.
+		$rejected = $counts[ Ingest_Outcome::Rejected->value ] ?? 0;
+		$total    = count( $rows );
+		if ( $total > 0 && $rejected === $total ) {
+			WP_CLI::error( "Import failed: all {$total} source(s) were rejected." );
+			return;
+		}
+
+		// A partial failure keeps the success exit but makes the rejections
+		// impossible to miss, with counts a script can grep for.
+		if ( $rejected > 0 ) {
+			WP_CLI::warning( "{$rejected} of {$total} source(s) were rejected." );
+		}
 
 		WP_CLI::success( "Import complete: {$summary}." );
 

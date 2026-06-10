@@ -37,6 +37,21 @@ test( 'create_collection makes the directory and returns its path', function ():
 	repo_remove_tree( $basedir );
 } );
 
+test( 'create_collection seeds a directory-listing guard in the new directory', function (): void {
+	$basedir = fresh_basedir();
+	$root    = wire_repository_stubs( $basedir );
+
+	$path = ( new Repository() )->create_collection( 'guarded' );
+
+	// The new collection directory carries the same "Silence is golden"
+	// index.php the root gets, so a server with autoindex enabled cannot
+	// enumerate the images or the descriptor.
+	expect( is_file( $path . '/index.php' ) )->toBeTrue();
+	expect( file_get_contents( $path . '/index.php' ) )->toContain( 'Silence is golden' );
+
+	repo_remove_tree( $basedir );
+} );
+
 test( 'create_collection refuses an existing directory', function (): void {
 	$basedir = fresh_basedir();
 	$root    = wire_repository_stubs( $basedir );

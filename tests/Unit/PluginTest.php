@@ -13,7 +13,9 @@
 
 declare( strict_types = 1 );
 
+use Brain\Monkey\Functions;
 use Kntnt\Photo_Drop\Bootstrap\Block_Registrar;
+use Kntnt\Photo_Drop\Imaging\Optimizer;
 use Kntnt\Photo_Drop\Plugin;
 
 // WP_Block_Editor_Context is stubbed in tests/Unit/fixtures/Wp_Stubs.php,
@@ -213,7 +215,7 @@ test( 'get_plugin_file returns the path captured at first bootstrap', function (
 test( 'register_category prepends the kntnt category', function (): void {
 
 	// Stub __() so the translatable title resolves to its source string.
-	Brain\Monkey\Functions\when( '__' )->returnArg( 1 );
+	Functions\when( '__' )->returnArg( 1 );
 
 	// Feed an existing category list and a dummy editor context.
 	$existing = [
@@ -232,3 +234,112 @@ test( 'register_category prepends the kntnt category', function (): void {
 	expect( $result[1]['slug'] )->toBe( 'text' );
 
 } );
+
+// ---------------------------------------------------------------------------
+// Block registration failure — a missing build/ output is logged, not silent
+// ---------------------------------------------------------------------------
+
+test( 'register logs a warning naming each block that fails to register', function (): void {
+
+	// register_block_type fails for every slug; each failure must be named in
+	// the log so a missing build/ directory is diagnosable.
+	Functions\when( 'register_block_type' )->justReturn( false );
+
+	// Capture error_log output by redirecting it to a temp file for the call.
+	$log      = (string) tempnam( sys_get_temp_dir(), 'kntnt-log-' );
+	$previous = ini_set( 'error_log', $log );
+
+	try {
+		( new Block_Registrar() )->register();
+		$written = (string) file_get_contents( $log );
+	} finally {
+		ini_set( 'error_log', (string) $previous );
+		unlink( $log );
+	}
+
+	expect( $written )->toContain( '[WARNING]' )
+		->toContain( 'drop-zone' )
+		->toContain( 'gallery' );
+
+} );
+
+test( 'register logs nothing when every block registers', function (): void {
+
+	// A successful registration returns a WP_Block_Type; any non-false return
+	// must stay silent.
+	Functions\when( 'register_block_type' )->justReturn( new \stdClass() );
+
+	// Capture error_log output by redirecting it to a temp file for the call.
+	$log      = (string) tempnam( sys_get_temp_dir(), 'kntnt-log-' );
+	$previous = ini_set( 'error_log', $log );
+
+	try {
+		( new Block_Registrar() )->register();
+		$written = (string) file_get_contents( $log );
+	} finally {
+		ini_set( 'error_log', (string) $previous );
+		unlink( $log );
+	}
+
+	expect( $written )->toBe( '' );
+
+} );
+
+// ---------------------------------------------------------------------------
+// Textdomain loading — translations resolve from the shipped languages/ dir
+// ---------------------------------------------------------------------------
+
+test( 'load_textdomain loads the plugin textdomain from languages/', function (): void {
+
+	// The relative path WordPress expects is <plugin-dir>/languages, derived
+	// from the main plugin file's basename.
+	Functions\when( 'plugin_basename' )->justReturn( 'kntnt-photo-drop/kntnt-photo-drop.php' );
+	Functions\expect( 'load_plugin_textdomain' )
+		->once()
+		->with( 'kntnt-photo-drop', false, 'kntnt-photo-drop/languages' )
+		->andReturn( true );
+
+	Plugin::get_instance( '/fake/path/to/kntnt-photo-drop.php' )->load_textdomain();
+
+} );
+
+// ---------------------------------------------------------------------------
+// WebP-support notice — gated to activate_plugins, silent when a codec exists
+// ---------------------------------------------------------------------------
+
+test( 'the WebP-support notice is suppressed for users without activate_plugins', function (): void {
+
+	// The capability gate is checked before the codec probe, so an un-capable
+	// viewer renders nothing regardless of host support.
+	Functions\when( 'current_user_can' )->justReturn( false );
+
+	ob_start();
+	Plugin::get_instance( '/fake/path/to/kntnt-photo-drop.php' )->render_webp_support_notice();
+
+	expect( ob_get_clean() )->toBe( '' );
+
+} );
+
+test( 'the WebP-support notice renders only when no WebP codec is available', function (): void {
+
+	// A capable admin sees the notice exactly when the host cannot encode
+	// WebP; on a capable host (the common case, and this machine) the notice
+	// must stay silent.
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( '__' )->returnArg( 1 );
+	Functions\when( 'esc_html' )->returnArg( 1 );
+
+	ob_start();
+	Plugin::get_instance( '/fake/path/to/kntnt-photo-drop.php' )->render_webp_support_notice();
+	$html = (string) ob_get_clean();
+
+	if ( Optimizer::is_available() ) {
+		expect( $html )->toBe( '' );
+	} else {
+		expect( $html )->toContain( 'notice-error' );
+	}
+
+} )->skip(
+	! method_exists( Optimizer::class, 'is_available' ),
+	'Optimizer::is_available() has not landed yet (implemented concurrently).',
+);

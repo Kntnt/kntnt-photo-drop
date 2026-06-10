@@ -28,6 +28,7 @@ declare( strict_types = 1 );
 namespace Kntnt\Photo_Drop\Doctor;
 
 use Kntnt\Photo_Drop\Collection\Image_Name;
+use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Imaging\Gd_Webp_Codec;
 use Kntnt\Photo_Drop\Imaging\Thumbnailer;
 use Kntnt\Photo_Drop\Imaging\Webp_Codec;
@@ -125,10 +126,13 @@ final class Doctor {
 	 * disk changes. When `$repair` is true the findings are acted on: every
 	 * missing thumbnail is derived, every orphan thumbnail is removed, and every
 	 * folder that gained or lost a derived artifact has its index rebuilt;
-	 * `$force` additionally re-derives *all* thumbnails and rebuilds *all* indexes
-	 * regardless of the findings (the path after a thumbnail-width change). A
-	 * contract-violating main and a foreign file are reported in both modes but
-	 * never acted on — the main is never altered, the foreign file never deleted.
+	 * `$force` additionally re-derives *all* thumbnails, rebuilds *all* indexes,
+	 * and prunes the width buckets of de-configured widths regardless of the
+	 * findings (the path after a thumbnail-width change). A contract-violating
+	 * main and a foreign file are reported in both modes but never acted on — the
+	 * main is never altered, the foreign file never deleted. Symlinks are never
+	 * followed anywhere: a planted link is invisible to the walks, and nothing is
+	 * ever written or unlinked through one.
 	 *
 	 * @since 0.4.0
 	 *
@@ -212,18 +216,21 @@ final class Doctor {
 				continue;
 			}
 
-			// A sub-directory is a content folder of its own (walked separately) and
-			// the root descriptor is ours, so neither is content here.
+			// A sub-directory is a content folder of its own (walked separately),
+			// and the root descriptor and the root listing guard are ours, so none
+			// of them is content here.
 			$path = $folder . '/' . $entry;
-			if ( is_dir( $path ) || $this->is_descriptor( $folder, $entry ) ) {
+			$ours = $this->is_descriptor( $folder, $entry ) || $this->is_listing_guard( $folder, $entry );
+			if ( is_dir( $path ) || $ours ) {
 				continue;
 			}
 
-			// The ignore list wins before the main test, so OS junk that happens to
-			// end in `.webp` (an AppleDouble `._photo.jpg.webp`) is skipped rather than
-			// mistaken for a main; only a non-ignored `*.webp` becomes a main.
+			// Only the built-in OS-junk list wins before the main test, so an
+			// AppleDouble `._photo.jpg.webp` is never mistaken for a main while a
+			// caller's `--ignore` glob carries no authority to de-classify a stored
+			// main — every non-junk `*.webp` stays a main and keeps its thumbnails.
 			$relative = $this->relative( $path );
-			if ( $this->ignore->matches( $relative ) ) {
+			if ( $this->ignore->matches_builtin( $relative ) ) {
 				$loose[] = $relative;
 			} elseif ( $this->is_main( $entry ) ) {
 				$mains[] = $entry;
@@ -296,7 +303,7 @@ final class Doctor {
 
 			// A conforming main: every configured width below its own needs a
 			// thumbnail, and the folder index needs its entry.
-			$findings = [ ...$findings, ...$this->missing_thumbnails( $folder, $main, $probe[0] ) ];
+			$findings = [ ...$findings, ...$this->missing_thumbnails( $folder, $main, $probe['width'] ) ];
 			if ( ! in_array( $main, $indexed, true ) ) {
 				$findings[] = new Finding(
 					Finding_Kind::Missing_Derived,
@@ -315,7 +322,10 @@ final class Doctor {
 	 *
 	 * Only widths strictly below the main's own width apply — a width at or above
 	 * is served by the main itself in the gallery's `srcset`, so it is never
-	 * flagged. For each applicable width whose thumbnail file is absent, a
+	 * flagged. A width whose thumbnail path runs through a symlink is not demanded
+	 * either: flagging it would make `--repair` write through the link to a
+	 * location outside the collection, so diagnosis and repair both treat it as
+	 * out of bounds. For each remaining width whose thumbnail file is absent, a
 	 * missing-derived finding naming the width is produced.
 	 *
 	 * @since 0.4.0
@@ -327,10 +337,10 @@ final class Doctor {
 	 */
 	private function missing_thumbnails( string $folder, string $main, int $main_width ): array {
 
-		// Check each configured width below the main width for its thumbnail file,
-		// recording a finding only when the file is absent.
+		// Check each writable configured width below the main width for its
+		// thumbnail file, recording a finding only when the file is absent.
 		$findings = [];
-		foreach ( $this->descriptor->thumbnail_widths as $width ) {
+		foreach ( $this->writable_widths( $folder, $main, $this->descriptor->thumbnail_widths ) as $width ) {
 			if ( $width >= $main_width ) {
 				continue;
 			}
@@ -345,6 +355,44 @@ final class Doctor {
 		}
 
 		return $findings;
+
+	}
+
+	/**
+	 * Filters out widths whose thumbnail write would pass through a symlink.
+	 *
+	 * The doctor never writes through a link: a symlinked `.kntnt-thumbnails/`, a
+	 * symlinked `<width>/` bucket, or a planted (possibly dangling) symlink at the
+	 * thumbnail path itself would all route the write outside the collection.
+	 * Both the diagnosis (`missing_thumbnails()`) and the repair paths filter
+	 * through this same predicate, so the report and the act always agree.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string         $folder      Absolute path to the content folder.
+	 * @param string         $stored_name The main's stored `<original>.webp` filename.
+	 * @param array<int,int> $widths      The candidate thumbnail widths.
+	 * @return array<int,int> The widths whose thumbnail path is symlink-free.
+	 */
+	private function writable_widths( string $folder, string $stored_name, array $widths ): array {
+
+		// A symlinked artifacts root would route every width's write outside the
+		// collection, so no width is writable under it.
+		if ( is_link( $folder . '/' . Index::THUMBNAILS_DIRNAME ) ) {
+			return [];
+		}
+
+		// Keep only widths whose bucket directory and exact thumbnail path are both
+		// real (or absent) — never a link the write would silently follow.
+		return array_values(
+			array_filter(
+				$widths,
+				static function ( int $width ) use ( $folder, $stored_name ): bool {
+					$thumb = Thumbnailer::thumbnail_path( $folder, $stored_name, $width );
+					return ! is_link( $thumb ) && ! is_link( \dirname( $thumb ) );
+				},
+			),
+		);
 
 	}
 
@@ -364,14 +412,17 @@ final class Doctor {
 	 */
 	private function reconcile_orphans( string $folder, array $mains ): array {
 
-		// No thumbnails directory means there can be no orphan thumbnails.
+		// No thumbnails directory means there can be no orphan thumbnails, and a
+		// *symlinked* one is never followed — the orphan scan must not see (let
+		// alone let --repair delete) files outside the collection through a link.
 		$thumbs_root = $folder . '/' . Index::THUMBNAILS_DIRNAME;
-		if ( ! is_dir( $thumbs_root ) ) {
+		if ( is_link( $thumbs_root ) || ! is_dir( $thumbs_root ) ) {
 			return [];
 		}
 
 		// Visit each width sub-directory and, within it, each thumbnail file. A
-		// thumbnail whose stored name has no surviving main is an orphan.
+		// thumbnail whose stored name has no surviving main is an orphan; a planted
+		// symlink is not ours and is never flagged, so it is never unlinked.
 		$findings = [];
 		foreach ( $this->width_dirs( $thumbs_root ) as $width_dir ) {
 			$names = scandir( $width_dir );
@@ -380,7 +431,7 @@ final class Doctor {
 					continue;
 				}
 				$thumb = $width_dir . '/' . $name;
-				if ( is_file( $thumb ) && ! in_array( $name, $mains, true ) ) {
+				if ( ! is_link( $thumb ) && is_file( $thumb ) && ! in_array( $name, $mains, true ) ) {
 					$findings[] = new Finding(
 						Finding_Kind::Orphan_Derived,
 						$this->relative( $thumb ),
@@ -421,10 +472,12 @@ final class Doctor {
 	 * Missing thumbnails are derived from their (conforming) mains, orphan
 	 * thumbnails are unlinked, and every folder that changed has its index rebuilt
 	 * so a stale or missing index entry self-heals. Under `$force` the derive and
-	 * rebuild run for *every* folder regardless of the findings, which is how a
-	 * thumbnail-width change re-derives the whole collection. Contract violations
-	 * and foreign files are never acted on. Returns the diagnosis with the
-	 * created/removed tallies and the repaired flag set.
+	 * rebuild run for *every* folder regardless of the findings, and the width
+	 * buckets of widths no longer configured are pruned afterwards — together that
+	 * is how a thumbnail-width change re-derives the whole collection without
+	 * leaving the old widths' thumbnails behind forever. Contract violations and
+	 * foreign files are never acted on. Returns the diagnosis with the
+	 * created/removed/pruned tallies and the repaired flag set.
 	 *
 	 * @since 0.4.0
 	 *
@@ -445,11 +498,99 @@ final class Doctor {
 			? $this->regenerate_all_thumbnails( $folders )
 			: $this->create_missing_thumbnails( $findings );
 
+		// Under --force, "re-derives everything" includes retiring what is no
+		// longer configured: prune every width bucket whose width left the
+		// descriptor, so a width change does not grow the disk forever.
+		$pruned = $force ? $this->prune_stale_width_dirs( $folders ) : 0;
+
 		// Rebuild the index of every affected folder so its entries match the mains
 		// on disk; under --force rebuild every folder unconditionally.
 		$this->rebuild_indexes( $folders, $findings, $force );
 
-		return new Doctor_Report( $findings, $created, $removed, true );
+		return new Doctor_Report( $findings, $created, $removed, $pruned, true );
+
+	}
+
+	/**
+	 * Removes every thumbnail bucket of a width no longer configured.
+	 *
+	 * The `--repair --force` companion to the regenerate: after a thumbnail-width
+	 * change (say `[640]` to `[320]`) the regenerate writes the new widths but the
+	 * old `640/` buckets would otherwise live forever as unreachable derived
+	 * artifacts. Thumbnails are slaved to the configuration as much as to their
+	 * mains, so each folder's numeric `<width>/` directories outside the
+	 * configured set are emptied and removed. Every symlink guard applies: a
+	 * symlinked artifacts root or width bucket is never followed, a symlink inside
+	 * a bucket is never unlinked, and a bucket that does not empty out is left in
+	 * place with a warning. Returns the number of thumbnail files pruned.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param array<int,string> $folders The collection's content folders.
+	 * @return int The number of stale thumbnail files removed.
+	 */
+	private function prune_stale_width_dirs( array $folders ): int {
+
+		// Visit each folder's real width buckets and clear the ones whose numeric
+		// width is no longer configured; non-numeric directories are not ours to
+		// judge and are left alone.
+		$pruned = 0;
+		foreach ( $folders as $folder ) {
+			$thumbs_root = $folder . '/' . Index::THUMBNAILS_DIRNAME;
+			if ( is_link( $thumbs_root ) || ! is_dir( $thumbs_root ) ) {
+				continue;
+			}
+			foreach ( $this->width_dirs( $thumbs_root ) as $width_dir ) {
+				$name = basename( $width_dir );
+				if ( ! ctype_digit( $name ) || in_array( (int) $name, $this->descriptor->thumbnail_widths, true ) ) {
+					continue;
+				}
+				$pruned += $this->remove_width_dir( $width_dir );
+			}
+		}
+
+		return $pruned;
+
+	}
+
+	/**
+	 * Empties and removes one stale width bucket, returning the files removed.
+	 *
+	 * Only plain files are unlinked — a symlink or a sub-directory is not a
+	 * thumbnail the plugin wrote, so it is left in place and the bucket directory
+	 * then survives (with a warning) rather than being forced away.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string $width_dir Absolute path to the stale `<width>/` directory.
+	 * @return int The number of thumbnail files removed.
+	 */
+	private function remove_width_dir( string $width_dir ): int {
+
+		// Unlink each plain file in the bucket; the unlink helper refuses symlinks,
+		// so nothing outside the collection can be touched through a planted link.
+		$removed = 0;
+		$entries = scandir( $width_dir );
+		foreach ( $entries === false ? [] : $entries as $entry ) {
+			if ( $entry === '.' || $entry === '..' ) {
+				continue;
+			}
+			if ( $this->unlink( $width_dir . '/' . $entry ) ) {
+				++$removed;
+			}
+		}
+
+		// Remove the bucket itself only once it is verifiably empty; anything that
+		// survived the unlink pass (a symlink, a sub-directory) keeps it alive.
+		$remaining = scandir( $width_dir );
+		if ( $remaining !== false && count( $remaining ) === 2 ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- The plugin owns this directory tree on disk directly (ADR-0001); WP_Filesystem is the wrong abstraction for artifacts written outside the Media Library.
+			rmdir( $width_dir );
+		} else {
+			Plugin::warning( "Left the stale thumbnail directory at {$width_dir} in place; it did not empty out." );
+		}
+
+		return $removed;
 
 	}
 
@@ -511,13 +652,16 @@ final class Doctor {
 		}
 
 		// Derive each main's missing widths and tally what was actually written.
+		// The widths are re-filtered through the symlink guard as defense-in-depth,
+		// so even a finding produced before a link was planted writes nothing
+		// through it.
 		$created = 0;
 		foreach ( $wanted as $key => $widths ) {
 			$main_path = (string) $key;
 			$written = $this->thumbnailer->generate(
 				$main_path,
 				basename( $main_path ),
-				$widths,
+				$this->writable_widths( \dirname( $main_path ), basename( $main_path ), $widths ),
 				$this->descriptor->quality,
 			);
 			$created += count( $written );
@@ -544,7 +688,9 @@ final class Doctor {
 	private function regenerate_all_thumbnails( array $folders ): int {
 
 		// Walk every folder's mains and re-derive each conforming main's thumbnails
-		// from scratch, summing what was written across the whole collection.
+		// from scratch, summing what was written across the whole collection. The
+		// widths pass the symlink guard so a forced regenerate, like the diagnosis,
+		// never writes through a planted link.
 		$created = 0;
 		foreach ( $folders as $folder ) {
 			foreach ( $this->folder_mains( $folder ) as $main ) {
@@ -556,7 +702,7 @@ final class Doctor {
 					$this->thumbnailer->generate(
 						$main_path,
 						$main,
-						$this->descriptor->thumbnail_widths,
+						$this->writable_widths( $folder, $main, $this->descriptor->thumbnail_widths ),
 						$this->descriptor->quality,
 					),
 				);
@@ -589,8 +735,13 @@ final class Doctor {
 		// the ones whose derived artifacts changed.
 		$targets = $force ? $folders : $this->folders_with_derived_changes( $findings );
 
-		// Rebuild each target so its index entries match the mains now on disk.
+		// Rebuild each target so its index entries match the mains now on disk. A
+		// folder whose artifacts root is a symlink is skipped — the rebuild writes
+		// `index.json` under it, and the doctor never writes through a link.
 		foreach ( $targets as $folder ) {
+			if ( is_link( $folder . '/' . Index::THUMBNAILS_DIRNAME ) ) {
+				continue;
+			}
 			$this->index_store->rebuild( $folder );
 		}
 
@@ -679,8 +830,12 @@ final class Doctor {
 	/**
 	 * Appends every content sub-directory of a folder, recursing depth-first.
 	 *
-	 * Our hidden artifacts directory is skipped so the walk stays on content; every
-	 * other sub-directory is recorded and descended into.
+	 * Our hidden artifacts directory is skipped so the walk stays on content, and a
+	 * symlinked directory is never descended into — following one would let the
+	 * doctor diagnose, write thumbnails, and rebuild indexes *outside* the
+	 * collection, breaking the symlink confinement the rest of the plugin enforces
+	 * (`Path_Guard`, `Repository::remove_tree`). Every other sub-directory is
+	 * recorded and descended into.
 	 *
 	 * @since 0.4.0
 	 *
@@ -690,14 +845,15 @@ final class Doctor {
 	private function collect_subfolders( string $folder, array &$folders ): void {
 
 		// Record each content sub-directory, then recurse into it, so the collection
-		// tree is walked depth-first while the hidden artifacts dir is left alone.
+		// tree is walked depth-first while the hidden artifacts dir is left alone
+		// and a symlink is never followed out of the collection.
 		$entries = scandir( $folder );
 		foreach ( $entries === false ? [] : $entries as $entry ) {
 			if ( $entry === '.' || $entry === '..' || $entry === Index::THUMBNAILS_DIRNAME ) {
 				continue;
 			}
 			$path = $folder . '/' . $entry;
-			if ( is_dir( $path ) ) {
+			if ( ! is_link( $path ) && is_dir( $path ) ) {
 				$folders[] = $path;
 				$this->collect_subfolders( $path, $folders );
 			}
@@ -766,7 +922,7 @@ final class Doctor {
 	 *
 	 * @since 0.4.0
 	 *
-	 * @param array{0:int,1:bool}|null $probe The codec probe `[ width, is_webp ]`, or null.
+	 * @param array{width:int,height:int,is_webp:bool}|null $probe The codec probe, or null.
 	 * @return string|null The violation reason, or null when the main conforms.
 	 */
 	private function contract_violation( ?array $probe ): ?string {
@@ -776,10 +932,10 @@ final class Doctor {
 		if ( $probe === null ) {
 			return 'unreadable or not a decodable image';
 		}
-		[ $width, $is_webp ] = $probe;
+		$width = $probe['width'];
 
 		// The stored format is always WebP; anything else arrived out of band.
-		if ( ! $is_webp ) {
+		if ( ! $probe['is_webp'] ) {
 			return 'not WebP';
 		}
 
@@ -855,6 +1011,10 @@ final class Doctor {
 	/**
 	 * Returns the absolute `<width>/` sub-directories under a thumbnails root.
 	 *
+	 * A symlinked entry is never returned: a planted `.kntnt-thumbnails/320` link
+	 * pointing outside the collection would otherwise expose the *target's* files
+	 * to the orphan scan — and `--repair` would delete them through the link.
+	 *
 	 * @since 0.4.0
 	 *
 	 * @param string $thumbs_root Absolute path to a folder's `.kntnt-thumbnails/`.
@@ -862,8 +1022,9 @@ final class Doctor {
 	 */
 	private function width_dirs( string $thumbs_root ): array {
 
-		// Each immediate sub-directory of the thumbnails root is a width bucket; the
-		// index file beside them is not a directory and is skipped.
+		// Each immediate real sub-directory of the thumbnails root is a width
+		// bucket; the index file beside them is not a directory and a symlink is
+		// never followed, so nothing outside the collection is ever visited.
 		$dirs = [];
 		$entries = scandir( $thumbs_root );
 		foreach ( $entries === false ? [] : $entries as $entry ) {
@@ -871,7 +1032,7 @@ final class Doctor {
 				continue;
 			}
 			$path = $thumbs_root . '/' . $entry;
-			if ( is_dir( $path ) ) {
+			if ( ! is_link( $path ) && is_dir( $path ) ) {
 				$dirs[] = $path;
 			}
 		}
@@ -895,6 +1056,25 @@ final class Doctor {
 	 */
 	private function is_descriptor( string $folder, string $entry ): bool {
 		return $folder === $this->root && $entry === Descriptor::FILENAME;
+	}
+
+	/**
+	 * Reports whether a folder entry is the plugin's directory-listing guard.
+	 *
+	 * The repository seeds a blank `index.php` into every collection root so a
+	 * server with autoindex enabled cannot enumerate the tree. That guard is a
+	 * plugin file, not a foreign file, but only at the root where the plugin
+	 * put it — a same-named file in a sub-folder is user content and stays
+	 * foreign.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string $folder The folder the entry was found in.
+	 * @param string $entry  The entry filename.
+	 * @return bool True when the entry is the root listing guard.
+	 */
+	private function is_listing_guard( string $folder, string $entry ): bool {
+		return $folder === $this->root && $entry === Repository::LISTING_GUARD_FILENAME;
 	}
 
 	/**
@@ -958,6 +1138,10 @@ final class Doctor {
 	/**
 	 * Unlinks a single file, returning whether it was removed.
 	 *
+	 * Refuses a symlink outright — defense-in-depth on top of the symlink-skipping
+	 * walks, so even a link planted between diagnosis and repair is never removed
+	 * (it is not ours) and its target is never reached.
+	 *
 	 * @since 0.4.0
 	 *
 	 * @param string $path Absolute path to the file to remove.
@@ -965,16 +1149,17 @@ final class Doctor {
 	 */
 	private function unlink( string $path ): bool {
 
-		// Only an existing file is unlinked; the plugin owns this tree directly
-		// (ADR-0001), so it unlinks rather than routing through wp_delete_file.
-		if ( ! is_file( $path ) ) {
+		// Only an existing plain file is unlinked — never a symlink; the plugin
+		// owns this tree directly (ADR-0001), so it unlinks rather than routing
+		// through wp_delete_file.
+		if ( is_link( $path ) || ! is_file( $path ) ) {
 			return false;
 		}
 
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- The plugin owns this directory tree on disk directly (ADR-0001); wp_delete_file is for Media-Library attachments, not files written outside it.
 		$removed = unlink( $path );
 		if ( ! $removed ) {
-			Plugin::warning( "Failed to remove an orphan thumbnail at {$path}." );
+			Plugin::warning( "Failed to remove a derived artifact at {$path}." );
 		}
 
 		return $removed;

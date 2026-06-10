@@ -30,6 +30,51 @@ namespace Kntnt\Photo_Drop;
 final class Updater {
 
 	/**
+	 * The site-transient key under which the latest GitHub release is cached.
+	 *
+	 * Public so the tests and the uninstall handler's purge logic name the
+	 * same key as this class. The cache exists because the
+	 * `pre_set_site_transient_update_plugins` filter fires several times per
+	 * admin load while unauthenticated GitHub allows only 60 requests per
+	 * hour per IP.
+	 *
+	 * @since 0.2.0
+	 * @var string
+	 */
+	public const RELEASE_TRANSIENT = 'kntnt_photo_drop_release';
+
+	/**
+	 * Cache lifetime for a successfully fetched release: six hours, in seconds.
+	 *
+	 * @since 0.2.0
+	 * @var int
+	 */
+	private const RELEASE_CACHE_TTL = 21600;
+
+	/**
+	 * Cache lifetime for a failed lookup: fifteen minutes, in seconds.
+	 *
+	 * Deliberately much shorter than the success TTL: a rate-limited or
+	 * unreachable GitHub should be retried soon, but not hammered on every
+	 * admin load in the meantime.
+	 *
+	 * @since 0.2.0
+	 * @var int
+	 */
+	private const FAILURE_CACHE_TTL = 900;
+
+	/**
+	 * Sentinel cached in place of release data after a failed lookup.
+	 *
+	 * On read, any cached value that is not an array is treated as this
+	 * marker, so the exact string is an implementation detail.
+	 *
+	 * @since 0.2.0
+	 * @var string
+	 */
+	private const FAILURE_SENTINEL = 'unavailable';
+
+	/**
 	 * Checks for new plugin releases on GitHub.
 	 *
 	 * This is the callback for 'pre_set_site_transient_update_plugins'. It
@@ -90,17 +135,20 @@ final class Updater {
 			return $transient;
 		}
 
-		// Build the update record from the plugin header and release data.
+		// Build the update record from the plugin header and release data. `tested`
+		// means "tested up to", so it carries the running WordPress version, while
+		// `requires` and `requires_php` carry the plugin header's floors so WordPress
+		// never installs the release on a host that no longer qualifies.
 		$plugin_slug_path = plugin_basename( Plugin::get_plugin_file() );
-		$req_wp           = $this->str_field( $plugin_data, 'RequiresWP' );
-		$requires_wp      = $req_wp !== '' ? $req_wp : get_bloginfo( 'version' );
-		$update_info              = new \stdClass();
-		$update_info->slug        = dirname( $plugin_slug_path );
-		$update_info->plugin      = $plugin_slug_path;
+		$update_info = new \stdClass();
+		$update_info->slug = dirname( $plugin_slug_path );
+		$update_info->plugin = $plugin_slug_path;
 		$update_info->new_version = $latest_version;
-		$update_info->url         = $this->str_field( $latest_release, 'html_url' );
-		$update_info->package     = $package_url;
-		$update_info->tested      = $requires_wp;
+		$update_info->url = $this->str_field( $latest_release, 'html_url' );
+		$update_info->package = $package_url;
+		$update_info->tested = get_bloginfo( 'version' );
+		$update_info->requires = $this->str_field( $plugin_data, 'RequiresWP' );
+		$update_info->requires_php = $this->str_field( $plugin_data, 'RequiresPHP' );
 
 		// Inject the update record into the transient's response array.
 		if ( ! isset( $transient->response ) || ! is_array( $transient->response ) ) {
@@ -113,7 +161,76 @@ final class Updater {
 	}
 
 	/**
-	 * Fetches the latest release data from the GitHub API.
+	 * Short-circuits the "View version details" lookup for this plugin.
+	 *
+	 * This is the callback for the `plugins_api` filter. The update row links
+	 * to the wordpress.org plugin-information modal, but this plugin is not
+	 * hosted there, so without this handler the modal shows an error. For
+	 * this plugin's slug it returns a minimal information object built from
+	 * the plugin header and the cached GitHub release; every other request
+	 * passes through untouched.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param mixed  $result The result so far; false when nothing answered yet.
+	 * @param string $action The type of information requested.
+	 * @param mixed  $args   Plugin API arguments; an object carrying a `slug`
+	 *                       for plugin-information queries.
+	 * @return mixed The information object for this plugin, or $result untouched.
+	 */
+	public function plugin_information( mixed $result, string $action, mixed $args ): mixed {
+
+		// Only plugin-information queries are candidates; every other action
+		// belongs to wordpress.org and passes through untouched.
+		if ( $action !== 'plugin_information' || ! is_object( $args ) ) {
+			return $result;
+		}
+
+		// Likewise pass through queries that target any other plugin's slug.
+		$slug = dirname( plugin_basename( Plugin::get_plugin_file() ) );
+		if ( ! isset( $args->slug ) || $args->slug !== $slug ) {
+			return $result;
+		}
+
+		// Resolve the GitHub repository and the (cached) latest release; without
+		// either there is nothing better to show than the default behaviour.
+		$plugin_data = Plugin::get_plugin_data();
+		$github_uri = $this->str_field( $plugin_data, 'PluginURI' );
+		$github_repo = $this->get_github_repo_from_uri( $github_uri );
+		$release = $github_repo !== null ? $this->get_latest_github_release( $github_repo ) : null;
+		if ( $release === null ) {
+			return $result;
+		}
+
+		// Build the minimal information object the modal renders: identity and
+		// compatibility floors from the plugin header, version and download link
+		// from the release, and the release body as the changelog section.
+		$info = new \stdClass();
+		$info->name = $this->str_field( $plugin_data, 'Name' );
+		$info->slug = $slug;
+		$info->version = ltrim( $this->str_field( $release, 'tag_name' ), 'v' );
+		$info->author = $this->str_field( $plugin_data, 'Author' );
+		$info->homepage = $github_uri;
+		$info->requires = $this->str_field( $plugin_data, 'RequiresWP' );
+		$info->requires_php = $this->str_field( $plugin_data, 'RequiresPHP' );
+		$info->tested = get_bloginfo( 'version' );
+		$info->download_link = $this->find_zip_asset_url( $release ) ?? '';
+		$info->sections = [
+			'changelog' => wp_kses_post( wpautop( $this->str_field( $release, 'body' ) ) ),
+		];
+
+		return $info;
+
+	}
+
+	/**
+	 * Fetches the latest release data from the GitHub API, cached site-wide.
+	 *
+	 * The decoded release is cached in a site transient because the update
+	 * filter fires several times per admin load and unauthenticated GitHub
+	 * allows only 60 requests per hour per IP. A failed lookup caches a
+	 * short-lived sentinel so a rate-limited host is not hammered while the
+	 * updater still recovers quickly.
 	 *
 	 * Returns an associative array on success so callers can access fields
 	 * without triggering PHPStan's property-not-found errors on stdClass.
@@ -125,20 +242,50 @@ final class Updater {
 	 */
 	private function get_latest_github_release( string $repo ): ?array {
 
-		// Fetch the latest release from the GitHub REST API.
+		// Serve from the cache when possible: a cached array is release data; any
+		// other cached value is the failure sentinel still in force.
+		$cached = get_site_transient( self::RELEASE_TRANSIENT );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		if ( $cached !== false ) {
+			return null;
+		}
+
+		// Fetch the latest release from the GitHub REST API with a tight timeout —
+		// this call blocks an admin request, so failing fast beats waiting on a
+		// slow API.
 		$request_uri = "https://api.github.com/repos/{$repo}/releases/latest";
-		$response    = wp_remote_get( $request_uri );
+		$response = wp_remote_get(
+			$request_uri,
+			[
+				'timeout' => 5,
+				'headers' => [ 'Accept' => 'application/vnd.github+json' ],
+			],
+		);
 
+		// A transport error or non-200 caches the short-lived failure sentinel and
+		// logs once at debug level, naming the status for diagnosis.
 		if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
+			$status = is_wp_error( $response )
+				? $response->get_error_message()
+				: (string) wp_remote_retrieve_response_code( $response );
+			Plugin::debug( "GitHub release lookup for {$repo} failed: {$status}." );
+			set_site_transient( self::RELEASE_TRANSIENT, self::FAILURE_SENTINEL, self::FAILURE_CACHE_TTL );
 			return null;
 		}
 
-		// Decode as an associative array so static analysis can reason about it.
+		// Decode as an associative array so static analysis can reason about it; a
+		// malformed payload is cached and logged like a failed request.
 		$decoded = json_decode( wp_remote_retrieve_body( $response ), true );
-
 		if ( ! is_array( $decoded ) || ! isset( $decoded['tag_name'], $decoded['zipball_url'] ) ) {
+			Plugin::debug( "GitHub release lookup for {$repo} returned HTTP 200 but a malformed payload." );
+			set_site_transient( self::RELEASE_TRANSIENT, self::FAILURE_SENTINEL, self::FAILURE_CACHE_TTL );
 			return null;
 		}
+
+		// Cache the decoded release so subsequent admin loads skip the network.
+		set_site_transient( self::RELEASE_TRANSIENT, $decoded, self::RELEASE_CACHE_TTL );
 
 		return $decoded;
 

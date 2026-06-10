@@ -36,6 +36,18 @@ use Kntnt\Photo_Drop\Plugin;
  * serves any number of folders — so it composes cleanly into the gallery
  * renderer and the doctor.
  *
+ * Directory mtimes have one-second granularity, which opens a race the
+ * mtime-validated cache (ADR-0003) must close: a rebuild that stamps second T,
+ * followed by another main image written within that same second T, leaves the
+ * folder's mtime unchanged — so a persisted index from that rebuild would be
+ * treated as fresh forever and silently hide the new image. The store therefore
+ * persists a rebuilt index only when the stamped second has fully passed on the
+ * injected wall clock; a same-second rebuild returns the fresh in-memory index
+ * unpersisted, and the next read simply rebuilds again until the folder has
+ * been quiescent past the second boundary. The invariant this buys: every
+ * persisted `dirMtime` is strictly older than its persist moment, so any later
+ * mutation is guaranteed to produce a visible mtime mismatch.
+ *
  * @since 0.1.0
  */
 final class Index_Store {
@@ -65,18 +77,34 @@ final class Index_Store {
 	private readonly Dimension_Reader $dimension_reader;
 
 	/**
-	 * Constructs the store with a dimension reader.
+	 * The wall clock the persist guard compares a stamped mtime against.
 	 *
-	 * Defaults to the WordPress/GD-backed reader, so production callers
-	 * construct it with no arguments; tests inject their own to observe or fake
-	 * the one expensive step a rebuild performs.
+	 * A rebuilt index is persisted only when its stamped folder mtime lies
+	 * strictly before the current clock second (see the class description and
+	 * ADR-0003). Injected so tests can freeze or advance the second boundary
+	 * deterministically; production uses `time()`.
+	 *
+	 * @since 0.2.0
+	 * @var \Closure():int
+	 */
+	private readonly \Closure $clock;
+
+	/**
+	 * Constructs the store with a dimension reader and a wall clock.
+	 *
+	 * Defaults to the WordPress/GD-backed reader and `time()`, so production
+	 * callers construct it with no arguments; tests inject their own to observe
+	 * or fake the one expensive step a rebuild performs and to pin the
+	 * same-second persist guard without sleeping across a real second boundary.
 	 *
 	 * @since 0.1.0
 	 *
 	 * @param Dimension_Reader|null $dimension_reader The reader to measure images, or null for the default.
+	 * @param (\Closure():int)|null $clock            The current-Unix-time source, or null for `time()`.
 	 */
-	public function __construct( ?Dimension_Reader $dimension_reader = null ) {
+	public function __construct( ?Dimension_Reader $dimension_reader = null, ?\Closure $clock = null ) {
 		$this->dimension_reader = $dimension_reader ?? new Wp_Dimension_Reader();
+		$this->clock            = $clock ?? time( ... );
 	}
 
 	/**
@@ -86,8 +114,10 @@ final class Index_Store {
 	 * index records a `dirMtime` equal to the folder's current mtime, that
 	 * cached index is returned and no image is measured — the fast path. On any
 	 * mismatch, or a missing or unparseable index, the index is rebuilt from the
-	 * directory and written back. Returns `null` only when the folder itself
-	 * cannot be `stat`-ed (it does not exist) — there is then no folder to index.
+	 * directory and written back (deferred to a later read while the folder's
+	 * mtime second is still running — see `rebuild()`). Returns `null` only when
+	 * the folder itself cannot be `stat`-ed (it does not exist) — there is then
+	 * no folder to index.
 	 *
 	 * @since 0.1.0
 	 *
@@ -123,9 +153,16 @@ final class Index_Store {
 	 * Scans the content folder for top-level main `*.webp` images, measures each
 	 * one's dimensions exactly once through the injected reader, lists the
 	 * folder's sub-directories, and writes the index (images sorted ascending by
-	 * filename) stamped with the folder mtime. Exposed for the doctor's
-	 * `--repair --force` path; the normal read path reaches it via
+	 * filename) stamped with the folder mtime. Symlinked entries are skipped
+	 * outright — they did not enter through the optimisation boundary and a
+	 * linked directory could cycle the recursive gallery walk. Exposed for the
+	 * doctor's `--repair --force` path; the normal read path reaches it via
 	 * `get_or_rebuild()`.
+	 *
+	 * When the stamped mtime falls in the still-running clock second, the index
+	 * is returned but *not* persisted — the folder could change again within
+	 * that second without a visible mtime bump, so caching it would be unsafe
+	 * (see the class description and ADR-0003).
 	 *
 	 * The hidden `.kntnt-thumbnails/` directory is created *before* the folder
 	 * mtime is stamped, because creating that sub-directory itself bumps the
@@ -174,9 +211,18 @@ final class Index_Store {
 				continue;
 			}
 
+			// A symlink is never indexed, mirroring the delete path's treat-as-leaf
+			// stance: following a linked directory could cycle the recursive
+			// gallery walk forever or surface out-of-tree content, and a linked
+			// file did not enter through the optimisation boundary.
+			$path = $absolute . $entry;
+			if ( is_link( $path ) ) {
+				Plugin::debug( "Skipping the symlink at {$path} during the index rebuild." );
+				continue;
+			}
+
 			// A sub-directory is recorded for completeness so a recursive gallery
 			// walk can descend; a main `*.webp` is measured and recorded.
-			$path = $absolute . $entry;
 			if ( is_dir( $path ) ) {
 				$subdirs[] = $entry;
 			} elseif ( $this->is_main_image( $entry ) ) {
@@ -192,9 +238,17 @@ final class Index_Store {
 		usort( $images, static fn ( Image_Entry $a, Image_Entry $b ): int => strcmp( $a->file, $b->file ) );
 		sort( $subdirs );
 
-		// Materialise and persist the rebuilt index, then hand it back.
+		// Materialise the rebuilt index, but persist it only once the folder has
+		// been quiescent past the stamped second: mtimes have one-second
+		// granularity, so a folder that can still change within second T would
+		// otherwise leave a persisted index that matches the mtime forever while
+		// silently missing the late arrivals (see the class description and
+		// ADR-0003). An unpersisted index simply costs one more rebuild on the
+		// next read.
 		$index = new Index( $mtime, $subdirs, $images );
-		$this->write( $folder_path, $index );
+		if ( $mtime < ( $this->clock )() ) {
+			$this->write( $folder_path, $index );
+		}
 
 		return $index;
 
@@ -276,12 +330,11 @@ final class Index_Store {
 			return false;
 		}
 
-		// Persist the cache file; a failed write leaves the folder to self-heal
+		// Publish the cache file atomically so a concurrent gallery read never
+		// parses a torn index; a failed write leaves the folder to self-heal
 		// again next time, so it is a warning rather than a hard error.
 		$file = $this->path_for( $folder_path );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- The plugin owns this directory tree on disk directly (ADR-0001); WP_Filesystem is the wrong abstraction for files written outside the Media Library.
-		$written = file_put_contents( $file, $json . "\n" );
-		if ( $written === false ) {
+		if ( ! Atomic_Writer::write( $file, $json . "\n" ) ) {
 			Plugin::warning( "Could not write the index at {$file}." );
 			return false;
 		}

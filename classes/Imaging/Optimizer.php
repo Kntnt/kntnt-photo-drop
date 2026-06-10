@@ -25,11 +25,13 @@ use Kntnt\Photo_Drop\Storage\Descriptor;
  *
  * The external interface is a single deep method, `optimize()`, that hides the
  * whole accept-as-is-or-re-encode decision behind one call returning an
- * `Optimized_Image` (or `null` when the source is not a decodable image or
- * cannot be encoded). The codec is injected so production binds GD while tests
- * can drive the real GD codec or a stub; the constructor selects the first
- * supported codec and fails loudly if none on the host can handle WebP, because
- * a plugin that silently produces nothing would break the contract invisibly.
+ * `Optimized_Image` (or `null` when the source is not a decodable image, is too
+ * large to decode safely, or cannot be encoded). The codec is injected so
+ * production binds GD while tests can drive the real GD codec or a stub; the
+ * constructor selects the first supported codec and fails loudly if none on the
+ * host can handle WebP, because a plugin that silently produces nothing would
+ * break the contract invisibly. `is_available()` offers the same codec check
+ * without the throw, for callers that only need a verdict (an admin notice).
  *
  * @since 0.3.0
  */
@@ -68,11 +70,10 @@ final class Optimizer {
 
 		// Auto-select the first codec whose WebP support is actually present,
 		// preferring the tested GD path over the Imagick portability fallback.
-		foreach ( [ new Gd_Webp_Codec(), new Imagick_Webp_Codec() ] as $candidate ) {
-			if ( $candidate->is_supported() ) {
-				$this->codec = $candidate;
-				return;
-			}
+		$candidate = self::select_codec();
+		if ( $candidate !== null ) {
+			$this->codec = $candidate;
+			return;
 		}
 
 		// No codec on this host can encode WebP; fail loudly rather than rejecting
@@ -84,17 +85,48 @@ final class Optimizer {
 	}
 
 	/**
+	 * Reports whether any codec on this host can encode WebP at all.
+	 *
+	 * The throw-free twin of the constructor's auto-selection, for callers that
+	 * only need the verdict — an admin notice warning that uploads cannot work.
+	 * Never throws: a codec whose support check itself blows up counts as
+	 * unavailable.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @return bool True when at least one codec reports WebP support.
+	 */
+	public static function is_available(): bool {
+
+		// Any throw while probing support means that support is not usable.
+		try {
+			return self::select_codec() !== null;
+		} catch ( \Throwable ) {
+			return false;
+		}
+
+	}
+
+	/**
 	 * Produces the conforming WebP bytes for a source under a contract.
 	 *
-	 * The accept-as-is fast path returns the source untouched — same bytes, so a
-	 * hash comparison proves no second lossy pass — when it is already WebP *and*
-	 * its width is within the ceiling (or the ceiling is `null`, meaning no
-	 * limit). Otherwise the source is decoded; if a finite ceiling is set and the
-	 * width exceeds it the image is downscaled to exactly the ceiling (a `null`
-	 * ceiling never scales, so a small image keeps its own width and is never
-	 * upscaled); then it is re-encoded to WebP at the descriptor's quality —
-	 * never a client-supplied one. Returns `null` when the source is not a
-	 * decodable image or the encode fails, which the caller maps to a rejection.
+	 * The pipeline is: header-probe the bytes (reject unrecognisable sources);
+	 * reject anything whose *declared* pixel area exceeds the megapixel input
+	 * ceiling before a single pixel buffer is allocated, so a decompression
+	 * bomb cannot OOM-kill the worker; raise the memory limit the way
+	 * WordPress's own image editors do; then decode once — even an
+	 * already-conforming WebP, as integrity validation, because the header
+	 * probe cannot see a truncated body. The decode uprights EXIF-oriented
+	 * sources, so the decoded handle's width (which may differ from the
+	 * probe's) drives all width decisions. A WebP within the contract ceiling
+	 * (or under a `null` ceiling, meaning no limit) is then passed through with
+	 * its pixel data byte-identical — no second lossy pass — with EXIF/XMP
+	 * container metadata stripped losslessly so a direct POST cannot publish
+	 * GPS coordinates. Everything else is downscaled to the ceiling when
+	 * exceeded (a `null` ceiling never scales, so nothing is ever upscaled) and
+	 * re-encoded to WebP at the descriptor's quality — never a client-supplied
+	 * one. Returns `null` when any step finds the source unusable, which the
+	 * caller maps to a per-file rejection.
 	 *
 	 * @since 0.3.0
 	 *
@@ -104,30 +136,57 @@ final class Optimizer {
 	 */
 	public function optimize( string $bytes, Descriptor $descriptor ): ?Optimized_Image {
 
-		// Probe format and width without decoding; an unrecognised source is
+		// Probe format and dimensions without decoding; an unrecognised source is
 		// rejected here before any pixel buffer is allocated.
 		$probe = $this->codec->probe( $bytes );
 		if ( $probe === null ) {
 			return null;
 		}
-		[ $source_width, $is_webp ] = $probe;
 
-		// Accept as-is when already WebP and within the ceiling (or no ceiling):
-		// re-encoding a conforming source would only add a second lossy pass.
-		if ( $is_webp && $this->within_ceiling( $source_width, $descriptor->max_width ) ) {
-			return new Optimized_Image( $bytes, $source_width, false );
+		// Reject a declared pixel area over the input ceiling before any decode —
+		// decoding it would OOM-kill the worker with an uncatchable fatal, taking
+		// the whole batch (and the HTTP connection) down with it.
+		if ( ! Input_Ceiling::allows( $probe['width'], $probe['height'] ) ) {
+			Plugin::warning( 'Rejected a source image whose declared dimensions exceed the input megapixel ceiling.' );
+			return null;
 		}
 
-		// Otherwise the source must be transformed: decode it into a pixel buffer.
+		// Give the decode the same memory headroom WordPress grants its own image
+		// editors. Guarded so the optimiser also runs in a plain-PHP test runtime.
+		if ( function_exists( 'wp_raise_memory_limit' ) ) {
+			wp_raise_memory_limit( 'image' );
+		}
+
+		// Decode unconditionally — for an accept-as-is candidate this is the
+		// integrity validation the header probe cannot provide (a WebP truncated
+		// mid-body probes fine but must not be stored as a broken main). The codec
+		// also uprights EXIF-oriented sources here.
 		$image = $this->codec->decode( $bytes );
 		if ( $image === null ) {
 			return null;
 		}
 
+		// The decoded handle's width is authoritative: EXIF orientation may have
+		// swapped the probe's width and height during decode, and the contract
+		// must be enforced against the pixels that will actually be stored.
+		$width = $this->codec->width( $image );
+		if ( $width <= 0 ) {
+			return null;
+		}
+
+		// Accept as-is when already WebP and within the ceiling (or no ceiling):
+		// re-encoding a conforming source would only add a second lossy pass. The
+		// stored pixel data is byte-identical to the source; only EXIF/XMP
+		// container chunks are removed, losslessly, to match the privacy property
+		// the re-encode path gets for free.
+		if ( $probe['is_webp'] && $this->within_ceiling( $width, $descriptor->max_width ) ) {
+			return new Optimized_Image( Webp_Metadata_Stripper::strip( $bytes ), $width, false );
+		}
+
 		// Downscale only when a finite ceiling is exceeded; a null ceiling and an
 		// already-small image both skip scaling, so width is never increased.
-		$target_width = $this->target_width( $source_width, $descriptor->max_width );
-		if ( $target_width !== $source_width ) {
+		$target_width = $this->target_width( $width, $descriptor->max_width );
+		if ( $target_width !== $width ) {
 			$scaled = $this->codec->scale( $image, $target_width );
 			if ( $scaled === null ) {
 				Plugin::warning( 'Failed to downscale a source image during optimisation.' );
@@ -149,6 +208,30 @@ final class Optimizer {
 	}
 
 	/**
+	 * Selects the first codec on this host with usable WebP support.
+	 *
+	 * GD first, since it is the tested production path, then Imagick for
+	 * portability. Shared by the constructor (which throws on `null`) and
+	 * `is_available()` (which maps `null` to `false`).
+	 *
+	 * @since 0.2.0
+	 *
+	 * @return Webp_Codec|null The first supported codec, or null when none is.
+	 */
+	private static function select_codec(): ?Webp_Codec {
+
+		// Probe each candidate's support and return the first usable one.
+		foreach ( [ new Gd_Webp_Codec(), new Imagick_Webp_Codec() ] as $candidate ) {
+			if ( $candidate->is_supported() ) {
+				return $candidate;
+			}
+		}
+
+		return null;
+
+	}
+
+	/**
 	 * Reports whether a width already satisfies the contract ceiling.
 	 *
 	 * A `null` ceiling means "no limit", so any width is within it; otherwise the
@@ -156,7 +239,7 @@ final class Optimizer {
 	 *
 	 * @since 0.3.0
 	 *
-	 * @param int      $width     The source width in pixels.
+	 * @param int      $width     The decoded source width in pixels.
 	 * @param int|null $max_width The contract ceiling, or null for no limit.
 	 * @return bool True when the width is within the ceiling.
 	 */

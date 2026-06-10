@@ -57,42 +57,53 @@ final class Imagick_Webp_Codec implements Webp_Codec {
 	}
 
 	/**
-	 * Probes raw bytes for width and WebP-ness by reading the image header.
+	 * Probes raw bytes for dimensions and WebP-ness by reading the image header.
 	 *
-	 * Imagick has no header-only probe, so it reads the blob and inspects the
-	 * decoded format and geometry, then discards the handle. Returns `null` for
-	 * anything Imagick cannot read.
+	 * Imagick has no header-only probe, so it pings the blob (header-level read)
+	 * and inspects the format and geometry, then discards the handle. Returns
+	 * `null` for anything Imagick cannot read.
 	 *
 	 * @since 0.3.0
 	 *
 	 * @param string $bytes The raw source image bytes.
-	 * @return array{0:int,1:bool}|null `[ $width, $is_webp ]`, or null when undecodable.
+	 * @return array{width: int, height: int, is_webp: bool}|null The probed facts, or null when unrecognisable.
 	 */
 	public function probe( string $bytes ): ?array {
 
-		// Read the blob to learn its format and width; a read failure means the
-		// bytes are not a decodable image.
+		// Ping the blob to learn its format and dimensions without a full pixel
+		// decode; a read failure means the bytes are not a recognisable image.
 		try {
 			$image = new \Imagick();
-			$image->readImageBlob( $bytes );
+			$image->pingImageBlob( $bytes );
 			$width   = $image->getImageWidth();
+			$height  = $image->getImageHeight();
 			$is_webp = strtoupper( $image->getImageFormat() ) === 'WEBP';
 			$image->clear();
 		} catch ( \Throwable ) {
 			return null;
 		}
 
-		// A non-positive width is not a usable image.
-		if ( $width <= 0 ) {
+		// Non-positive dimensions are not a usable image.
+		if ( $width <= 0 || $height <= 0 ) {
 			return null;
 		}
 
-		return [ $width, $is_webp ];
+		return [
+			'width'   => $width,
+			'height'  => $height,
+			'is_webp' => $is_webp,
+		];
 
 	}
 
 	/**
-	 * Decodes raw bytes into an Imagick handle.
+	 * Decodes raw bytes into an upright Imagick handle.
+	 *
+	 * Auto-orients EXIF-rotated sources when the Imagick build offers
+	 * `autoOrientImage()` (capability-probed at runtime, since older builds
+	 * lack it), matching the GD codec's upright-on-decode contract: the later
+	 * WebP encode strips the Orientation tag, so the pixels must be physically
+	 * upright before any scale or encode.
 	 *
 	 * @since 0.3.0
 	 *
@@ -101,10 +112,18 @@ final class Imagick_Webp_Codec implements Webp_Codec {
 	 */
 	public function decode( string $bytes ): ?object {
 
-		// Read the blob into a fresh handle; any failure is an undecodable source.
+		// Read the blob into a fresh handle and upright it; any failure is an
+		// undecodable source. The auto-orient capability is probed through
+		// reflection because the method is missing both from older Imagick
+		// builds and from the static analyser's bundled class stub — a literal
+		// method_exists() would be folded to a constant false there.
 		try {
-			$image = new \Imagick();
+			$image      = new \Imagick();
 			$image->readImageBlob( $bytes );
+			$reflection = new \ReflectionObject( $image );
+			if ( $reflection->hasMethod( 'autoOrientImage' ) ) {
+				$reflection->getMethod( 'autoOrientImage' )->invoke( $image );
+			}
 			return $image;
 		} catch ( \Throwable ) {
 			return null;

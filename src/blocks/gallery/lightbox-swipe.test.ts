@@ -1,10 +1,11 @@
 /**
  * Jest tests for the Gallery lightbox's swipe-decision function.
  *
- * These pin the two guards a naive sign check misses: a horizontal swipe must
+ * These pin the three guards a naive sign check misses: a horizontal swipe must
  * clear the distance threshold and dominate the vertical travel before it pages
- * the lightbox; otherwise a tap, a jitter, or a vertical scroll is left alone.
- * The direction mapping (left → next, right → prev) is pinned too.
+ * the lightbox, and a gesture that ever went multi-touch — a pinch — is
+ * discarded outright; otherwise a tap, a jitter, or a vertical scroll is left
+ * alone. The direction mapping (left → next, right → prev) is pinned too.
  *
  * @since 0.7.0
  */
@@ -38,7 +39,22 @@ describe( 'actionForSwipe', () => {
 	it( 'honours a custom threshold', () => {
 		// Below the custom 100px threshold a rightward swipe is ignored; above it,
 		// the same direction pages to the previous image.
-		expect( actionForSwipe( 40, 0, 100 ) ).toBe( 'none' );
-		expect( actionForSwipe( 120, 0, 100 ) ).toBe( 'prev' );
+		expect( actionForSwipe( 40, 0, { threshold: 100 } ) ).toBe( 'none' );
+		expect( actionForSwipe( 120, 0, { threshold: 100 } ) ).toBe( 'prev' );
+	} );
+
+	it( 'discards a gesture that ever went multi-touch, however clean its delta', () => {
+		// A pinch records garbage deltas; even one that happens to look like a
+		// perfect horizontal swipe must not page the lightbox.
+		expect( actionForSwipe( -200, 0, { multiTouch: true } ) ).toBe(
+			'none'
+		);
+		expect( actionForSwipe( 200, 0, { multiTouch: true } ) ).toBe( 'none' );
+	} );
+
+	it( 'keeps paging when the gesture is explicitly single-touch', () => {
+		expect( actionForSwipe( -80, 5, { multiTouch: false } ) ).toBe(
+			'next'
+		);
 	} );
 } );
