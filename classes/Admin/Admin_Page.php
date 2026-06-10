@@ -131,6 +131,19 @@ final class Admin_Page {
 	private readonly Collection_Input $input;
 
 	/**
+	 * The hook suffix `add_submenu_page()` returned for this page.
+	 *
+	 * Captured by `register_menu()` and compared by `enqueue_styles()`, so the
+	 * page's stylesheet is added on this screen only. Empty until the menu is
+	 * registered (and when registration fails), in which case no styles are
+	 * ever added.
+	 *
+	 * @since 0.5.0
+	 * @var string
+	 */
+	private string $page_hook = '';
+
+	/**
 	 * Constructs the page with the collection repository it drives.
 	 *
 	 * The flag parser is a stateless helper the page owns directly; it takes no
@@ -169,12 +182,16 @@ final class Admin_Page {
 	 * only users who hold it see the entry or can reach the URL; the render
 	 * callback re-checks the same capability as defence in depth. The page lives
 	 * under Media because a collection is, conceptually, a managed set of media
-	 * files kept outside the Media Library.
+	 * files kept outside the Media Library. The returned hook suffix is kept so
+	 * `enqueue_styles()` can scope the page's stylesheet to this screen.
 	 *
 	 * @since 0.5.0
 	 */
 	public function register_menu(): void {
-		add_submenu_page(
+
+		// Register the page and keep its hook suffix; a false return (an
+		// un-capable user) leaves the suffix empty, so no styles are added.
+		$hook = add_submenu_page(
 			'upload.php',
 			__( 'Photo Drop Collections', 'kntnt-photo-drop' ),
 			__( 'Photo Drop', 'kntnt-photo-drop' ),
@@ -182,6 +199,38 @@ final class Admin_Page {
 			self::MENU_SLUG,
 			[ $this, 'render_page' ],
 		);
+		$this->page_hook = is_string( $hook ) ? $hook : '';
+
+	}
+
+	/**
+	 * Adds the page's small stylesheet on this admin screen only.
+	 *
+	 * Wired to `admin_enqueue_scripts`. The rules are the presentation the list
+	 * markup should not carry inline: the vertical gap between the page header
+	 * and the list table, and the right-aligned, non-wrapping actions column.
+	 * They ride the always-present `common` admin stylesheet as inline CSS, so
+	 * no extra stylesheet request is made for a few rules.
+	 *
+	 * @since 0.5.0
+	 *
+	 * @param string $hook_suffix The current admin screen's hook suffix.
+	 */
+	public function enqueue_styles( string $hook_suffix ): void {
+
+		// Every other admin screen passes through untouched.
+		if ( $this->page_hook === '' || $hook_suffix !== $this->page_hook ) {
+			return;
+		}
+
+		// The spacing rule separates the header row from the list table; the
+		// actions rule pins the Edit/Delete buttons to the row's right-hand end.
+		wp_add_inline_style(
+			'common',
+			'.kntnt-photo-drop-collections { margin-top: 1em; }'
+			. ' .kntnt-photo-drop-actions { text-align: right; white-space: nowrap; }',
+		);
+
 	}
 
 	/**
@@ -519,8 +568,9 @@ final class Admin_Page {
 	 * One row per discovered collection (the discovery scan), showing the display
 	 * name, slug, the immutable contract (max width or "No limit", quality, the
 	 * always-WebP format), the filter-driven thumbnail width(s), and the live
-	 * image count, with Edit and Delete row actions. A collection copied in from
-	 * another site appears automatically; a deleted directory disappears.
+	 * image count, with always-visible Edit and Delete buttons in the rightmost
+	 * column. A collection copied in from another site appears automatically; a
+	 * deleted directory disappears.
 	 *
 	 * @since 0.5.0
 	 */
@@ -543,7 +593,7 @@ final class Admin_Page {
 		// its contract and counts the mains on disk for the image column.
 		$collections = $this->repository->discover();
 
-		echo '<table class="wp-list-table widefat fixed striped">';
+		echo '<table class="wp-list-table widefat fixed striped kntnt-photo-drop-collections">';
 		echo '<thead><tr>';
 		echo '<th scope="col">' . esc_html__( 'Name', 'kntnt-photo-drop' ) . '</th>';
 		echo '<th scope="col">' . esc_html__( 'Slug', 'kntnt-photo-drop' ) . '</th>';
@@ -552,12 +602,14 @@ final class Admin_Page {
 		echo '<th scope="col">' . esc_html__( 'Format', 'kntnt-photo-drop' ) . '</th>';
 		echo '<th scope="col">' . esc_html__( 'Thumbnail width', 'kntnt-photo-drop' ) . '</th>';
 		echo '<th scope="col">' . esc_html__( 'Images', 'kntnt-photo-drop' ) . '</th>';
+		echo '<th scope="col" class="kntnt-photo-drop-actions">';
+		echo esc_html__( 'Actions', 'kntnt-photo-drop' ) . '</th>';
 		echo '</tr></thead><tbody>';
 
 		// An empty discovery shows a single explanatory row rather than a bare table.
 		if ( $collections === [] ) {
 			$empty = __( 'No collections yet. Create one to get started.', 'kntnt-photo-drop' );
-			echo '<tr><td colspan="7">' . esc_html( $empty ) . '</td></tr>';
+			echo '<tr><td colspan="8">' . esc_html( $empty ) . '</td></tr>';
 		}
 
 		foreach ( $collections as $row_slug => $path ) {
@@ -572,9 +624,11 @@ final class Admin_Page {
 	 * Renders a single collection row in the list table.
 	 *
 	 * Reads the row's descriptor for the contract and the display name, counts the
-	 * mains on disk for the image column, and renders the Edit and Delete row
-	 * actions. A collection whose descriptor cannot be read still renders by slug
-	 * so it can be deleted, rather than vanishing from the table.
+	 * mains on disk for the image column, and renders always-visible Edit and
+	 * Delete buttons in the rightmost actions cell — Delete leads to the
+	 * confirmation view, never straight to removal. A collection whose descriptor
+	 * cannot be read still renders by slug so it can be deleted, rather than
+	 * vanishing from the table.
 	 *
 	 * @since 0.5.0
 	 *
@@ -588,17 +642,6 @@ final class Admin_Page {
 		$descriptor = Descriptor::read( $path );
 		$name       = $descriptor !== null && $descriptor->name !== '' ? $descriptor->name : $slug;
 
-		// Compose the row actions inline under the name cell, the WordPress idiom.
-		$edit_action   = '<span class="edit"><a href="%1$s">%2$s</a></span>';
-		$delete_action = '<span class="delete"><a href="%3$s" class="submitdelete">%4$s</a></span>';
-		$actions       = sprintf(
-			'<div class="row-actions">' . $edit_action . ' | ' . $delete_action . '</div>',
-			esc_url( $this->page_url( 'edit', $slug ) ),
-			esc_html__( 'Edit', 'kntnt-photo-drop' ),
-			esc_url( $this->page_url( 'delete', $slug ) ),
-			esc_html__( 'Delete', 'kntnt-photo-drop' ),
-		);
-
 		// Resolve the contract cells from the descriptor; a missing descriptor renders
 		// each contract cell as a dash so a broken collection still lists by slug.
 		$max_width_cell = $descriptor !== null ? $this->format_max_width( $descriptor->max_width ) : '—';
@@ -611,13 +654,25 @@ final class Admin_Page {
 		$images_cell = $count === null ? '—' : (string) $count;
 
 		echo '<tr>';
-		echo '<td><strong>' . esc_html( $name ) . '</strong>' . wp_kses_post( $actions ) . '</td>';
+		echo '<td><strong>' . esc_html( $name ) . '</strong></td>';
 		echo '<td><code>' . esc_html( $slug ) . '</code></td>';
 		echo '<td>' . esc_html( $max_width_cell ) . '</td>';
 		echo '<td>' . esc_html( $quality_cell ) . '</td>';
 		echo '<td>' . esc_html__( 'WebP', 'kntnt-photo-drop' ) . '</td>';
 		echo '<td>' . esc_html( $thumbs_cell ) . '</td>';
 		echo '<td>' . esc_html( $images_cell ) . '</td>';
+
+		// The rightmost cell holds the always-visible action buttons; the red
+		// button-link-delete styling flags Delete as the destructive one.
+		printf(
+			'<td class="kntnt-photo-drop-actions"><a href="%1$s" class="button">%2$s</a>'
+			. ' <a href="%3$s" class="button button-link-delete">%4$s</a></td>',
+			esc_url( $this->page_url( 'edit', $slug ) ),
+			esc_html__( 'Edit', 'kntnt-photo-drop' ),
+			esc_url( $this->page_url( 'delete', $slug ) ),
+			esc_html__( 'Delete', 'kntnt-photo-drop' ),
+		);
+
 		echo '</tr>';
 
 	}

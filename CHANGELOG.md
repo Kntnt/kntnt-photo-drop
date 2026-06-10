@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The collection-lifecycle admin page lists each collection with always-visible **Edit** and **Delete** buttons at the right-hand end of the row, replacing the hover-revealed row actions, and the list table is now visibly separated from the page header. Delete still routes through the existing confirmation step, and a collection whose descriptor cannot be read still lists by slug and remains deletable. (#30)
+
 ## [0.3.0] - 2026-06-10
 
 ### Added

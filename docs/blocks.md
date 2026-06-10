@@ -185,7 +185,7 @@ Collection **create / update / delete** lives on a dedicated admin page (and the
 ### List view
 
 - A table of all discovered collections (the discovery scan), one row each: display name, slug, max width (or "No limit"), quality, format (**WebP**), thumbnail width(s), and image count. A collection copied in from another site appears automatically; a deleted directory disappears.
-- Row actions: **Edit** (name only) and **Delete**. A **Create collection** button opens the create form.
+- Each row ends with always-visible **Edit** (name only) and **Delete** buttons in the rightmost column; Delete leads to the confirmation step. A **Create collection** button opens the create form.
 
 ### Create
 

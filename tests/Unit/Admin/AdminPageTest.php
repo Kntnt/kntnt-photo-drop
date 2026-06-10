@@ -249,6 +249,111 @@ test( 'the edit form shows the contract disabled and submits only the name', fun
 } );
 
 // ---------------------------------------------------------------------------
+// List view — always-visible Edit/Delete buttons in the rightmost column
+// ---------------------------------------------------------------------------
+
+test( 'the list shows always-visible Edit and Delete buttons instead of hover row actions', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	seed_admin_collection( $root, 'spring', 'Spring', 1920, 80 );
+
+	// Notice replay touches the per-user transient key before the table renders.
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [ 'page' => Admin_Page::MENU_SLUG ];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The hover idiom is gone; both actions are persistent button-styled links
+	// to the existing edit and delete views, and Delete still routes through
+	// the confirmation step rather than removing anything directly.
+	expect( $html )->not->toContain( 'row-actions' );
+	expect( $html )->toContain( 'class="button"' );
+	expect( $html )->toContain( 'action=edit&collection=spring' );
+	expect( $html )->toContain( 'action=delete&collection=spring' );
+
+	// The actions column is the rightmost one: its header closes the header row
+	// and its cell closes the body row, and the table carries the spacing class
+	// that separates it from the page header.
+	expect( $html )->toContain( 'Actions</th></tr></thead>' );
+	expect( $html )->toContain( '</a></td></tr>' );
+	expect( $html )->toContain( '<table class="wp-list-table widefat fixed striped kntnt-photo-drop-collections">' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'a collection with an unreadable descriptor still lists by slug and keeps its Delete button', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+
+	// A directory whose collection.json exists but cannot be parsed: discovery
+	// lists it (the file is there), Descriptor::read() refuses it.
+	mkdir( $root . 'broken', 0700, true );
+	file_put_contents( $root . 'broken/' . Descriptor::FILENAME, 'not json' );
+
+	// Notice replay touches the per-user transient key before the table renders.
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [ 'page' => Admin_Page::MENU_SLUG ];
+
+	// The corrupt descriptor logs a warning; capture it away from the test
+	// output and assert on the markup only.
+	$log      = (string) tempnam( sys_get_temp_dir(), 'kntnt-log-' );
+	$previous = ini_set( 'error_log', $log );
+	try {
+		ob_start();
+		( new Admin_Page( new Repository() ) )->render_page();
+		$html = (string) ob_get_clean();
+
+		// The row falls back to the slug for its name, renders dashes for the
+		// unreadable contract, and remains deletable through the Delete button.
+		expect( $html )->toContain( '<strong>broken</strong>' );
+		expect( $html )->toContain( '<code>broken</code>' );
+		expect( $html )->toContain( '<td>—</td>' );
+		expect( $html )->toContain( 'action=delete&collection=broken' );
+	} finally {
+		ini_set( 'error_log', (string) $previous );
+		unlink( $log );
+		$_GET = [];
+		admin_remove_tree( $basedir );
+	}
+} );
+
+test( 'the page stylesheet is added on this admin page only', function (): void {
+	Functions\when( '__' )->returnArg( 1 );
+	Functions\when( 'apply_filters' )->alias( static fn ( string $hook, mixed $value ): mixed => $value );
+	Functions\when( 'add_submenu_page' )->justReturn( 'media_page_kntnt-photo-drop' );
+
+	// Record every wp_add_inline_style call so the scoping can be asserted.
+	$captured = [];
+	Functions\when( 'wp_add_inline_style' )->alias(
+		static function ( string $handle, string $css ) use ( &$captured ): bool {
+			$captured[] = [ $handle, $css ];
+			return true;
+		}
+	);
+
+	$page = new Admin_Page( new Repository() );
+	$page->register_menu();
+
+	// A foreign screen gets nothing; the page's own hook suffix gets the rules
+	// for the header gap and the right-aligned actions column.
+	$page->enqueue_styles( 'edit.php' );
+	expect( $captured )->toBe( [] );
+
+	$page->enqueue_styles( 'media_page_kntnt-photo-drop' );
+	expect( $captured )->toHaveCount( 1 );
+	expect( $captured[0][0] )->toBe( 'common' );
+	expect( $captured[0][1] )->toContain( 'margin-top' );
+	expect( $captured[0][1] )->toContain( 'kntnt-photo-drop-actions' );
+} );
+
+// ---------------------------------------------------------------------------
 // List view — an unreadable subdirectory must not white-screen the page
 // ---------------------------------------------------------------------------
 
