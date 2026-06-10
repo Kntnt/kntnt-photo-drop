@@ -3,12 +3,16 @@
  * The resolved caption settings for one gallery render.
  *
  * A gallery's caption attributes (content, humanise, breadcrumb prefix and
- * separator, position, and the overlay anchor/colours) are read once per render
- * and apply identically to every image. This immutable value object carries that
- * resolved set, so the renderer reads the attributes once and passes one typed
- * object to each figure rather than threading eight loose values — or a wide
- * array shape — through every helper. The enum-style fields (content, position,
- * anchor) are already narrowed to their documented values by the caller.
+ * separator, and the nine-point overlay anchor) are read once per render and
+ * apply identically to every image. Captions are always an overlay inside the
+ * image (issue #33), so there is no position to carry; their colour and
+ * typography arrive through the colour/typography block-support panels and are
+ * projected onto the figcaption separately (`Block_Style_Support`), not stored
+ * here. This immutable value object carries the resolved set, so the renderer
+ * reads the attributes once and passes one typed object to each figure rather
+ * than threading loose values through every helper. The enum-style fields
+ * (content, anchor) are already narrowed to their documented values by the
+ * caller.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.6.0
@@ -39,20 +43,14 @@ final readonly class Caption_Settings {
 	 * @param bool   $humanize     Whether to strip extensions and normalise separators.
 	 * @param bool   $include_name Whether a breadcrumb is prefixed with the collection name.
 	 * @param string $separator    The breadcrumb separator.
-	 * @param string $position     One of `under`, `above`, `overlay`.
-	 * @param string $anchor       The nine-point overlay anchor (overlay position only).
-	 * @param string $background   The overlay background colour, or `''`.
-	 * @param string $text_color   The caption text colour, or `''`.
+	 * @param string $anchor       The nine-point overlay anchor.
 	 */
 	public function __construct(
 		public string $content,
 		public bool $humanize,
 		public bool $include_name,
 		public string $separator,
-		public string $position,
 		public string $anchor,
-		public string $background,
-		public string $text_color,
 	) {}
 
 }

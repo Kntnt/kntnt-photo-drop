@@ -210,14 +210,38 @@ final class Render_Gallery {
 		// Read the caption settings once — they apply identically to every figure.
 		$caption = self::caption_settings( $attributes );
 
+		// Project the colour/typography supports onto the caption and the
+		// border/shadow supports onto each image once, since both apply identically
+		// to every figure (the skip-serialization values never reach the wrapper).
+		$caption_support = Block_Style_Support::caption( $attributes );
+		$image_support   = Block_Style_Support::image( $attributes );
+
 		// Choose the layout and build the figures accordingly: justified rows need
 		// per-image flex math, the grid needs only the per-image aspect ratio.
 		$layout = self::read_string( $attributes, 'layout' ) === self::LAYOUT_JUSTIFIED
 			? self::LAYOUT_JUSTIFIED
 			: self::LAYOUT_GRID;
-		$figures = $layout === self::LAYOUT_JUSTIFIED
-			? self::justified_figures( $items, $descriptor, $base_url, $caption, $attributes )
-			: self::grid_figures( $items, $descriptor, $base_url, $caption, $attributes );
+		if ( $layout === self::LAYOUT_JUSTIFIED ) {
+			$figures = self::justified_figures(
+				$items,
+				$descriptor,
+				$base_url,
+				$caption,
+				$caption_support,
+				$image_support,
+				$attributes,
+			);
+		} else {
+			$figures = self::grid_figures(
+				$items,
+				$descriptor,
+				$base_url,
+				$caption,
+				$caption_support,
+				$image_support,
+				$attributes,
+			);
+		}
 
 		return self::wrap( $attributes, $layout, $figures, $is_preview );
 
@@ -232,11 +256,13 @@ final class Render_Gallery {
 	 *
 	 * @since 0.6.0
 	 *
-	 * @param array<int,Gallery_Item> $items      The images.
-	 * @param Descriptor              $descriptor The collection contract.
-	 * @param string                  $base_url   The collection base URL.
-	 * @param Caption_Settings        $caption    The resolved caption settings.
-	 * @param array<string,mixed>     $attributes The block attributes.
+	 * @param array<int,Gallery_Item>          $items           The images.
+	 * @param Descriptor                       $descriptor      The collection contract.
+	 * @param string                           $base_url        The collection base URL.
+	 * @param Caption_Settings                 $caption         The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
+	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
+	 * @param array<string,mixed>              $attributes      The block attributes.
 	 * @return string The concatenated figure markup.
 	 */
 	private static function grid_figures(
@@ -244,6 +270,8 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $base_url,
 		Caption_Settings $caption,
+		array $caption_support,
+		array $image_support,
 		array $attributes,
 	): string {
 
@@ -271,6 +299,8 @@ final class Render_Gallery {
 				$descriptor,
 				$base_url,
 				$caption,
+				$caption_support,
+				$image_support,
 				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--grid',
@@ -291,11 +321,13 @@ final class Render_Gallery {
 	 *
 	 * @since 0.6.0
 	 *
-	 * @param array<int,Gallery_Item> $items      The images.
-	 * @param Descriptor              $descriptor The collection contract.
-	 * @param string                  $base_url   The collection base URL.
-	 * @param Caption_Settings        $caption    The resolved caption settings.
-	 * @param array<string,mixed>     $attributes The block attributes.
+	 * @param array<int,Gallery_Item>          $items           The images.
+	 * @param Descriptor                       $descriptor      The collection contract.
+	 * @param string                           $base_url        The collection base URL.
+	 * @param Caption_Settings                 $caption         The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
+	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
+	 * @param array<string,mixed>              $attributes      The block attributes.
 	 * @return string The concatenated figure markup.
 	 */
 	private static function justified_figures(
@@ -303,11 +335,14 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $base_url,
 		Caption_Settings $caption,
+		array $caption_support,
+		array $image_support,
 		array $attributes,
 	): string {
 
 		// Compute the per-image flex pair from the stored dimensions and the target
 		// row height; the gap only affects how rows are packed for last-row detection.
+		// The gap is the block-support `blockGap`, read from the spacing support.
 		$dimensions = array_map(
 			static fn ( Gallery_Item $item ): array => [
 				'width'  => $item->width,
@@ -316,7 +351,7 @@ final class Render_Gallery {
 			$items,
 		);
 		$row_height = self::read_int( $attributes, 'targetRowHeight', 240 );
-		$gap        = self::pixels( self::read_string( $attributes, 'blockGap' ), 12 );
+		$gap        = self::pixels( self::block_gap( $attributes ), 12 );
 		$flex       = Justified_Layout::compute( $dimensions, $row_height, $gap );
 
 		// Emit one figure per image, applying its flex-grow / flex-basis; the final
@@ -344,6 +379,8 @@ final class Render_Gallery {
 				$descriptor,
 				$base_url,
 				$caption,
+				$caption_support,
+				$image_support,
 				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--justified',
@@ -365,20 +402,25 @@ final class Render_Gallery {
 	 * and wrapped in an `<a>` to the main image — the no-JS fallback and the
 	 * element the lightbox upgrades; the anchor also carries the same srcset as a
 	 * data attribute so the lightbox can show a responsive slide instead of
-	 * forcing the full-resolution main onto every device. The caption, when any,
-	 * is placed above, below, or as an anchored overlay per the settings. Every
-	 * URL and attribute is escaped at the point of output.
+	 * forcing the full-resolution main onto every device. The border and shadow
+	 * block-support panels land on the `<img>` (the core Image-block
+	 * skip-serialization pattern), pre-projected into `$image_support`. The
+	 * caption, when any, is always an anchored overlay inside the image
+	 * (issue #33) and so follows the link. Every URL and attribute is escaped at
+	 * the point of output.
 	 *
-	 * @since 0.6.0
+	 * @since 0.7.0
 	 * @since 0.2.0 Added the `$sizes` parameter and the anchor's srcset data attribute.
 	 *
-	 * @param Gallery_Item     $item       The image.
-	 * @param Descriptor       $descriptor The collection contract.
-	 * @param string           $base_url   The collection base URL.
-	 * @param Caption_Settings $caption    The resolved caption settings.
-	 * @param string           $sizes      The layout-aware `sizes` attribute value.
-	 * @param string           $item_style The inline style for the figure (layout-specific).
-	 * @param string           $item_class The layout-specific figure class.
+	 * @param Gallery_Item                     $item            The image.
+	 * @param Descriptor                       $descriptor      The collection contract.
+	 * @param string                           $base_url        The collection base URL.
+	 * @param Caption_Settings                 $caption         The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
+	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
+	 * @param string                           $sizes           The layout-aware `sizes` attribute value.
+	 * @param string                           $item_style      The inline style for the figure (layout-specific).
+	 * @param string                           $item_class      The layout-specific figure class.
 	 * @return string The figure markup.
 	 */
 	private static function figure(
@@ -386,6 +428,8 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $base_url,
 		Caption_Settings $caption,
+		array $caption_support,
+		array $image_support,
 		string $sizes,
 		string $item_style,
 		string $item_class,
@@ -407,16 +451,23 @@ final class Render_Gallery {
 		// srcset refines) and derive a sizes hint from the largest candidate width.
 		$smallest  = $candidates[0]['url'] ?? $main_url;
 		$alt       = Caption_Builder::build( $relative, Caption_Builder::CONTENT_FILENAME, true, false, '', '' );
-		$caption_html = self::caption_html( $relative, $caption, $descriptor->name );
+		$caption_html = self::caption_html( $relative, $caption, $descriptor->name, $caption_support );
 
-		// Compose the lazy, dimensioned <img>, wrapped in an <a href> to the main
-		// image — the no-JS fallback and the lightbox's upgrade hook. The figure
-		// carries the layout-specific class and inline style; the data attributes
-		// hand the main URL and the srcset to the lightbox without re-parsing the
-		// href or the thumbnail markup.
+		// Compose the lazy, dimensioned <img>, carrying the border/shadow block
+		// supports, and wrap it in an <a href> to the main image — the no-JS fallback
+		// and the lightbox's upgrade hook. The image class folds in any preset
+		// classnames the border-colour panel contributed; the inline style carries
+		// the panels' declarations. The data attributes hand the main URL and the
+		// srcset to the lightbox without re-parsing the href or the thumbnail markup.
+		$image_class = 'kntnt-photo-drop-gallery__image';
+		if ( $image_support['class'] !== '' ) {
+			$image_class .= ' ' . $image_support['class'];
+		}
 		$image = sprintf(
-			'<img class="kntnt-photo-drop-gallery__image" src="%1$s" srcset="%2$s" sizes="%3$s"'
-				. ' width="%4$d" height="%5$d" loading="lazy" decoding="async" alt="%6$s" />',
+			'<img class="%1$s" style="%2$s" src="%3$s" srcset="%4$s" sizes="%5$s"'
+				. ' width="%6$d" height="%7$d" loading="lazy" decoding="async" alt="%8$s" />',
+			esc_attr( $image_class ),
+			esc_attr( $image_support['style'] ),
 			esc_url( $smallest ),
 			esc_attr( $srcset ),
 			esc_attr( $sizes ),
@@ -432,42 +483,44 @@ final class Render_Gallery {
 			$image,
 		);
 
-		// Order the caption relative to the image by its position: above goes before
-		// the link, overlay and under go after (overlay is absolutely placed by CSS).
-		$before = $caption->position === 'above' ? $caption_html : '';
-		$after  = $caption->position === 'above' ? '' : $caption_html;
-
+		// The caption is always an anchored overlay over the image, so it follows the
+		// link inside the figure and is positioned absolutely by its anchor class.
 		return sprintf(
-			'<figure class="kntnt-photo-drop-gallery__item %1$s" style="%2$s">%3$s%4$s%5$s</figure>',
+			'<figure class="kntnt-photo-drop-gallery__item %1$s" style="%2$s">%3$s%4$s</figure>',
 			esc_attr( $item_class ),
 			esc_attr( $item_style ),
-			$before,
 			$link,
-			$after,
+			$caption_html,
 		);
 
 	}
 
 	/**
-	 * Builds the caption element for one image, or `''` when no caption is wanted.
+	 * Builds the overlay caption element for one image, or `''` when none is wanted.
 	 *
 	 * Delegates the text assembly to the pure `Caption_Builder`, then wraps the
-	 * escaped text in a `<figcaption>` whose class encodes the position and whose
-	 * inline style carries the overlay anchor, background, and text colour when the
-	 * position is `overlay`. The `none` content (and an empty assembled string)
-	 * yields no element at all.
+	 * escaped text in a `<figcaption>`. Captions are always an anchored overlay
+	 * inside the image (issue #33), so the class always carries the nine-point
+	 * anchor variant. The figcaption's colour and typography arrive from the
+	 * colour/typography block-support panels, pre-projected by
+	 * `Block_Style_Support::caption()` into the `$support` style/class pair (the
+	 * core Image-block skip-serialization pattern), so this method appends them
+	 * verbatim rather than reading any bespoke colour attribute. The `none` content
+	 * (and an empty assembled string) yields no element at all.
 	 *
-	 * @since 0.6.0
+	 * @since 0.7.0
 	 *
-	 * @param string           $relative_path   The image path relative to the root.
-	 * @param Caption_Settings $caption         The resolved caption settings.
-	 * @param string           $collection_name The collection display name.
+	 * @param string                           $relative_path   The image path relative to the root.
+	 * @param Caption_Settings                 $caption         The resolved caption settings.
+	 * @param string                           $collection_name The collection display name.
+	 * @param array{style:string,class:string} $support        The figcaption block-support style and classes.
 	 * @return string The figcaption markup, or '' when none.
 	 */
 	private static function caption_html(
 		string $relative_path,
 		Caption_Settings $caption,
 		string $collection_name,
+		array $support,
 	): string {
 
 		// Assemble the caption text from the path; an empty result (content "none"
@@ -484,19 +537,18 @@ final class Render_Gallery {
 			return '';
 		}
 
-		// Build the position-specific class and, for an overlay, the inline style
-		// carrying the nine-point anchor plus the optional background and text colour.
-		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-gallery__caption--' . $caption->position;
-		$style   = '';
-		if ( $caption->position === 'overlay' ) {
-			$classes .= ' kntnt-photo-drop-gallery__caption--anchor-' . $caption->anchor;
-			$style    = self::overlay_style( $caption->background, $caption->text_color );
+		// Compose the overlay's classes — the base, the nine-point anchor, and the
+		// preset classnames the colour/typography panels contributed — plus the
+		// inline declarations the same panels produced (border/shadow go to the image).
+		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-gallery__caption--anchor-' . $caption->anchor;
+		if ( $support['class'] !== '' ) {
+			$classes .= ' ' . $support['class'];
 		}
 
 		return sprintf(
 			'<figcaption class="%1$s" style="%2$s">%3$s</figcaption>',
 			esc_attr( $classes ),
-			esc_attr( $style ),
+			esc_attr( $support['style'] ),
 			esc_html( $text ),
 		);
 
@@ -535,9 +587,10 @@ final class Render_Gallery {
 	private static function wrap( array $attributes, string $layout, string $figures, bool $is_preview ): string {
 
 		// Build the inner container's style from the gap (both layouts) and, for the
-		// grid, the minimum column width that drives core's auto-fill grid.
-		$gap = self::read_string( $attributes, 'blockGap' );
-		$gap = $gap === '' ? '12px' : $gap;
+		// grid, the minimum column width that drives core's auto-fill grid. The gap
+		// is the block-support `blockGap`, read from the spacing support and applied
+		// to both layout containers (issue #33).
+		$gap = self::block_gap( $attributes );
 		if ( $layout === self::LAYOUT_JUSTIFIED ) {
 			$container_class = 'kntnt-photo-drop-gallery__layout kntnt-photo-drop-gallery__layout--justified';
 			$container_style = sprintf( '--kntnt-photo-drop-gap:%s;', $gap );
@@ -769,10 +822,9 @@ final class Render_Gallery {
 
 		// Narrow the enum-style attributes to their allowed values, defaulting an
 		// unexpected value to the safe choice; pass the free-text ones through.
+		// Captions are always an overlay (issue #33), so there is no position to read.
 		$contents = [ 'none', 'filename', 'path' ];
 		$content  = self::one_of( self::read_string( $attributes, 'captionContent' ), $contents, 'none' );
-		$positions = [ 'under', 'above', 'overlay' ];
-		$position  = self::one_of( self::read_string( $attributes, 'captionPosition' ), $positions, 'under' );
 		$anchors  = [
 			'top-left',
 			'top-center',
@@ -784,48 +836,15 @@ final class Render_Gallery {
 			'bottom-center',
 			'bottom-right',
 		];
-		$anchor   = self::one_of( self::read_string( $attributes, 'captionOverlayAnchor' ), $anchors, 'bottom-left' );
+		$anchor   = self::one_of( self::read_string( $attributes, 'captionAnchor' ), $anchors, 'bottom-left' );
 
 		return new Caption_Settings(
 			$content,
 			self::read_bool( $attributes, 'captionHumanize', true ),
 			self::read_bool( $attributes, 'captionIncludeCollectionName', false ),
 			self::read_string( $attributes, 'captionSeparator' ),
-			$position,
 			$anchor,
-			self::read_string( $attributes, 'captionBackground' ),
-			self::read_string( $attributes, 'captionTextColor' ),
 		);
-
-	}
-
-	/**
-	 * Builds the inline style for an overlay caption's background and text colour.
-	 *
-	 * Both are optional free-text colour values; an empty value contributes no
-	 * declaration so the stylesheet's default (or inheritance) stands. The values
-	 * are emitted as CSS custom properties the stylesheet consumes, keeping the
-	 * declaration list short and escapable.
-	 *
-	 * @since 0.6.0
-	 *
-	 * @param string $background The overlay background colour, or `''`.
-	 * @param string $text_color The caption text colour, or `''`.
-	 * @return string The inline style string (possibly empty).
-	 */
-	private static function overlay_style( string $background, string $text_color ): string {
-
-		// Emit only the declarations that have a value, so an unset colour leaves the
-		// stylesheet default in place rather than overriding it with an empty value.
-		$style = '';
-		if ( $background !== '' ) {
-			$style .= '--kntnt-photo-drop-caption-bg:' . $background . ';';
-		}
-		if ( $text_color !== '' ) {
-			$style .= '--kntnt-photo-drop-caption-color:' . $text_color . ';';
-		}
-
-		return $style;
 
 	}
 
@@ -972,6 +991,43 @@ final class Render_Gallery {
 	 */
 	private static function format_float( float $value ): string {
 		return rtrim( rtrim( number_format( $value, 3, '.', '' ), '0' ), '.' );
+	}
+
+	/**
+	 * Resolves the inter-item gap from the `blockGap` spacing block support.
+	 *
+	 * The gap lives at `style.spacing.blockGap` once the spacing support's
+	 * `blockGap` is enabled (issue #33 replaced the bespoke `blockGap` attribute
+	 * with the support). It is either a custom length (`"20px"`) or a spacing
+	 * preset token (`"var:preset|spacing|40"`), the latter rewritten to its
+	 * `var( --wp--preset--spacing--40 )` reference so the emitted custom property is
+	 * a valid CSS length. An absent or empty value falls back to the documented
+	 * default so both layouts always have a gap.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param array<string,mixed> $attributes The block attributes.
+	 * @return string The resolved CSS gap length.
+	 */
+	private static function block_gap( array $attributes ): string {
+
+		// Reach into the spacing support's stored blockGap; anything missing or
+		// non-string falls back to the documented 12px default.
+		$style   = is_array( $attributes['style'] ?? null ) ? $attributes['style'] : [];
+		$spacing = is_array( $style['spacing'] ?? null ) ? $style['spacing'] : [];
+		$gap     = $spacing['blockGap'] ?? '';
+		if ( ! is_string( $gap ) || $gap === '' ) {
+			return '12px';
+		}
+
+		// Rewrite a spacing preset token to its CSS custom-property reference so the
+		// emitted gap is a usable length rather than the raw `var:preset|…` token.
+		if ( preg_match( '/^var:preset\|spacing\|(.+)$/', $gap, $matches ) === 1 ) {
+			return sprintf( 'var(--wp--preset--spacing--%s)', $matches[1] );
+		}
+
+		return $gap;
+
 	}
 
 }

@@ -47,7 +47,6 @@ import type { JSX } from '@wordpress/element';
 import type {
 	GalleryAttributes,
 	CaptionContent,
-	CaptionPosition,
 	CaptionAnchor,
 	GalleryLayout,
 } from './attributes';
@@ -189,7 +188,6 @@ export function GalleryEdit( {
 		order,
 		layout,
 		minimumColumnWidth,
-		blockGap,
 		imageFit,
 		aspectRatio,
 		targetRowHeight,
@@ -198,10 +196,7 @@ export function GalleryEdit( {
 		captionHumanize,
 		captionIncludeCollectionName,
 		captionSeparator,
-		captionPosition,
-		captionOverlayAnchor,
-		captionBackground,
-		captionTextColor,
+		captionAnchor,
 	} = attributes;
 	const blockProps = useBlockProps( {
 		className: 'kntnt-photo-drop-gallery-editor',
@@ -263,7 +258,6 @@ export function GalleryEdit( {
 
 	const isGrid = layout === 'grid';
 	const isPath = captionContent === 'path';
-	const isOverlay = captionPosition === 'overlay';
 
 	return (
 		<div { ...blockProps }>
@@ -473,14 +467,12 @@ export function GalleryEdit( {
 							}
 						/>
 					) }
-					<UnitControl
-						__next40pxDefaultSize
-						label={ __( 'Gap', 'kntnt-photo-drop' ) }
-						value={ blockGap }
-						onChange={ ( value: string | undefined ) =>
-							setAttributes( { blockGap: value ?? '12px' } )
-						}
-					/>
+					<p className="kntnt-photo-drop-gallery-editor__hint">
+						{ __(
+							'The gap between items is set under Dimensions → Block spacing.',
+							'kntnt-photo-drop'
+						) }
+					</p>
 				</PanelBody>
 
 				<PanelBody
@@ -564,90 +556,19 @@ export function GalleryEdit( {
 							<SelectControl
 								__next40pxDefaultSize
 								__nextHasNoMarginBottom
-								label={ __( 'Position', 'kntnt-photo-drop' ) }
-								value={ captionPosition }
-								options={ [
-									{
-										value: 'under',
-										label: __(
-											'Under',
-											'kntnt-photo-drop'
-										),
-									},
-									{
-										value: 'above',
-										label: __(
-											'Above',
-											'kntnt-photo-drop'
-										),
-									},
-									{
-										value: 'overlay',
-										label: __(
-											'Overlay',
-											'kntnt-photo-drop'
-										),
-									},
-								] }
+								label={ __( 'Anchor', 'kntnt-photo-drop' ) }
+								value={ captionAnchor }
+								options={ anchorOptions() }
 								onChange={ ( value: string ) =>
 									setAttributes( {
-										captionPosition:
-											value as CaptionPosition,
+										captionAnchor: value as CaptionAnchor,
 									} )
 								}
+								help={ __(
+									'The caption sits over the image; the anchor places it. Set its colour and font under the Color and Typography panels, and per-image borders and shadow under Border.',
+									'kntnt-photo-drop'
+								) }
 							/>
-							{ isOverlay && (
-								<>
-									<SelectControl
-										__next40pxDefaultSize
-										__nextHasNoMarginBottom
-										label={ __(
-											'Overlay anchor',
-											'kntnt-photo-drop'
-										) }
-										value={ captionOverlayAnchor }
-										options={ anchorOptions() }
-										onChange={ ( value: string ) =>
-											setAttributes( {
-												captionOverlayAnchor:
-													value as CaptionAnchor,
-											} )
-										}
-									/>
-									<TextControl
-										__next40pxDefaultSize
-										__nextHasNoMarginBottom
-										label={ __(
-											'Overlay background',
-											'kntnt-photo-drop'
-										) }
-										value={ captionBackground }
-										onChange={ ( value: string ) =>
-											setAttributes( {
-												captionBackground: value,
-											} )
-										}
-										help={ __(
-											'A CSS colour (alpha allowed). Leave empty for none.',
-											'kntnt-photo-drop'
-										) }
-									/>
-									<TextControl
-										__next40pxDefaultSize
-										__nextHasNoMarginBottom
-										label={ __(
-											'Text colour',
-											'kntnt-photo-drop'
-										) }
-										value={ captionTextColor }
-										onChange={ ( value: string ) =>
-											setAttributes( {
-												captionTextColor: value,
-											} )
-										}
-									/>
-								</>
-							) }
 						</>
 					) }
 				</PanelBody>

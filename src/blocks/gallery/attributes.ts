@@ -19,14 +19,7 @@
 export type CaptionContent = 'none' | 'filename' | 'path';
 
 /**
- * The caption position relative to its image.
- *
- * @since 0.6.0
- */
-export type CaptionPosition = 'under' | 'above' | 'overlay';
-
-/**
- * The nine overlay anchor points for an overlay caption.
+ * The nine anchor points for the always-overlay caption.
  *
  * @since 0.6.0
  */
@@ -66,8 +59,6 @@ export interface GalleryAttributes {
 	layout: GalleryLayout;
 	/** Mode A: the minimum grid column width (a CSS length). */
 	minimumColumnWidth: string;
-	/** The gap between items (a CSS length), shared by both modes. */
-	blockGap: string;
 	/** Mode A: how each image fills its cell. */
 	imageFit: 'cover' | 'contain';
 	/** Mode A: a fixed CSS aspect ratio, or `''` to use each image's stored ratio. */
@@ -84,14 +75,8 @@ export interface GalleryAttributes {
 	captionIncludeCollectionName: boolean;
 	/** The breadcrumb separator (free text). */
 	captionSeparator: string;
-	/** The caption position relative to its image. */
-	captionPosition: CaptionPosition;
-	/** The overlay anchor (overlay position only). */
-	captionOverlayAnchor: CaptionAnchor;
-	/** The overlay caption background colour, or `''` for none. */
-	captionBackground: string;
-	/** The caption text colour, or `''` to inherit. */
-	captionTextColor: string;
+	/** The nine-point anchor of the always-overlay caption. */
+	captionAnchor: CaptionAnchor;
 	/**
 	 * Render-time-only flag the editor sets on the `ServerSideRender` preview to
 	 * cap the figures and suppress the lightbox. It is never written through

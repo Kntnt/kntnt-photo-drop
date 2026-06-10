@@ -101,13 +101,23 @@ A public, server-rendered gallery of one collection — all images under a start
 		"anchor": true,
 		"html": false,
 		"align": [ "wide", "full" ],
-		"color": { "background": true, "text": true, "gradients": true },
+		"color": { "background": true, "text": true, "gradients": true, "__experimentalSkipSerialization": true },
 		"typography": {
 			"fontSize": true,
 			"lineHeight": true,
-			"__experimentalFontFamily": true
+			"__experimentalFontFamily": true,
+			"__experimentalSkipSerialization": true
 		},
-		"spacing": { "margin": true, "padding": true }
+		"__experimentalBorder": {
+			"color": true,
+			"radius": true,
+			"style": true,
+			"width": true,
+			"__experimentalSkipSerialization": true,
+			"__experimentalDefaultControls": { "color": true, "radius": true, "style": true, "width": true }
+		},
+		"shadow": { "__experimentalSkipSerialization": true },
+		"spacing": { "margin": true, "padding": true, "blockGap": true }
 	},
 	"attributes": {
 		"collection":                   { "type": "string",  "default": "" },
@@ -116,7 +126,6 @@ A public, server-rendered gallery of one collection — all images under a start
 		"order":                        { "type": "string",  "default": "asc" },
 		"layout":                       { "type": "string",  "default": "grid" },
 		"minimumColumnWidth":           { "type": "string",  "default": "320px" },
-		"blockGap":                     { "type": "string",  "default": "12px" },
 		"imageFit":                     { "type": "string",  "default": "cover" },
 		"aspectRatio":                  { "type": "string",  "default": "" },
 		"targetRowHeight":              { "type": "number",  "default": 240 },
@@ -125,14 +134,13 @@ A public, server-rendered gallery of one collection — all images under a start
 		"captionHumanize":              { "type": "boolean", "default": true },
 		"captionIncludeCollectionName": { "type": "boolean", "default": false },
 		"captionSeparator":             { "type": "string",  "default": "›" },
-		"captionPosition":              { "type": "string",  "default": "under" },
-		"captionOverlayAnchor":         { "type": "string",  "default": "bottom-left" },
-		"captionBackground":            { "type": "string",  "default": "" },
-		"captionTextColor":             { "type": "string",  "default": "" },
+		"captionAnchor":                { "type": "string",  "default": "bottom-left" },
 		"isEditorPreview":              { "type": "boolean", "default": false }
 	}
 }
 ```
+
+The colour, typography, border, and shadow supports all carry `__experimentalSkipSerialization` so WordPress does **not** write them onto the block wrapper. `Render_Gallery` projects them onto the right sub-element instead — colour and typography onto each `<figcaption>`, border and shadow onto each `<img>` — through the core style engine (`wp_style_engine_get_styles`), the same skip-serialization pattern core's Image block uses. The `blockGap` spacing support replaces the old custom gap attribute and is read server-side into both layout containers.
 
 ### Attributes
 
@@ -144,7 +152,6 @@ A public, server-rendered gallery of one collection — all images under a start
 | `order` | string | `"asc"` | `"asc"` \| `"desc"`. Natural sort by full relative path (keeps each folder's images contiguous). Not visitor-controllable. |
 | `layout` | string | `"grid"` | `"grid"` = mode A (uniform grid, core Grid layout); `"justified"` = mode B (bespoke justified rows). |
 | `minimumColumnWidth` | string | `"320px"` | Mode A only. Maps to core Grid's `minimumColumnWidth`. |
-| `blockGap` | string | `"12px"` | Gap between items. Reused by both modes (mirrors core `blockGap`). |
 | `imageFit` | string | `"cover"` | Mode A only. `"cover"` \| `"contain"`. |
 | `aspectRatio` | string | `""` | Mode A only. `""` = use each image's stored ratio (zero layout shift); otherwise a CSS ratio such as `"1"`, `"4/3"`, `"16/9"`. |
 | `targetRowHeight` | number | `240` | Mode B only. Target row height in px; per-image `flex-grow`/`flex-basis` are derived from stored dimensions, last row left-aligned. |
@@ -153,13 +160,10 @@ A public, server-rendered gallery of one collection — all images under a start
 | `captionHumanize` | boolean | `true` | Humanise filenames/segments (strip extension, replace separators with spaces). |
 | `captionIncludeCollectionName` | boolean | `false` | Prefix the breadcrumb with the collection's display name. |
 | `captionSeparator` | string | `"›"` | Breadcrumb separator (free text). |
-| `captionPosition` | string | `"under"` | `"under"` \| `"above"` \| `"overlay"`. |
-| `captionOverlayAnchor` | string | `"bottom-left"` | Overlay only. One of the 9 positions: `top-left`, `top-center`, `top-right`, `middle-left`, `middle-center`, `middle-right`, `bottom-left`, `bottom-center`, `bottom-right`. |
-| `captionBackground` | string | `""` | Overlay caption background; `""` = none, otherwise a colour (alpha allowed). |
-| `captionTextColor` | string | `""` | Caption text colour; `""` = inherit. |
+| `captionAnchor` | string | `"bottom-left"` | The nine-point anchor of the always-overlay caption: `top-left`, `top-center`, `top-right`, `middle-left`, `middle-center`, `middle-right`, `bottom-left`, `bottom-center`, `bottom-right`. |
 | `isEditorPreview` | boolean | `false` | **Render-time-only.** The editor passes `true` on the `ServerSideRender` `attributes` prop to request the capped, lightbox-suppressed preview; it is never written through `setAttributes`, so — left at its `false` default — it is never serialised into `post_content` and cannot reach a frontend render. It is declared in `block.json` only because the REST block-renderer endpoint (`additionalProperties: false`) would otherwise strip an undeclared attribute before the preview reached the render callback. |
 
-Because Canvas re-encoding strips all EXIF/IPTC at ingestion, there is no embedded caption or capture date — captions are derived from the filename/path only.
+The caption is **always an overlay inside the image** — there is no position attribute. Its colour and font, and each image's border and shadow, are not bespoke attributes either: they come from the **Colour**, **Typography**, **Border**, and **Shadow** block-support panels (`__experimentalSkipSerialization`), stored under the standard `style` subtree / preset shorthand attributes (`textColor`, `backgroundColor`, `gradient`, `fontSize`, `fontFamily`, `borderColor`, `shadow`) and the gap under the **Block spacing** support (`style.spacing.blockGap`). Because Canvas re-encoding strips all EXIF/IPTC at ingestion, there is no embedded caption or capture date — caption *content* is derived from the filename/path only. The same Caption settings drive the lightbox caption when the lightbox is wired (consumed in the click-behaviour slice, issue #34).
 
 ### Editor UI (`edit.tsx`)
 
@@ -167,8 +171,8 @@ Inspector panels:
 
 - **Collection** — `SelectControl` of discovered collections (value = slug) + a `startPath` control (chooses a sub-folder of the selected collection) + a **"This folder only"** toggle (inverse of `recursive`).
 - **Ordering** — ascending/descending `order`.
-- **Layout** — mode toggle A/B. Mode A reveals `minimumColumnWidth`, `imageFit`, `aspectRatio`; mode B reveals `targetRowHeight`. Both show `blockGap`. Gallery width/alignment is the core block toolbar; colour and typography are core panels.
-- **Captions** — `captionContent`, then when not "none": `captionHumanize`, (for "path") `captionIncludeCollectionName` and `captionSeparator`, `captionPosition`, and (for "overlay") `captionOverlayAnchor`, `captionBackground`, `captionTextColor`.
+- **Layout** — mode toggle A/B. Mode A reveals `minimumColumnWidth`, `imageFit`, `aspectRatio`; mode B reveals `targetRowHeight`. The inter-item gap is the core **Block spacing** control (Dimensions); the panel carries a hint pointing there rather than a bespoke gap field. Gallery width/alignment is the core block toolbar.
+- **Captions** — `captionContent`, then when not "none": `captionHumanize`, (for "path") `captionIncludeCollectionName` and `captionSeparator`, and the nine-point **Anchor** (`captionAnchor`, always shown for any non-"none" content). The caption's colour and font come from the core **Colour** and **Typography** panels; the per-image border and shadow from the core **Border** panel — all applied to the right sub-element via skip-serialization, not to bespoke caption attributes.
 - **Lightbox** — `enableLightbox` toggle.
 
 The editor preview uses `ServerSideRender` so the editor matches the frontend, but in **editor-preview mode**: it sends the render-time-only `isEditorPreview` flag, so the server caps the canvas at the first **6** figures and emits no lightbox markup (clicks stay inert in the editor — a collection of thousands never floods the canvas). The block carries no editor-only preview heading: the canvas shows only images. When there is nothing to render — no collection chosen, a dangling slug, an empty collection, or while the preview loads — the editor shows a grid of **6 grey placeholders** in place of the gallery, rather than a bare notice.
@@ -177,8 +181,9 @@ The editor preview uses `ServerSideRender` so the editor matches the frontend, b
 
 - Resolves the collection, validates `startPath` against the root once, walks the tree (recursive or single-folder), reading each folder's mtime-validated `index.json` (self-heals if stale; see [ADR-0003](adr/0003-on-disk-collection-layout.md)), and orders by full relative path (natural sort, `order`).
 - Emits a `<figure>` per image with `loading="lazy"`, stored `width`/`height` (or `aspect-ratio`) for zero layout shift, and a `srcset` listing each thumbnail width plus the main — the main is always a candidate, so the browser never upscales a thumbnail. The `sizes` hint is layout-aware (grid: derived from `minimumColumnWidth`; justified: per-image from `targetRowHeight` × aspect ratio; both prefixed with `auto` for browsers that support lazy auto-sizes) so a tile never downloads the full-size main. Each anchor also carries `data-kntnt-photo-drop-srcset` so the lightbox image gets the same responsive candidates.
-- Mode A uses core's Grid layout (`minimumColumnWidth`, `blockGap`) plus the bespoke `aspect-ratio`/`imageFit`; mode B emits bespoke justified rows (`flex-grow`/`flex-basis` from stored dimensions, `targetRowHeight`, `blockGap`, last row left-aligned). The server computes mode B's last-row flags against an assumed container width as the no-JS/first-paint fallback; the view module re-flags the actual last row on init and on resize (so mode B emits `data-wp-init` even when the lightbox is off).
-- Captions render per `captionContent`/position/overlay settings.
+- Each `<figure>` is the sizing box and the positioning context for its caption: mode A fixes its `aspect-ratio` inline, mode B its `height` inline, and the `<a>` plus `<img>` fill that box absolutely so nothing inside it collapses to zero (the fix for the clipped-under-caption and alt-text-only-justified-row bugs). The gap for both layouts is read from the `blockGap` spacing support.
+- Mode A uses core's Grid layout (`minimumColumnWidth`, the support `blockGap`) plus the bespoke `aspect-ratio`/`imageFit`; mode B emits bespoke justified rows (`flex-grow`/`flex-basis` from stored dimensions, `targetRowHeight`, the support `blockGap`, last row left-aligned). The server computes mode B's last-row flags against an assumed container width as the no-JS/first-paint fallback; the view module re-flags the actual last row on init and on resize (so mode B emits `data-wp-init` even when the lightbox is off).
+- The caption is always an anchored overlay `<figcaption>` (per `captionContent`/`captionAnchor`), carrying the colour/typography block-support declarations and preset classnames; each `<img>` carries the border/shadow block-support declarations. Both come from the style engine, projected server-side onto the sub-element rather than the wrapper.
 - The lightbox is an Interactivity-API surface (open/close, prev/next, keyboard, swipe, debounced neighbour preload, focus trap, scroll lock, `aria`, loading/error states with a server-translated error element); each thumbnail is wrapped in `<a href="full.webp">` so a no-JS click navigates to the full image, and modified clicks (Cmd/Ctrl/Shift/Alt, non-primary button) are left to the browser. The gallery needs no REST — it is pure SSR plus the view module.
 - **Editor-preview mode** (the render-time-only `isEditorPreview` attribute the editor's `ServerSideRender` sends): the walk is capped to the first **6** images and the lightbox is suppressed (no overlay, no `data-wp-context`, the flag reads `false`, and — for the grid — no `data-wp-init`), so the canvas stays light and clicks are inert. A dangling/empty collection in preview mode returns an empty string, which the edit component's `ServerSideRender` treats as its empty case and replaces with the grey placeholders. The flag lives only on the preview request and defaults to `false`, so the frontend render is identical to before: no cap, lightbox as configured, full walk.
 

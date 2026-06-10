@@ -86,6 +86,130 @@ function wire_gallery_stubs( string $basedir, bool $can_edit = false ): void {
 		}
 	);
 
+	// The style engine is the block-support projection seam. The stub reproduces
+	// just enough of it for the render tests: a `prop:value;` declaration per
+	// recognised colour / typography / border / shadow value (resolving a
+	// `var:preset|…` token to its custom property) and the standard preset
+	// classnames, so a render can assert that a custom or preset support reaches
+	// the figcaption / image without depending on core's CSS machinery.
+	Functions\when( 'wp_style_engine_get_styles' )->alias(
+		static fn ( array $block_styles ): array => gallery_fake_style_engine( $block_styles )
+	);
+
+}
+
+/**
+ * A faithful-enough stand-in for `wp_style_engine_get_styles` in unit tests.
+ *
+ * Walks the documented colour / typography / border / shadow keys, emits one CSS
+ * declaration per custom value (converting a `var:preset|type|slug` token to its
+ * CSS custom property), and emits the standard preset classnames for the preset
+ * tokens. Returns the same `{ css, declarations, classnames }` shape core does.
+ *
+ * @param array<string,mixed> $block_styles The style subtree for one sub-element.
+ * @return array{css:string,declarations:array<int,string>,classnames:string} The projected styles.
+ */
+function gallery_fake_style_engine( array $block_styles ): array {
+
+	$declarations = [];
+	$classnames   = [];
+
+	// Colour: text → color, background → background-color, gradient → background.
+	$color = is_array( $block_styles['color'] ?? null ) ? $block_styles['color'] : [];
+	foreach ( [
+		'text'       => 'color',
+		'background' => 'background-color',
+		'gradient'   => 'background',
+	] as $key => $prop ) {
+		$value = $color[ $key ] ?? null;
+		if ( is_string( $value ) && $value !== '' ) {
+			$class = gallery_fake_preset_class( $value, $key );
+			if ( $class !== null ) {
+				$classnames[] = $class;
+			}
+			$declarations[] = $prop . ':' . gallery_fake_resolve( $value ) . ';';
+		}
+	}
+
+	// Typography: a representative subset keyed exactly as core.
+	$typography = is_array( $block_styles['typography'] ?? null ) ? $block_styles['typography'] : [];
+	foreach ( [
+		'fontSize'   => 'font-size',
+		'lineHeight' => 'line-height',
+		'fontFamily' => 'font-family',
+	] as $key => $prop ) {
+		$value = $typography[ $key ] ?? null;
+		if ( is_string( $value ) && $value !== '' ) {
+			$class = gallery_fake_preset_class( $value, $key );
+			if ( $class !== null ) {
+				$classnames[] = $class;
+			}
+			$declarations[] = $prop . ':' . gallery_fake_resolve( $value ) . ';';
+		}
+	}
+
+	// Border: the four flat properties plus radius.
+	$border = is_array( $block_styles['border'] ?? null ) ? $block_styles['border'] : [];
+	foreach ( [
+		'color'  => 'border-color',
+		'width'  => 'border-width',
+		'style'  => 'border-style',
+		'radius' => 'border-radius',
+	] as $key => $prop ) {
+		$value = $border[ $key ] ?? null;
+		if ( is_string( $value ) && $value !== '' ) {
+			$declarations[] = $prop . ':' . gallery_fake_resolve( $value ) . ';';
+		}
+	}
+
+	// Shadow: a single box-shadow declaration.
+	$shadow = $block_styles['shadow'] ?? null;
+	if ( is_string( $shadow ) && $shadow !== '' ) {
+		$declarations[] = 'box-shadow:' . gallery_fake_resolve( $shadow ) . ';';
+	}
+
+	return [
+		'css'          => implode( '', $declarations ),
+		'declarations' => $declarations,
+		'classnames'   => implode( ' ', $classnames ),
+	];
+
+}
+
+/**
+ * Resolves a `var:preset|type|slug` token to its CSS custom property reference.
+ *
+ * @param string $value The style value, possibly a preset token.
+ * @return string The resolved CSS value.
+ */
+function gallery_fake_resolve( string $value ): string {
+	if ( preg_match( '/^var:preset\|([a-z-]+)\|(.+)$/', $value, $m ) === 1 ) {
+		$type = $m[1] === 'fontSize' ? 'font-size' : $m[1];
+		return sprintf( 'var(--wp--preset--%s--%s)', $type, $m[2] );
+	}
+	return $value;
+}
+
+/**
+ * Returns the standard preset classname for a preset token, or null otherwise.
+ *
+ * @param string $value The style value, possibly a preset token.
+ * @param string $key   The style key the value sits under.
+ * @return string|null The classname, or null when the value is not a preset.
+ */
+function gallery_fake_preset_class( string $value, string $key ): ?string {
+	if ( preg_match( '/^var:preset\|([a-z-]+)\|(.+)$/', $value, $m ) !== 1 ) {
+		return null;
+	}
+	$slug = $m[2];
+	return match ( $key ) {
+		'text'       => "has-text-color has-{$slug}-color",
+		'background' => "has-background has-{$slug}-background-color",
+		'gradient'   => "has-background has-{$slug}-gradient-background",
+		'fontSize'   => "has-{$slug}-font-size",
+		'fontFamily' => "has-{$slug}-font-family",
+		default      => null,
+	};
 }
 
 /**
@@ -666,17 +790,119 @@ test( 'the justified layout emits per-image flex-grow and flex-basis', function 
 } );
 
 // ---------------------------------------------------------------------------
-// Captions — content / position / overlay
+// Block spacing — the blockGap support drives the gap in both layouts (issue #33)
 // ---------------------------------------------------------------------------
 
-test( 'a filename caption renders the humanised name under the image', function (): void {
+test( 'the grid layout reads the blockGap spacing support into its gap variable', function (): void {
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
 		[
-			'captionContent'  => 'filename',
-			'captionPosition' => 'under',
+			'layout' => 'grid',
+			'style'  => [ 'spacing' => [ 'blockGap' => '28px' ] ],
 		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The gap is no longer a bespoke attribute; the grid container's gap variable
+	// comes from the spacing support's blockGap.
+	expect( $html )->toContain( '--kntnt-photo-drop-gap:28px' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the justified layout reads the blockGap spacing support into its gap variable', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'layout' => 'justified',
+			'style'  => [ 'spacing' => [ 'blockGap' => '36px' ] ],
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 300,
+				'height' => 200,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->toContain( '--kntnt-photo-drop-gap:36px' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a blockGap spacing preset is rewritten to its custom-property reference', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'layout' => 'grid',
+			'style'  => [ 'spacing' => [ 'blockGap' => 'var:preset|spacing|40' ] ],
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// A spacing preset token must become a usable CSS length, not leak the raw
+	// `var:preset|…` form into the emitted custom property.
+	expect( $html )->toContain( '--kntnt-photo-drop-gap:var(--wp--preset--spacing--40)' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'with no blockGap set, both layouts fall back to the default gap', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'layout' => 'grid' ],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->toContain( '--kntnt-photo-drop-gap:12px' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Captions — content, the always-overlay anchor, and block-support styling
+// ---------------------------------------------------------------------------
+
+test( 'a filename caption renders the humanised name as an anchored overlay', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'captionContent' => 'filename' ],
 		[
 			[
 				'path'   => 'sun_rise.jpg.webp',
@@ -689,7 +915,11 @@ test( 'a filename caption renders the humanised name under the image', function 
 		basedir_out: $basedir,
 	);
 
-	expect( $html )->toContain( 'kntnt-photo-drop-gallery__caption--under' );
+	// Captions are always an overlay anchored at the default bottom-left; there is
+	// no under/above variant any more (issue #33).
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__caption--anchor-bottom-left' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__caption--under' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__caption--above' );
 	expect( $html )->toContain( 'sun rise' );
 
 	gallery_remove_tree( $basedir );
@@ -723,16 +953,13 @@ test( 'a path caption renders a breadcrumb with the collection name and separato
 	gallery_remove_tree( $basedir );
 } );
 
-test( 'an overlay caption carries its anchor class and colour variables', function (): void {
+test( 'the caption overlay carries the chosen nine-point anchor', function (): void {
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
 		[
-			'captionContent'       => 'filename',
-			'captionPosition'      => 'overlay',
-			'captionOverlayAnchor' => 'top-right',
-			'captionBackground'    => 'rgba(0,0,0,0.6)',
-			'captionTextColor'     => '#fff',
+			'captionContent' => 'filename',
+			'captionAnchor'  => 'top-right',
 		],
 		[
 			[
@@ -746,10 +973,106 @@ test( 'an overlay caption carries its anchor class and colour variables', functi
 		basedir_out: $basedir,
 	);
 
-	expect( $html )->toContain( 'kntnt-photo-drop-gallery__caption--overlay' );
 	expect( $html )->toContain( 'kntnt-photo-drop-gallery__caption--anchor-top-right' );
-	expect( $html )->toContain( '--kntnt-photo-drop-caption-bg:rgba(0,0,0,0.6)' );
-	expect( $html )->toContain( '--kntnt-photo-drop-caption-color:#fff' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'custom caption colour and typography land on the figcaption, not the wrapper', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'captionContent' => 'filename',
+			'style'          => [
+				'color'      => [
+					'text'       => '#112233',
+					'background' => 'rgba(0,0,0,0.6)',
+				],
+				'typography' => [ 'lineHeight' => '1.8' ],
+			],
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The Colour and Typography panels are skip-serialized: their declarations
+	// appear on the figcaption's inline style, never on the block wrapper.
+	expect( $html )->toMatch( '/<figcaption[^>]*style="[^"]*color:#112233;/' );
+	expect( $html )->toMatch( '/<figcaption[^>]*style="[^"]*background-color:rgba\(0,0,0,0\.6\);/' );
+	expect( $html )->toMatch( '/<figcaption[^>]*style="[^"]*line-height:1\.8;/' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a preset caption colour adds the preset classname to the figcaption', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'captionContent' => 'filename',
+			'textColor'      => 'vivid-red',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// A palette choice (stored as the top-level textColor attribute) projects to the
+	// figcaption as both the preset classname and the custom-property declaration.
+	expect( $html )->toMatch( '/<figcaption class="[^"]*has-vivid-red-color/' );
+	expect( $html )->toMatch( '/<figcaption[^>]*style="[^"]*color:var\(--wp--preset--color--vivid-red\);/' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'border and shadow block supports land on each image, not the caption', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'captionContent' => 'filename',
+			'style'          => [
+				'border' => [
+					'width' => '3px',
+					'color' => '#0000ff',
+				],
+				'shadow' => 'var:preset|shadow|deep',
+			],
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The Border & Shadow panel is skip-serialized onto each image; the figcaption
+	// must not pick up the border or shadow.
+	expect( $html )->toMatch( '/<img[^>]*style="[^"]*border-width:3px;/' );
+	expect( $html )->toMatch( '/<img[^>]*style="[^"]*border-color:#0000ff;/' );
+	expect( $html )->toMatch( '/<img[^>]*style="[^"]*box-shadow:var\(--wp--preset--shadow--deep\);/' );
+	expect( $html )->not->toMatch( '/<figcaption[^>]*border-width/' );
 
 	gallery_remove_tree( $basedir );
 } );

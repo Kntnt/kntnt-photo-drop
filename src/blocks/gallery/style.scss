@@ -1,14 +1,20 @@
 // Photo Gallery — shared editor + frontend styles.
-// The layout knobs (gap, minimum column width, fit, caption colours) arrive as
-// CSS custom properties on the wrapper / item, so the server emits minimal
-// inline style and the cascade does the rest. Two layout containers are
-// provided: a uniform CSS grid (mode A) and justified flex rows (mode B).
-// Captions are positioned under, above, or as a nine-point anchored overlay.
+// The layout knobs (gap, minimum column width, fit) arrive as CSS custom
+// properties on the wrapper / item, so the server emits minimal inline style
+// and the cascade does the rest. Two layout containers are provided: a uniform
+// CSS grid (mode A) and justified flex rows (mode B). The caption is always a
+// nine-point anchored overlay inside the image; its colour, typography, and
+// the per-image border / shadow are projected from the block-support panels
+// onto the figcaption and the image respectively (issue #33). The item is the
+// sizing box: the grid item fixes its aspect ratio inline, the justified item
+// its height inline, and the link plus image fill that box absolutely so
+// nothing inside it can collapse to zero height — the bug that left
+// under-captions blank and justified rows showing only alt-text.
 
 .kntnt-photo-drop-gallery {
 
 	&__layout {
-		// The shared gap both layouts read.
+		// The shared gap both layouts read, supplied by the blockGap block support.
 		--kntnt-photo-drop-gap: 12px;
 	}
 
@@ -33,62 +39,74 @@
 	}
 
 	&__item {
-		// A relatively-positioned figure so an overlay caption can be placed within.
+		// The sizing box and the positioning context for the overlay caption. It
+		// clips the cover-fit image to its own bounds; the caption is inside, so it
+		// is never clipped away. `min-width: 0` lets a justified flex item shrink
+		// below its image's intrinsic width instead of forcing the row too wide.
 		position: relative;
+		min-width: 0;
 		margin: 0;
 		overflow: hidden;
 	}
 
-	&__item--grid &__image {
-		// The grid image fills its cell, object-fit per the block setting.
-		width: 100%;
-		height: 100%;
-		object-fit: var(--kntnt-photo-drop-fit, cover);
+	&__item--grid {
+		// The grid item's height comes entirely from the inline aspect-ratio, so the
+		// fill rules below resolve against a definite box rather than collapsing.
+		display: block;
 	}
 
-	&__item--justified &__image {
-		// The justified image fills the inline-sized figure and covers.
+	&__link {
+		// The full-image anchor (the no-JS fallback and the lightbox hook) is
+		// stretched over the whole item so the tile is clickable and the image has a
+		// definite box to fill — absolute positioning side-steps the percentage-
+		// height collapse that blanked the image in earlier layouts.
+		position: absolute;
+		inset: 0;
+		display: block;
+		line-height: 0;
+	}
+
+	&__image {
+		// The image fills the item and is cropped to it; the grid honours the
+		// block's fit setting, the justified rows always cover so the row height is
+		// exact.
 		display: block;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
 	}
 
-	&__link {
-		// The full-image anchor (the no-JS fallback and the lightbox hook) fills
-		// the figure so the whole tile is clickable.
-		display: block;
-		width: 100%;
-		height: 100%;
+	&__item--grid &__image {
+		// The grid image fits per the block setting: cover crops, contain
+		// letterboxes.
+		object-fit: var(--kntnt-photo-drop-fit, cover);
 	}
 
 	&__caption {
-		// Captions: under and above flow with the figure; overlay is placed.
+		// The caption is always an absolutely-placed overlay inside the image. Only
+		// the structural rules live at this specificity; the colour and typography
+		// come from the Color / Typography block-support panels, projected onto the
+		// figcaption as inline declarations or preset classnames.
+		position: absolute;
+		z-index: 1;
+		max-width: 100%;
 		margin: 0;
+		padding: 0.3em 0.5em;
 		font-size: 0.85em;
 		line-height: 1.3;
 	}
 
-	&__caption--under {
-		padding-top: 0.4em;
+	// The legible default overlay colours live at zero specificity (`:where`), so
+	// both a panel's preset classname and a panel's inline declaration win over
+	// them — the caption reads on an unstyled image yet defers the moment the
+	// editor picks a colour.
+	:where(&__caption) {
+		background: rgba(0, 0, 0, 0.5);
+		color: #fff;
 	}
 
-	&__caption--above {
-		padding-bottom: 0.4em;
-	}
-
-	&__caption--overlay {
-		// The overlay sits over the image, drawing its colours from inline custom
-		// properties when the editor set them.
-		position: absolute;
-		max-width: 100%;
-		padding: 0.3em 0.5em;
-		background: var(--kntnt-photo-drop-caption-bg, rgba(0, 0, 0, 0.5));
-		color: var(--kntnt-photo-drop-caption-color, #fff);
-	}
-
-	// The nine overlay anchors map to edge insets; centre variants translate to
-	// the midpoint on the relevant axis.
+	// The nine anchors map to edge insets; centre variants translate to the
+	// midpoint on the relevant axis.
 	&__caption--anchor-top-left {
 		top: 0;
 		left: 0;
@@ -168,5 +186,14 @@
 		background: currentcolor;
 		border-radius: 2px;
 		opacity: 0.1;
+	}
+
+	&__hint {
+		// A quiet inspector note pointing at the block-support panels that now own
+		// the gap; it only appears in the Layout panel, never on the frontend.
+		margin: 0;
+		font-size: 0.85em;
+		font-style: italic;
+		opacity: 0.7;
 	}
 }

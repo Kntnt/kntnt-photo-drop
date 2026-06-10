@@ -29,16 +29,35 @@
     "color": {
       "background": true,
       "text": true,
-      "gradients": true
+      "gradients": true,
+      "__experimentalSkipSerialization": true
     },
     "typography": {
       "fontSize": true,
       "lineHeight": true,
-      "__experimentalFontFamily": true
+      "__experimentalFontFamily": true,
+      "__experimentalSkipSerialization": true
+    },
+    "__experimentalBorder": {
+      "color": true,
+      "radius": true,
+      "style": true,
+      "width": true,
+      "__experimentalSkipSerialization": true,
+      "__experimentalDefaultControls": {
+        "color": true,
+        "radius": true,
+        "style": true,
+        "width": true
+      }
+    },
+    "shadow": {
+      "__experimentalSkipSerialization": true
     },
     "spacing": {
       "margin": true,
-      "padding": true
+      "padding": true,
+      "blockGap": true
     }
   },
   "attributes": {
@@ -65,10 +84,6 @@
     "minimumColumnWidth": {
       "type": "string",
       "default": "320px"
-    },
-    "blockGap": {
-      "type": "string",
-      "default": "12px"
     },
     "imageFit": {
       "type": "string",
@@ -102,21 +117,9 @@
       "type": "string",
       "default": "›"
     },
-    "captionPosition": {
-      "type": "string",
-      "default": "under"
-    },
-    "captionOverlayAnchor": {
+    "captionAnchor": {
       "type": "string",
       "default": "bottom-left"
-    },
-    "captionBackground": {
-      "type": "string",
-      "default": ""
-    },
-    "captionTextColor": {
-      "type": "string",
-      "default": ""
     },
     "isEditorPreview": {
       "type": "boolean",
