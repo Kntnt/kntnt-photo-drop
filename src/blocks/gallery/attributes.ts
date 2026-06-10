@@ -92,5 +92,12 @@ export interface GalleryAttributes {
 	captionBackground: string;
 	/** The caption text colour, or `''` to inherit. */
 	captionTextColor: string;
+	/**
+	 * Render-time-only flag the editor sets on the `ServerSideRender` preview to
+	 * cap the figures and suppress the lightbox. It is never written through
+	 * `setAttributes`, so — left at its `false` default — it is never serialised
+	 * into `post_content` and cannot reach a frontend render.
+	 */
+	isEditorPreview: boolean;
 	[ key: string ]: unknown;
 }

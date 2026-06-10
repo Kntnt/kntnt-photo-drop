@@ -151,10 +151,22 @@
 // itself reuses the gallery rules above — this stylesheet is the block's
 // `style` asset, loaded in the editor and on the frontend alike, which is
 // exactly what lets the server-rendered preview look like the published page.
+// The placeholder grid only ever appears in the editor (the `…-editor` class is
+// never emitted on the frontend), so it stands in for the gallery when there is
+// nothing to render: no collection, a dangling slug, an empty collection, or a
+// loading preview.
 .kntnt-photo-drop-gallery-editor {
 
-	&__title {
-		margin: 0 0 0.5em;
-		font-weight: 600;
+	&__placeholders {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+		gap: 12px;
+	}
+
+	&__placeholder {
+		aspect-ratio: 3 / 2;
+		background: currentcolor;
+		border-radius: 2px;
+		opacity: 0.1;
 	}
 }

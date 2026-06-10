@@ -2,8 +2,9 @@
   "$schema": "https://schemas.wp.org/trunk/block.json",
   "apiVersion": 3,
   "name": "kntnt-photo-drop/gallery",
-  "title": "Photo Gallery",
+  "title": "Photo Drop Gallery",
   "category": "kntnt",
+  "icon": "format-gallery",
   "description": "A public, server-rendered gallery of a chosen collection, with a lightbox.",
   "keywords": [
     "photo",
@@ -116,6 +117,10 @@
     "captionTextColor": {
       "type": "string",
       "default": ""
+    },
+    "isEditorPreview": {
+      "type": "boolean",
+      "default": false
     }
   }
 }

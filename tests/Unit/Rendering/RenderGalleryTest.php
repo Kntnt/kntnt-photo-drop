@@ -979,3 +979,148 @@ test( 'a justified gallery binds the init hook even with the lightbox off', func
 
 	gallery_remove_tree( $basedir );
 } );
+
+// ---------------------------------------------------------------------------
+// Editor preview — capped figures, suppressed lightbox, empty → '' (issue #32)
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a list of N seeded-image descriptors with sortable, distinct names.
+ *
+ * @param int $count How many images to describe.
+ * @return array<int,array{path:string,width:int,height:int}> The image specs.
+ */
+function gallery_image_specs( int $count ): array {
+	$images = [];
+	for ( $position = 1; $position <= $count; $position++ ) {
+		$images[] = [
+			'path'   => sprintf( 'img%03d.jpg.webp', $position ),
+			'width'  => 800,
+			'height' => 600,
+		];
+	}
+	return $images;
+}
+
+test( 'the editor preview caps the gallery at six figures even with more images present', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'isEditorPreview' => true ],
+		gallery_image_specs( 20 ),
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// Twenty images are seeded, but the preview renders only the first six figures
+	// so the canvas never tries to draw a thousand-image collection.
+	expect( substr_count( $html, '<figure class="kntnt-photo-drop-gallery__item' ) )->toBe( 6 );
+	expect( $html )->toContain( 'img001.jpg.webp' );
+	expect( $html )->toContain( 'img006.jpg.webp' );
+	expect( $html )->not->toContain( 'img007.jpg.webp' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor preview suppresses the lightbox entirely, even with it enabled', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'isEditorPreview' => true,
+			'enableLightbox'  => true,
+		],
+		gallery_image_specs( 3 ),
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// The lightbox flag reads false and no overlay, init hook, or context is
+	// emitted, so clicks stay inert in the canvas — yet the anchors remain as the
+	// structural fallback the frontend lightbox would otherwise enhance.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="false"' );
+	expect( $html )->not->toContain( 'data-wp-init' );
+	expect( $html )->not->toContain( 'role="dialog"' );
+	expect( $html )->not->toContain( 'class="kntnt-photo-drop-lightbox"' );
+	expect( $html )->not->toContain( 'counterTemplate' );
+	expect( $html )->toContain( '<a class="kntnt-photo-drop-gallery__link"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor preview of an imageless collection renders an empty string for its placeholders', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'isEditorPreview' => true ],
+		[],
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// In the preview the empty case is an empty response, not the frontend notice,
+	// so the editor's own grey placeholders stand in for the gallery.
+	expect( $html )->toBe( '' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor preview of a dangling collection renders an empty string, not the notice', function (): void {
+
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir, can_edit: true );
+
+	$html = Render_Gallery::render(
+		[
+			'collection'      => 'ghost',
+			'isEditorPreview' => true,
+		],
+		'',
+		gallery_block_stub(),
+	);
+
+	// A dangling slug in preview mode yields the empty placeholder response rather
+	// than the editor notice the frontend would show a logged-in editor.
+	expect( $html )->toBe( '' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery--notice' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the frontend render is unaffected by the preview cap: all images and the lightbox remain', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[],
+		gallery_image_specs( 20 ),
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// Without the preview flag the full set renders and the lightbox is wired, so
+	// the cap and suppression genuinely never leak into a frontend request.
+	expect( substr_count( $html, '<figure class="kntnt-photo-drop-gallery__item' ) )->toBe( 20 );
+	expect( $html )->toContain( 'img020.jpg.webp' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="true"' );
+	expect( $html )->toContain( 'class="kntnt-photo-drop-lightbox"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a dangling collection on the frontend still shows the editor notice (preview flag absent)', function (): void {
+
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir, can_edit: true );
+
+	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
+
+	// The frontend (non-preview) path is unchanged: a user who can edit still sees
+	// the broken-reference notice on the live page.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery--notice' );
+
+	gallery_remove_tree( $basedir );
+} );

@@ -4,7 +4,7 @@
  * Both blocks must insert into a new post without tripping the block error
  * boundary (`.block-editor-warning`). This failed two ways on the v0.1.0
  * codebase: the blocks did not register at all on the WordPress floor, and
- * opening the Photo Gallery's Layout panel crashed its UnitControl. These
+ * opening the Photo Drop Gallery's Layout panel crashed its UnitControl. These
  * tests pin both behaviours forever, and additionally assert that the
  * gallery's ServerSideRender preview reaches real gallery markup in the
  * canvas.
@@ -34,7 +34,7 @@ test.describe( 'Editor', () => {
 		deleteCollection( slug );
 	} );
 
-	test( 'Photo Gallery inserts, its Layout panel renders, and the preview shows gallery markup', async ( {
+	test( 'Photo Drop Gallery inserts, its Layout panel renders, and the preview shows gallery markup', async ( {
 		admin,
 		editor,
 		page,

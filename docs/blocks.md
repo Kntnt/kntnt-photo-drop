@@ -74,7 +74,7 @@ This is a **dynamic block with inner blocks**: `save` returns `<InnerBlocks.Cont
 
 ---
 
-## Photo Gallery — `kntnt-photo-drop/gallery`
+## Photo Drop Gallery — `kntnt-photo-drop/gallery`
 
 A public, server-rendered gallery of one collection — all images under a start path rendered as one flattened set (no in-gallery folder navigation; see [ADR-0005](adr/0005-recursive-flatten-gallery-no-navigation.md)) — with an Interactivity-API lightbox.
 
@@ -85,8 +85,9 @@ A public, server-rendered gallery of one collection — all images under a start
 	"$schema": "https://schemas.wp.org/trunk/block.json",
 	"apiVersion": 3,
 	"name": "kntnt-photo-drop/gallery",
-	"title": "Photo Gallery",
+	"title": "Photo Drop Gallery",
 	"category": "kntnt",
+	"icon": "format-gallery",
 	"description": "A public, server-rendered gallery of a collection, with a lightbox.",
 	"keywords": [ "photo", "gallery", "images", "lightbox", "collection" ],
 	"textdomain": "kntnt-photo-drop",
@@ -127,7 +128,8 @@ A public, server-rendered gallery of one collection — all images under a start
 		"captionPosition":              { "type": "string",  "default": "under" },
 		"captionOverlayAnchor":         { "type": "string",  "default": "bottom-left" },
 		"captionBackground":            { "type": "string",  "default": "" },
-		"captionTextColor":             { "type": "string",  "default": "" }
+		"captionTextColor":             { "type": "string",  "default": "" },
+		"isEditorPreview":              { "type": "boolean", "default": false }
 	}
 }
 ```
@@ -155,6 +157,7 @@ A public, server-rendered gallery of one collection — all images under a start
 | `captionOverlayAnchor` | string | `"bottom-left"` | Overlay only. One of the 9 positions: `top-left`, `top-center`, `top-right`, `middle-left`, `middle-center`, `middle-right`, `bottom-left`, `bottom-center`, `bottom-right`. |
 | `captionBackground` | string | `""` | Overlay caption background; `""` = none, otherwise a colour (alpha allowed). |
 | `captionTextColor` | string | `""` | Caption text colour; `""` = inherit. |
+| `isEditorPreview` | boolean | `false` | **Render-time-only.** The editor passes `true` on the `ServerSideRender` `attributes` prop to request the capped, lightbox-suppressed preview; it is never written through `setAttributes`, so — left at its `false` default — it is never serialised into `post_content` and cannot reach a frontend render. It is declared in `block.json` only because the REST block-renderer endpoint (`additionalProperties: false`) would otherwise strip an undeclared attribute before the preview reached the render callback. |
 
 Because Canvas re-encoding strips all EXIF/IPTC at ingestion, there is no embedded caption or capture date — captions are derived from the filename/path only.
 
@@ -168,7 +171,7 @@ Inspector panels:
 - **Captions** — `captionContent`, then when not "none": `captionHumanize`, (for "path") `captionIncludeCollectionName` and `captionSeparator`, `captionPosition`, and (for "overlay") `captionOverlayAnchor`, `captionBackground`, `captionTextColor`.
 - **Lightbox** — `enableLightbox` toggle.
 
-The editor preview uses `ServerSideRender` (or an equivalent fetch of the rendered markup) so the editor matches the frontend. An empty/dangling `collection` shows an inline notice.
+The editor preview uses `ServerSideRender` so the editor matches the frontend, but in **editor-preview mode**: it sends the render-time-only `isEditorPreview` flag, so the server caps the canvas at the first **6** figures and emits no lightbox markup (clicks stay inert in the editor — a collection of thousands never floods the canvas). The block carries no editor-only preview heading: the canvas shows only images. When there is nothing to render — no collection chosen, a dangling slug, an empty collection, or while the preview loads — the editor shows a grid of **6 grey placeholders** in place of the gallery, rather than a bare notice.
 
 ### Render output (`render.php` → `Render_Gallery`)
 
@@ -177,6 +180,7 @@ The editor preview uses `ServerSideRender` (or an equivalent fetch of the render
 - Mode A uses core's Grid layout (`minimumColumnWidth`, `blockGap`) plus the bespoke `aspect-ratio`/`imageFit`; mode B emits bespoke justified rows (`flex-grow`/`flex-basis` from stored dimensions, `targetRowHeight`, `blockGap`, last row left-aligned). The server computes mode B's last-row flags against an assumed container width as the no-JS/first-paint fallback; the view module re-flags the actual last row on init and on resize (so mode B emits `data-wp-init` even when the lightbox is off).
 - Captions render per `captionContent`/position/overlay settings.
 - The lightbox is an Interactivity-API surface (open/close, prev/next, keyboard, swipe, debounced neighbour preload, focus trap, scroll lock, `aria`, loading/error states with a server-translated error element); each thumbnail is wrapped in `<a href="full.webp">` so a no-JS click navigates to the full image, and modified clicks (Cmd/Ctrl/Shift/Alt, non-primary button) are left to the browser. The gallery needs no REST — it is pure SSR plus the view module.
+- **Editor-preview mode** (the render-time-only `isEditorPreview` attribute the editor's `ServerSideRender` sends): the walk is capped to the first **6** images and the lightbox is suppressed (no overlay, no `data-wp-context`, the flag reads `false`, and — for the grid — no `data-wp-init`), so the canvas stays light and clicks are inert. A dangling/empty collection in preview mode returns an empty string, which the edit component's `ServerSideRender` treats as its empty case and replaces with the grey placeholders. The flag lives only on the preview request and defaults to `false`, so the frontend render is identical to before: no cap, lightbox as configured, full walk.
 
 ---
 

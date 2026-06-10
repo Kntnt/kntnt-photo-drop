@@ -66,6 +66,35 @@ final class Render_Gallery {
 	private const LAYOUT_JUSTIFIED = 'justified';
 
 	/**
+	 * The render-time-only attribute that flags an editor-preview render.
+	 *
+	 * Declared in `block.json` (it must be, or the REST block-renderer endpoint —
+	 * whose schema sets `additionalProperties: false` — would strip it before the
+	 * preview reached this callback), but it is never written into `post_content`:
+	 * its default is `false`, the editor passes `true` only on the live
+	 * `ServerSideRender` `attributes` prop, and never through `setAttributes`. An
+	 * attribute left at its default is not serialised into the block delimiters, so
+	 * a frontend render reads `false` and neither the cap nor the lightbox
+	 * suppression below can leak past the editor.
+	 *
+	 * @since 0.5.0
+	 * @var string
+	 */
+	private const PREVIEW_ATTRIBUTE = 'isEditorPreview';
+
+	/**
+	 * The maximum number of figures the editor preview renders.
+	 *
+	 * A collection can hold thousands of images; the editor must never try to
+	 * render them all into the canvas. The frontend has no cap — it walks and
+	 * emits the whole set.
+	 *
+	 * @since 0.5.0
+	 * @var int
+	 */
+	private const PREVIEW_FIGURE_CAP = 6;
+
+	/**
 	 * Returns the gallery's front-end HTML, or an empty string when nothing renders.
 	 *
 	 * Resolves the collection and reads its descriptor; an empty or dangling
@@ -75,7 +104,14 @@ final class Render_Gallery {
 	 * least one image — emits the gallery markup. An empty walk (a valid but
 	 * imageless start path) also yields the editor notice / public nothing.
 	 *
+	 * In editor-preview mode (the `isEditorPreview` render-time-only attribute the
+	 * editor's `ServerSideRender` sends), the walked list is capped to the first
+	 * few images and the lightbox is suppressed, so the canvas never tries to
+	 * render a thousand-image collection and clicks stay inert. The flag lives only
+	 * on the preview request, so the frontend render is unaffected.
+	 *
 	 * @since 0.6.0
+	 * @since 0.5.0 Added the capped, lightbox-suppressed editor-preview mode.
 	 *
 	 * @param array<string,mixed> $attributes Block attributes (see docs/blocks.md).
 	 * @param string              $content    Inner block HTML (unused — no inner blocks).
@@ -84,13 +120,18 @@ final class Render_Gallery {
 	 */
 	public static function render( array $attributes, string $content, \WP_Block $block ): string {
 
+		// Detect editor-preview mode up front; it both caps the figures and changes
+		// the empty/dangling output to an empty string so the editor's preview shows
+		// its own placeholders instead of the frontend notice.
+		$is_preview = self::read_bool( $attributes, self::PREVIEW_ATTRIBUTE, false );
+
 		// Resolve the selected slug to a real collection; an empty or dangling
 		// reference is the "nothing for the public, a notice for an editor" case.
 		$slug       = self::read_string( $attributes, 'collection' );
 		$repository = new Repository();
 		$root       = $slug === '' ? null : $repository->resolve_slug( $slug );
 		if ( $root === null ) {
-			return self::dangling_output();
+			return self::empty_output( $is_preview );
 		}
 
 		// Read the descriptor for the thumbnail widths the srcset needs and the
@@ -98,7 +139,7 @@ final class Render_Gallery {
 		// a degraded collection we decline to render rather than guess at.
 		$descriptor = Descriptor::read( $root );
 		if ( $descriptor === null ) {
-			return self::dangling_output();
+			return self::empty_output( $is_preview );
 		}
 
 		// Validate the editor-set start path once against the collection root via
@@ -107,7 +148,7 @@ final class Render_Gallery {
 		// (ADR-0005) — so the gallery has no per-request traversal surface.
 		$start_path = self::resolve_start_path( $root, self::read_string( $attributes, 'startPath' ) );
 		if ( $start_path === null ) {
-			return self::dangling_output();
+			return self::empty_output( $is_preview );
 		}
 
 		// Walk the tree (recursive or single-folder) into the flattened, ordered
@@ -120,10 +161,16 @@ final class Render_Gallery {
 		$walker = new Gallery_Walker( new Index_Store() );
 		$items  = $walker->walk( $root, self::relative_to_root( $root, $start_path ), $recursive, $order );
 		if ( $items === [] ) {
-			return self::dangling_output();
+			return self::empty_output( $is_preview );
 		}
 
-		return self::render_gallery( $attributes, $items, $descriptor, $slug, $root );
+		// In editor-preview mode, keep only the first few images so the canvas never
+		// renders a thousand-image collection; the frontend keeps the whole set.
+		if ( $is_preview ) {
+			$items = array_slice( $items, 0, self::PREVIEW_FIGURE_CAP );
+		}
+
+		return self::render_gallery( $attributes, $items, $descriptor, $slug, $root, $is_preview );
 
 	}
 
@@ -137,12 +184,14 @@ final class Render_Gallery {
 	 * standard block-supports attributes plus a lightbox flag the view module reads.
 	 *
 	 * @since 0.6.0
+	 * @since 0.5.0 Added the `$is_preview` flag to suppress the lightbox in the editor.
 	 *
 	 * @param array<string,mixed>     $attributes The block attributes.
 	 * @param array<int,Gallery_Item> $items      The flattened, ordered images.
 	 * @param Descriptor              $descriptor The collection's contract and name.
 	 * @param string                  $slug       The collection slug.
 	 * @param string                  $root       The absolute collection root.
+	 * @param bool                    $is_preview Whether this is the capped editor preview.
 	 * @return string The gallery HTML.
 	 */
 	private static function render_gallery(
@@ -151,6 +200,7 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $slug,
 		string $root,
+		bool $is_preview,
 	): string {
 
 		// Resolve the collection's base URL once; every figure's src/srcset/anchor
@@ -169,7 +219,7 @@ final class Render_Gallery {
 			? self::justified_figures( $items, $descriptor, $base_url, $caption, $attributes )
 			: self::grid_figures( $items, $descriptor, $base_url, $caption, $attributes );
 
-		return self::wrap( $attributes, $layout, $figures );
+		return self::wrap( $attributes, $layout, $figures, $is_preview );
 
 	}
 
@@ -467,15 +517,22 @@ final class Render_Gallery {
 	 * and the hidden overlay are appended only when the lightbox is enabled, so a
 	 * lightbox-off gallery emits no lightbox markup and the anchors navigate.
 	 *
+	 * The editor preview suppresses the lightbox unconditionally: the flag reads
+	 * `false`, no overlay/context/init is emitted, and clicks stay inert in the
+	 * canvas. The justified layout still binds its `init` hook in the preview so
+	 * the last-row correction runs, but it never emits lightbox chrome there.
+	 *
 	 * @since 0.6.0
 	 * @since 0.2.0 The `init` hook is also bound for the justified layout with the lightbox off.
+	 * @since 0.5.0 Added the `$is_preview` flag that suppresses the lightbox in the editor.
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @param string              $layout     The resolved layout token.
 	 * @param string              $figures    The concatenated figure markup.
+	 * @param bool                $is_preview Whether this is the capped editor preview.
 	 * @return string The full gallery markup.
 	 */
-	private static function wrap( array $attributes, string $layout, string $figures ): string {
+	private static function wrap( array $attributes, string $layout, string $figures, bool $is_preview ): string {
 
 		// Build the inner container's style from the gap (both layouts) and, for the
 		// grid, the minimum column width that drives core's auto-fill grid.
@@ -496,11 +553,12 @@ final class Render_Gallery {
 		}
 
 		// Compose the block-supports wrapper: the project class, the Interactivity
-		// namespace, and the lightbox flag the view module reads. The `init` hook
-		// is bound when there is anything to enhance — the lightbox, or the
-		// justified layout's client-side last-row correction; the per-block
+		// namespace, and the lightbox flag the view module reads. The lightbox is
+		// suppressed in the editor preview so clicks stay inert; otherwise the
+		// `init` hook is bound when there is anything to enhance — the lightbox, or
+		// the justified layout's client-side last-row correction — and the per-block
 		// context exists only for the lightbox.
-		$enabled        = self::read_bool( $attributes, 'enableLightbox', true );
+		$enabled        = ! $is_preview && self::read_bool( $attributes, 'enableLightbox', true );
 		$wrapper_attrs  = [
 			'class'                          => 'kntnt-photo-drop-gallery',
 			'data-wp-interactive'            => 'kntnt-photo-drop/gallery',
@@ -768,6 +826,28 @@ final class Render_Gallery {
 		}
 
 		return $style;
+
+	}
+
+	/**
+	 * Maps a dangling/empty collection to the right empty render for the context.
+	 *
+	 * On a frontend (non-preview) render this is the editor-only notice — the public
+	 * sees nothing, a user who can edit sees the broken-reference notice. In the
+	 * editor preview it is an empty string: the edit component's `ServerSideRender`
+	 * treats an empty response as its empty case and shows its own grey
+	 * placeholders, which is the chosen "no collection / empty / dangling" UI.
+	 *
+	 * @since 0.5.0
+	 *
+	 * @param bool $is_preview Whether this is the capped editor preview.
+	 * @return string The notice markup, '', or '' for the preview's placeholder case.
+	 */
+	private static function empty_output( bool $is_preview ): string {
+
+		// Hand the preview an empty response so its placeholders show; otherwise fall
+		// through to the frontend notice gated on the edit capability.
+		return $is_preview ? '' : self::dangling_output();
 
 	}
 

@@ -8,10 +8,13 @@
  * "this folder only" toggle), an Ordering panel, a Layout panel whose revealed
  * controls depend on the mode, a Captions panel whose controls reveal with the
  * content, and a Lightbox toggle — plus an in-canvas `ServerSideRender` preview,
- * so the canvas shows the same markup `Render_Gallery` emits on the frontend
- * (the lightbox view module does not run in the editor, which is fine — the
- * preview's job is layout and captions). An empty or dangling collection shows
- * an inline notice rather than a broken frame.
+ * so the canvas shows the same markup `Render_Gallery` emits on the frontend.
+ * The preview runs in editor-preview mode: it sends the render-time-only
+ * `isEditorPreview` flag so the server caps the figures and suppresses the
+ * lightbox (clicks stay inert; a collection of thousands never floods the
+ * canvas). When there is nothing to render — no collection chosen, a dangling
+ * slug, an empty collection, or while the preview loads — a grid of grey
+ * placeholders stands in for the gallery rather than a bare notice.
  *
  * The collection list comes from the editor-only endpoint
  * `kntnt-photo-drop/v1/collections` (gated by `edit_posts`), the same list the
@@ -81,6 +84,46 @@ type CollectionsState =
  * @since 0.6.0
  */
 const LIST_PATH = '/kntnt-photo-drop/v1/collections';
+
+/**
+ * How many grey placeholders the empty/loading preview shows.
+ *
+ * Matches the server's editor-preview figure cap so a populated preview and an
+ * empty one occupy the same footprint in the canvas.
+ *
+ * @since 0.5.0
+ */
+const PREVIEW_PLACEHOLDER_COUNT = 6;
+
+/**
+ * A calm grid of grey placeholder tiles for the editor preview.
+ *
+ * Shown when there is nothing to render — no collection chosen, a dangling slug,
+ * an empty collection, or while the server preview loads — so the canvas reads as
+ * a gallery-in-waiting rather than a notice or a blank frame. It is purely
+ * decorative: aria-hidden, no images, no interactivity.
+ *
+ * @since 0.5.0
+ *
+ * @return The placeholder grid markup.
+ */
+function PreviewPlaceholders(): JSX.Element {
+	return (
+		<div
+			className="kntnt-photo-drop-gallery-editor__placeholders"
+			aria-hidden="true"
+		>
+			{ Array.from( { length: PREVIEW_PLACEHOLDER_COUNT } ).map(
+				( _, index ) => (
+					<div
+						key={ index }
+						className="kntnt-photo-drop-gallery-editor__placeholder"
+					/>
+				)
+			) }
+		</div>
+	);
+}
 
 /**
  * The nine overlay anchor options, paired with their translated labels.
@@ -629,32 +672,18 @@ export function GalleryEdit( {
 			</InspectorControls>
 
 			<div className="kntnt-photo-drop-gallery-editor__preview">
-				<p className="kntnt-photo-drop-gallery-editor__title">
-					{ __( 'Photo Gallery', 'kntnt-photo-drop' ) }
-				</p>
-				{ collection === '' && (
-					<Notice status="warning" isDismissible={ false }>
-						{ __(
-							'Select a collection in the block settings to show a gallery.',
-							'kntnt-photo-drop'
-						) }
-					</Notice>
-				) }
-				{ isDangling && (
-					<Notice status="error" isDismissible={ false }>
-						{
-							/* translators: %s: the missing collection slug. */
-							__(
-								'The collection “%s” no longer exists. Choose another in the block settings.',
-								'kntnt-photo-drop'
-							).replace( '%s', collection )
-						}
-					</Notice>
-				) }
-				{ selected !== null && (
+				{ selected === null ? (
+					<PreviewPlaceholders />
+				) : (
 					<ServerSideRender
 						block="kntnt-photo-drop/gallery"
-						attributes={ attributes }
+						attributes={ {
+							...attributes,
+							isEditorPreview: true,
+						} }
+						EmptyResponsePlaceholder={ PreviewPlaceholders }
+						LoadingResponsePlaceholder={ PreviewPlaceholders }
+						ErrorResponsePlaceholder={ PreviewPlaceholders }
 					/>
 				) }
 			</div>
