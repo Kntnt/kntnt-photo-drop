@@ -1,23 +1,9 @@
 // Photo Drop Zone — styles shared by the editor and the frontend.
-// The shared baseline covers the wrapper and the intro text that both the
-// editor's static preview and the frontend uploader render. Editor-only chrome
-// lives in editor.scss; the frontend uploader's FilePond chrome and status list
-// live in view.scss (bundled into the view-side asset).
+// The block's visible appearance is its inner blocks (a centred dashed group by
+// default), so this shared baseline only needs to claim the wrapper as a block.
+// Editor-only chrome lives in editor.scss; the frontend drop surface and status
+// list live in view.scss (bundled into the view-side asset).
 
 .kntnt-photo-drop-drop-zone {
 	display: block;
-
-	&__intro {
-		margin-bottom: 1rem;
-	}
-
-	&__heading {
-		margin: 0 0 0.25rem;
-		font-weight: 600;
-	}
-
-	&__instruction {
-		margin: 0;
-		opacity: 0.8;
-	}
 }

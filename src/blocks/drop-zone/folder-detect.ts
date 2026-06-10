@@ -6,10 +6,10 @@
  * (design.md, ADR-0006 surroundings) is explicit: folder structure is preserved
  * only via the "Select folder" picker; a dropped folder is detected, warned
  * about, and — on consent — contributes only its top-level files, flat, with no
- * recursion into sub-directories. Left to itself FilePond would recursively
- * ingest the whole tree and flatten it, silently colliding same-named files
- * from different camera folders, so the view module intercepts the drop and
- * runs these rules instead.
+ * recursion into sub-directories. A plain `dataTransfer.files` read cannot reach
+ * a folder's contents at all, so the view module reads the drop's
+ * `webkitGetAsEntry()` entries and runs these rules to collect the top-level
+ * files itself.
  *
  * Detection must be synchronous: `webkitGetAsEntry()` only works while the
  * `drop` event is being dispatched, so the entries are snapshotted first and

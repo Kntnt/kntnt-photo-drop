@@ -9,7 +9,7 @@
  * (uploaded · skipped · failed) visible without scrolling the list.
  *
  * All DOM writes go through `textContent`, never `innerHTML`, so a hostile
- * filename cannot inject markup. The factory holds no FilePond state and takes
+ * filename cannot inject markup. The factory holds no upload state and takes
  * plain elements, so Jest covers it in jsdom alone.
  *
  * @since 0.2.0

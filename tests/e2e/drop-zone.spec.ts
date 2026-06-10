@@ -2,8 +2,8 @@
  * Drop Zone end-to-end spec — the upload round-trip.
  *
  * An authenticated admin visits a published page carrying the Photo Drop
- * Zone block, hands a JPEG to the FilePond browse input, and the browser
- * pipeline (createImageBitmap → canvas → WebP) uploads it to the REST
+ * Zone block, hands a JPEG to the native hidden loose-file input, and the
+ * browser pipeline (createImageBitmap → canvas → WebP) uploads it to the REST
  * endpoint. The spec asserts the client-visible truth (the per-file status
  * row and the live summary) and the server truth (the stored
  * `<name>.jpg.webp` is served from the collection directory as
@@ -64,10 +64,10 @@ test.describe( 'Drop Zone upload', () => {
 		// capability-gated uploader renders only for users who can upload.
 		await page.goto( `/?page_id=${ pageId }` );
 
-		// Hand the fixture to FilePond's native browse input; the view
-		// module converts it to WebP in the browser and POSTs it.
+		// Hand the fixture to the hidden loose-file input the surface click
+		// would open; the view module converts it to WebP and POSTs it.
 		await page
-			.locator( '.filepond--browser' )
+			.locator( '.kntnt-photo-drop-drop-zone__file-input' )
 			.setInputFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
 
 		// The file's status row settles on the uploaded state, and the
@@ -100,7 +100,7 @@ test.describe( 'Drop Zone upload', () => {
 		// `e2e-alpha.jpg.webp`, so the upload must settle as skipped.
 		await page.goto( `/?page_id=${ pageId }` );
 		await page
-			.locator( '.filepond--browser' )
+			.locator( '.kntnt-photo-drop-drop-zone__file-input' )
 			.setInputFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
 
 		// The row settles on the skipped state and the summary agrees.

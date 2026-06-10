@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 
 - The collection-lifecycle admin page lists each collection with always-visible **Edit** and **Delete** buttons at the right-hand end of the row, replacing the hover-revealed row actions, and the list table is now visibly separated from the page header. Delete still routes through the existing confirmation step, and a collection whose descriptor cannot be read still lists by slug and remains deletable. (#30)
+- The **Photo Drop Zone** block is now an `InnerBlocks` wrapper: its appearance is editable inner blocks (a centred dashed group by default, seeded on insertion and not locked), and the whole inner-block surface is the upload zone. The token `{kntnt-drop-zone-collection}` in the inner blocks is replaced with the selected collection's display name on the published page. The block also gains the `cloud-upload` icon in the inserter and list view, and the inspector spaces the "Manage collections" link clear of the read-only contract display. The capability gate and `wp_rest`-nonce privacy are unchanged: nothing renders and no nonce is emitted for a visitor who cannot upload (ADR-0006). (#31)
+
+### Removed
+
+- The Drop Zone's FilePond uploader is replaced by a native drag-drop + click-to-browse surface covering the whole inner-block area; the `filepond` dependency and its stylesheet are dropped from the bundle. Folder drag-and-drop (with the top-level-only warning), the "Select folder" picker, the per-file status list and live summary, real upload progress, and the one-shot nonce refresh on expiry are all preserved. (#31)
 
 ## [0.3.0] - 2026-06-10
 

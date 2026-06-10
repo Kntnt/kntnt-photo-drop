@@ -108,7 +108,7 @@ Mirror gpx-blocks: do **not** hit live GitHub. Stub `wp_remote_get` via Brain Mo
 
 ## What is deliberately not tested
 
-- **FilePond, the Canvas API, the Interactivity API runtime, WordPress core, GD/Imagick internals.** We test our wrapper logic and our wiring, not the libraries' own behaviour.
+- **The Canvas API, the Interactivity API runtime, WordPress core, GD/Imagick internals.** We test our wrapper logic and our wiring, not the libraries' own behaviour.
 - **Visual rendering.** No screenshot-diff tests; gallery appearance is theme-dependent. Visual/UX correctness is a human-verification item (see [`definition-of-done.md`](definition-of-done.md)).
 - **The Updater against live GitHub** (network flakiness + drift); it is unit-tested with stubbed HTTP.
 - **Translation loading** (a WordPress responsibility), though a source-strings test asserts the `__()` strings in code match the `.pot`.

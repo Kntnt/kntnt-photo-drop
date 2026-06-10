@@ -9,7 +9,8 @@
  *
  * Variables injected by WordPress:
  *   $attributes  array      Block attributes as saved in post_content.
- *   $content     string     Inner block HTML (empty — this block has no inner blocks).
+ *   $content     string     The block's inner-block HTML — the editable drop
+ *                           surface, carrying the collection placeholder.
  *   $block       \WP_Block  The block instance, carrying block.json metadata.
  *
  * @package Kntnt\Photo_Drop

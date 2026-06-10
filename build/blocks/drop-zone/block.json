@@ -4,6 +4,7 @@
   "name": "kntnt-photo-drop/drop-zone",
   "title": "Photo Drop Zone",
   "category": "kntnt",
+  "icon": "cloud-upload",
   "description": "A capability-gated front-end uploader that optimises images in the browser and uploads them into a chosen collection.",
   "keywords": [
     "photo",

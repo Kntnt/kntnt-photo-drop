@@ -9,9 +9,9 @@
  *
  * This module is the pure rule for deriving that path: prefer the browser-supplied
  * `webkitRelativePath` when present (a folder selection), and fall back to the
- * plain file name for a loose file from a flat drag-and-drop. It holds no DOM or
- * FilePond state so Jest can cover it in isolation; the view module calls it once
- * per file when building each upload's metadata.
+ * plain file name for a loose file from a flat drag-and-drop. It holds no DOM
+ * state so Jest can cover it in isolation; the view module calls it once per file
+ * when building each upload's metadata.
  *
  * @since 0.5.0
  */

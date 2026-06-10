@@ -17,8 +17,7 @@
 	},
 	"dependencies": {
 		"@wordpress/element": "^6.45.0",
-		"@wordpress/interactivity": "^6.45.0",
-		"filepond": "^4.32.12"
+		"@wordpress/interactivity": "^6.45.0"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.60.0",

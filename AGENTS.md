@@ -62,7 +62,7 @@ PHP 8.4+ and WordPress 6.6+ are the runtime floor. Install both toolchains once:
 
 ```bash
 composer install        # PHP deps + PSR-4 autoload (Pest, PHPStan, PHPCS, WP stubs)
-npm install             # block toolchain (@wordpress/scripts, @wordpress/interactivity, FilePond)
+npm install             # block toolchain (@wordpress/scripts, @wordpress/interactivity)
 ```
 
 Build and watch the blocks:

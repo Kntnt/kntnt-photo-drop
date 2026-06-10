@@ -80,7 +80,7 @@ test.describe( 'Editor', () => {
 		).toBeVisible( { timeout: 30_000 } );
 	} );
 
-	test( 'Photo Drop Zone inserts and renders its placeholder without a block error', async ( {
+	test( 'Photo Drop Zone inserts and seeds its default inner-block template without a block error', async ( {
 		admin,
 		editor,
 	} ) => {
@@ -88,12 +88,12 @@ test.describe( 'Editor', () => {
 		await admin.createNewPost();
 		await editor.insertBlock( { name: 'kntnt-photo-drop/drop-zone' } );
 
-		// The editor placeholder renders, titled with the block name.
-		const preview = editor.canvas.locator(
-			'.kntnt-photo-drop-drop-zone__preview'
-		);
-		await expect( preview ).toBeVisible();
-		await expect( preview ).toContainText( 'Photo Drop Zone' );
+		// The default inner-block template seeds a heading and the placeholder
+		// paragraph, both editable inside the InnerBlocks wrapper.
+		const wrapper = editor.canvas.locator( '.kntnt-photo-drop-drop-zone' );
+		await expect( wrapper ).toBeVisible();
+		await expect( wrapper ).toContainText( 'Photo Drop Zone' );
+		await expect( wrapper ).toContainText( '{kntnt-drop-zone-collection}' );
 
 		// No block error boundary anywhere in the canvas.
 		await expect(

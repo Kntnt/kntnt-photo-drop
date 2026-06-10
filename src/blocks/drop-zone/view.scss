@@ -1,10 +1,30 @@
-// Photo Drop Zone — frontend uploader styles.
+// Photo Drop Zone — frontend drop-surface styles.
 // Imported by view.ts so @wordpress/scripts bundles it into the view-side asset
-// (view.css) declared as viewStyle in block.json. Styles the folder picker and
-// the per-file status list that sit around FilePond's own chrome; FilePond's
-// base CSS is imported separately in view.ts.
+// (view.css) declared as viewStyle in block.json. The whole inner-block surface
+// is the native drag-drop + click-to-browse zone; these styles cover the
+// click affordance, the drag-over highlight, the folder picker, and the
+// per-file status list. There is no FilePond.
 
 .kntnt-photo-drop-drop-zone {
+
+	// The inner-block surface is the click-to-browse target; the cursor and a
+	// gentle hover hint signal that the whole area is clickable.
+	&__surface {
+		cursor: pointer;
+		transition: opacity 0.15s ease;
+
+		&:hover {
+			opacity: 0.92;
+		}
+	}
+
+	// While a drag hovers the wrapper, lift the whole surface so the drop
+	// target is unmistakable. The view module toggles the modifier class.
+	&--dragover &__surface {
+		opacity: 0.75;
+		outline: 2px dashed currentcolor;
+		outline-offset: 4px;
+	}
 
 	&__folder {
 		margin: 0.75rem 0 0;

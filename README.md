@@ -16,7 +16,7 @@ The plugin does not use the WordPress Media Library. Images live as files on dis
 ### Key Features
 
 - **Two blocks.** Photo Drop Zone (front-end bulk uploader) and Photo Gallery (public gallery with a lightbox), both server-rendered and registered under the *Kntnt* block category.
-- **In-browser optimisation.** Images are downscaled and re-encoded to WebP in the browser (via FilePond and the Canvas API) before upload, so a several-hundred-image batch transfers a fraction of the original bytes.
+- **In-browser optimisation.** Images are downscaled and re-encoded to WebP in the browser (via the Canvas API) before upload, so a several-hundred-image batch transfers a fraction of the original bytes.
 - **Collections on disk.** Each collection is a directory under the uploads root; discovery is a directory scan, so a collection copied in from another site appears automatically and a deleted directory disappears, with no registry to keep in sync.
 - **An immutable output contract.** A collection fixes its maximum width and compression quality once, at creation. The stored format is always WebP. The contract cannot be changed afterwards, because the original is never kept.
 - **Re-derivable thumbnails.** Thumbnail width is a filter-driven setting, not part of the contract, and can be changed and regenerated at any time.
@@ -105,7 +105,7 @@ The gallery is pure server-rendered output plus its view module; it makes no RES
 
 ### Privacy
 
-The plugin makes no third-party request when a visitor views a page. FilePond, the Interactivity API, and the WebP encoding all run as bundled, local assets, and the images are first-party files served from your own site – there is no external embed to consent to. The only outbound request the plugin makes is the admin-side update check against the GitHub Releases API, which never runs on a visitor-facing page.
+The plugin makes no third-party request when a visitor views a page. The drop surface, the Interactivity API, and the WebP encoding all run as bundled, local assets, and the images are first-party files served from your own site – there is no external embed to consent to. The only outbound request the plugin makes is the admin-side update check against the GitHub Releases API, which never runs on a visitor-facing page.
 
 ## Frequently asked questions (FAQ)
 

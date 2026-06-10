@@ -11,8 +11,9 @@
  * upload, while a false positive here would silently exclude a real photo.
  *
  * The rule is pure over a name and a MIME type so Jest covers it without File
- * objects; the view module applies it in FilePond's `beforeAddFile` hook, in the
- * folder-picker path, and in the folder-drop collection.
+ * objects; the view module applies it on every intake path — the click and
+ * folder pickers, the loose-file drop, and the consented folder drop — before any
+ * file is queued for upload.
  *
  * @since 0.2.0
  */

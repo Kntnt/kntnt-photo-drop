@@ -1,43 +1,40 @@
 /**
- * Photo Drop Zone frontend view module — the FilePond uploader.
+ * Photo Drop Zone frontend view module — the native drop surface.
  *
  * Registered as the block's viewScriptModule and mounted by the Interactivity API
  * `init` callback against the capability-gated markup `Render_Drop_Zone` emits.
+ * The whole inner-block surface is a native drag-drop + click-to-browse zone: a
+ * click opens the hidden loose-file input, a drop of loose files queues them, and
+ * a dropped *folder* is detected, warned about, and — on consent — contributes
+ * only its top-level images, flat. There is no FilePond; the intake, queue, and
+ * progress UI are this module's own, built on plain DOM and `XMLHttpRequest`.
+ *
  * The heavy lifting lives in pure, separately-tested helpers — the Canvas→WebP
  * encode (`canvas-webp.ts`), the safe-canvas-area cap (`canvas-limit.ts`), the
  * `webkitRelativePath` mapping (`relative-path.ts`), the dragged-folder rules
  * (`folder-detect.ts`), the type pre-filter (`file-filter.ts`), the
- * response-interpretation rules (`upload-response.ts`), and the keyed status
- * list (`status-list.ts`) — and this module is the thin DOM/FilePond wiring
- * around them.
+ * response-interpretation rules (`upload-response.ts`), and the keyed status list
+ * (`status-list.ts`) — and this module is the thin DOM/upload wiring around them.
  *
- * The optimisation pipeline is a plain Canvas pipeline, no FilePond image
- * plugins: each file is decoded with `createImageBitmap` (EXIF-oriented), drawn
- * downscaled to the collection's max width onto a canvas, re-encoded to WebP via
+ * Each file is decoded with `createImageBitmap` (EXIF-oriented), drawn downscaled
+ * to the collection's max width onto a canvas, re-encoded to WebP via
  * `canvas.toBlob(…, 'image/webp', q)`, and POSTed one request at a time to the
  * REST endpoint via `XMLHttpRequest` — real upload progress, an inactivity
  * watchdog, and a one-shot automatic retry with a refreshed `wp_rest` nonce when
- * the session's nonce has expired. A folder dragged onto the zone is intercepted
- * before FilePond's own recursive traversal can flatten the whole tree: the
- * visitor is warned and, on consent, only the top-level images are added, flat
- * (folder structure is the "Select folder" picker's job). A `beforeunload`
- * guard holds the page while uploads are queued or in flight.
+ * the session's nonce has expired. A bounded number of uploads run concurrently
+ * so a several-hundred-file batch keeps the link busy without opening hundreds of
+ * sockets at once. A `beforeunload` guard holds the page while uploads are queued
+ * or in flight.
  *
  * The client optimisation is a bandwidth optimisation only; the server
  * re-enforces the contract on every file (ADR-0006), so any client-side decode
  * or encode failure simply uploads the original bytes and the server converts
  * them.
  *
- * FilePond's CSS is imported here so @wordpress/scripts bundles it into the
- * view-side asset declared as `viewStyle` in block.json.
- *
  * @since 0.5.0
  */
 
 import { getContext, getElement, store } from '@wordpress/interactivity';
-import { create, FileStatus } from 'filepond';
-import type { FilePond, FilePondFile } from 'filepond';
-import 'filepond/dist/filepond.css';
 import './view.scss';
 import { encodeCanvasToWebp } from './canvas-webp';
 import { exceedsSafeCanvasArea } from './canvas-limit';
@@ -61,8 +58,7 @@ import { createStatusList, type StatusList } from './status-list';
  *
  * View-script modules cannot import `@wordpress/i18n`, so `Render_Drop_Zone`
  * translates every runtime string server-side and passes them through the
- * Interactivity context. The keys mirror `Render_Drop_Zone::translations()`;
- * the `label*` keys are handed to FilePond verbatim.
+ * Interactivity context. The keys mirror `Render_Drop_Zone::translations()`.
  *
  * @since 0.5.0
  */
@@ -79,15 +75,8 @@ interface DropZoneStrings {
 	readonly statusQueued: string;
 	readonly statusConverting: string;
 	readonly statusUploading: string;
+	readonly uploadCancelled: string;
 	readonly summaryTemplate: string;
-	readonly labelIdle: string;
-	readonly labelFileProcessing: string;
-	readonly labelFileProcessingComplete: string;
-	readonly labelFileProcessingError: string;
-	readonly labelFileProcessingAborted: string;
-	readonly labelTapToCancel: string;
-	readonly labelTapToRetry: string;
-	readonly labelTapToUndo: string;
 	readonly [ key: string ]: string;
 }
 
@@ -115,13 +104,26 @@ interface DropZoneContext {
 }
 
 /**
+ * One file queued for upload, paired with the relative path to send for it.
+ *
+ * The relative path is the file's status-row key and the `relativePath` field the
+ * server recreates sub-directories from; a loose file's path is its plain name.
+ *
+ * @since 0.5.0
+ */
+interface QueuedFile {
+	readonly file: File;
+	readonly relativePath: string;
+}
+
+/**
  * The mutable per-mount upload session.
  *
  * The nonce rendered into the context expires after 12–24 hours; when an
  * upload bounces on it, the module fetches a fresh one and retries once. The
  * fresh nonce lives here so every later upload in the same batch uses it too.
  *
- * @since 0.2.0
+ * @since 0.5.0
  */
 interface UploadSession {
 	nonce: string;
@@ -132,11 +134,22 @@ interface UploadSession {
  *
  * An *inactivity* timeout, not a total-duration one: a slow link that keeps
  * making progress is never punished, while a dead connection frees its
- * parallel-upload slot after one minute instead of blocking the queue forever.
+ * concurrency slot after one minute instead of blocking the queue forever.
  *
- * @since 0.2.0
+ * @since 0.5.0
  */
 const INACTIVITY_TIMEOUT_MS = 60_000;
+
+/**
+ * The number of uploads allowed in flight at once.
+ *
+ * Each file is still one request; this only bounds how many of those requests
+ * overlap. Four keeps a fast link busy through the per-file convert→encode
+ * latency without opening a socket per file in a several-hundred-file batch.
+ *
+ * @since 0.5.0
+ */
+const MAX_CONCURRENT_UPLOADS = 4;
 
 /**
  * The shape of a plausible `wp_rest` nonce — ten lower-case hex characters.
@@ -145,35 +158,26 @@ const INACTIVITY_TIMEOUT_MS = 60_000;
  * text; anything else (a login page, a `0` from a logged-out session) fails
  * this pattern and the refresh is treated as unsuccessful.
  *
- * @since 0.2.0
+ * @since 0.5.0
  */
 const NONCE_PATTERN = /^[a-f0-9]{10}$/;
 
 /**
- * The FilePond item statuses that count as "work still pending".
+ * The CSS class toggled on the wrapper while a drag hovers the surface.
  *
- * A file in any of these states would be lost by a navigation, so the
- * `beforeunload` guard holds the page while any item is in one of them.
- * Completed and failed items are settled and hold nothing. `IDLE` is
- * deliberately excluded: FilePond parks a *user-cancelled* item back in
- * `IDLE`, and counting it would leave the guard stuck on after a cancel —
- * with `instantUpload` the loaded→queued transition through `IDLE` is
- * otherwise momentary.
+ * The stylesheet uses it to highlight the whole inner-block area as the active
+ * drop target; the module adds it on `dragenter`/`dragover` and removes it on
+ * `dragleave`/`drop`.
  *
- * @since 0.2.0
+ * @since 0.5.0
  */
-const BUSY_STATUSES: ReadonlySet< FileStatus > = new Set( [
-	FileStatus.INIT,
-	FileStatus.LOADING,
-	FileStatus.PROCESSING_QUEUED,
-	FileStatus.PROCESSING,
-] );
+const DRAGOVER_CLASS = 'kntnt-photo-drop-drop-zone--dragover';
 
 /**
- * Tracks which block elements already have a pond mounted.
+ * Tracks which block elements already have the surface wired.
  *
  * Keyed by the block wrapper so the Interactivity API re-running `init` (e.g. on a
- * re-hydration) never mounts a second FilePond over the same drop area.
+ * re-hydration) never wires a second set of listeners over the same surface.
  *
  * @since 0.5.0
  */
@@ -188,7 +192,7 @@ const mountedZones = new WeakSet< Element >();
  * orient by default anyway). Any other failure propagates to the caller's
  * raw-upload fallback.
  *
- * @since 0.2.0
+ * @since 0.5.0
  *
  * @param file - The source file to decode.
  * @return The decoded, orientation-corrected bitmap.
@@ -306,7 +310,7 @@ async function optimiseToWebp(
  * carrying a plausible nonce, null on any failure — the caller then surfaces
  * the server's original error instead of retrying.
  *
- * @since 0.2.0
+ * @since 0.5.0
  *
  * @param ajaxUrl - The `admin-ajax.php` URL from the block context.
  * @return The fresh nonce, or null when no usable nonce was obtained.
@@ -330,81 +334,60 @@ async function refreshNonce( ajaxUrl: string ): Promise< string | null > {
 }
 
 /**
- * Builds FilePond's custom `server.process` for one collection.
+ * Uploads one already-optimised blob to the REST endpoint via `XMLHttpRequest`.
  *
- * Returns the process function FilePond calls per file: it optimises the file
- * to WebP, then POSTs the blob plus its `relativePath` to the REST endpoint
- * via `XMLHttpRequest` with the session's `X-WP-Nonce`, one request per file.
- * Real upload progress reaches FilePond through `xhr.upload.onprogress`; an
- * inactivity watchdog aborts a request after 60 s of silence so a dead
- * connection cannot block the parallel-upload queue forever. A 401/403 carrying
- * a nonce error code triggers one automatic retry with a freshly fetched nonce.
- * A file is reported successful only on a 2xx response with a parsed outcome;
- * every failure path surfaces the most informative label available — the
- * server's own `message` first — in both the status row and the FilePond item.
+ * POSTs the blob plus its `relativePath` with the session's `X-WP-Nonce`, one
+ * request per file. Real upload progress drives the status row's "Uploading…"
+ * label and the inactivity watchdog; the watchdog aborts a request after 60 s of
+ * silence so a dead connection cannot block the queue. A 401/403 carrying a nonce
+ * error code triggers one automatic retry with a freshly fetched nonce. A file is
+ * reported successful only on a 2xx response with a parsed outcome; every failure
+ * path surfaces the most informative label available — the server's own `message`
+ * first — in the status row. The promise always resolves (never rejects), so one
+ * failed file never aborts the batch (ADR-0006).
  *
  * @since 0.5.0
  *
- * @param context - The per-block context with the contract, URLs, and strings.
+ * @param blob    - The optimised (or raw fallback) bytes to upload.
+ * @param queued  - The source file and its relative path.
+ * @param context - The per-block context with the URLs and strings.
  * @param session - The mutable session holding the current nonce.
- * @param status  - The keyed status list rows are reported to.
- * @return The FilePond `server.process` function.
+ * @param status  - The keyed status list the row is reported to.
+ * @return A promise that resolves when the file has settled (uploaded or failed).
  */
-function makeProcess(
+function uploadBlob(
+	blob: Blob,
+	queued: QueuedFile,
 	context: DropZoneContext,
 	session: UploadSession,
 	status: StatusList
-) {
-	return (
-		fieldName: string,
-		file: File,
-		metadata: { [ key: string ]: unknown },
-		load: ( serverId: string ) => void,
-		error: ( message: string ) => void,
-		progress: (
-			lengthComputable: boolean,
-			loaded: number,
-			total: number
-		) => void,
-		abort: () => void
-	): { abort: () => void } => {
-		// Resolve the relative path from the metadata the folder picker / drop
-		// handler attached, falling back to the file's own name for a loose
-		// file. The path doubles as the file's status-row key.
-		const relativePath =
-			typeof metadata.relativePath === 'string' &&
-			metadata.relativePath !== ''
-				? metadata.relativePath
-				: relativePathForFile( file );
+): Promise< void > {
+	const { file, relativePath } = queued;
 
-		// The in-flight request and its inactivity watchdog; `cancelled` stops
-		// the pipeline when FilePond aborts between async steps.
-		let activeRequest: XMLHttpRequest | null = null;
+	return new Promise< void >( ( resolve ) => {
 		let watchdog: number | undefined;
-		let cancelled = false;
 
 		const clearWatchdog = (): void => {
 			window.clearTimeout( watchdog );
 		};
 
-		// Every failure path funnels here so the status row and the FilePond
-		// item always agree on the same label.
+		// Every failure path funnels here so the status row always shows one
+		// truth and the queue's slot is always released.
 		const fail = ( label: string ): void => {
 			clearWatchdog();
 			status.update( relativePath, file.name, label, 'failed' );
-			error( label );
+			resolve();
 		};
 
 		// One upload attempt; `allowNonceRetry` is spent on the single
 		// automatic nonce-refresh retry.
-		const send = ( blob: Blob, allowNonceRetry: boolean ): void => {
+		const send = ( allowNonceRetry: boolean ): void => {
 			const request = new XMLHttpRequest();
-			activeRequest = request;
 			let stalled = false;
 
 			// Re-arm the inactivity watchdog on every sign of life; when it
 			// fires, the abort is flagged as a stall so the handler can tell
-			// it apart from a user cancel.
+			// it apart from a settled response.
 			const touch = (): void => {
 				clearWatchdog();
 				watchdog = window.setTimeout( () => {
@@ -430,7 +413,6 @@ function makeProcess(
 				const ok = request.status >= 200 && request.status < 300;
 				const outcome = readOutcome( payload );
 				if ( ok && outcome !== null ) {
-					progress( true, 1, 1 );
 					const displayName = outcome.name ?? file.name;
 					status.update(
 						relativePath,
@@ -438,7 +420,7 @@ function makeProcess(
 						labelForOutcome( outcome.outcome, context.i18n ),
 						outcome.outcome === 'skipped' ? 'skipped' : 'uploaded'
 					);
-					load( displayName );
+					resolve();
 					return;
 				}
 
@@ -449,12 +431,9 @@ function makeProcess(
 					isNonceRejection( request.status, payload )
 				) {
 					void refreshNonce( context.ajaxUrl ).then( ( fresh ) => {
-						if ( cancelled ) {
-							return;
-						}
 						if ( fresh !== null ) {
 							session.nonce = fresh;
-							send( blob, false );
+							send( false );
 							return;
 						}
 						fail( errorLabelFor( payload, context.i18n ) );
@@ -465,17 +444,13 @@ function makeProcess(
 				fail( errorLabelFor( payload, context.i18n ) );
 			};
 
-			// Open and wire the request: real upload progress feeds FilePond
-			// and the watchdog; response activity only feeds the watchdog.
+			// Open and wire the request: real upload progress feeds the
+			// status row and the watchdog; response activity only feeds the
+			// watchdog.
 			request.open( 'POST', context.uploadUrl );
 			request.setRequestHeader( 'X-WP-Nonce', session.nonce );
-			request.upload.onprogress = ( progressEvent ) => {
+			request.upload.onprogress = (): void => {
 				touch();
-				progress(
-					progressEvent.lengthComputable,
-					progressEvent.loaded,
-					progressEvent.total
-				);
 			};
 			request.onreadystatechange = (): void => {
 				if ( request.readyState !== XMLHttpRequest.DONE ) {
@@ -487,9 +462,9 @@ function makeProcess(
 				fail( context.i18n.uploadFailed );
 			};
 			request.onabort = (): void => {
-				// A stall is this module's own abort and is surfaced as an
-				// actionable failure; a user cancel was already reported to
-				// FilePond by the returned abort handler.
+				// A stall is this module's own abort, surfaced as an
+				// actionable failure; the watchdog is the only thing that
+				// aborts, so any abort is a stall.
 				clearWatchdog();
 				if ( stalled ) {
 					fail( context.i18n.uploadStalled );
@@ -511,109 +486,153 @@ function makeProcess(
 			request.send( body );
 		};
 
-		// Optimise then upload. A network or server failure is surfaced per
-		// file via `fail()` so one bad file never aborts the batch (ADR-0006).
-		status.update(
-			relativePath,
-			file.name,
-			context.i18n.statusConverting,
-			'pending'
-		);
-		void optimiseToWebp( file, context.maxWidth, context.quality ).then(
-			( blob ) => {
-				if ( ! cancelled ) {
-					send( blob, true );
-				}
-			}
-		);
+		send( true );
+	} );
+}
 
-		// Hand FilePond an abort hook that cancels the in-flight request and
-		// settles the status row honestly.
-		return {
-			abort: () => {
-				cancelled = true;
-				clearWatchdog();
-				activeRequest?.abort();
-				status.update(
-					relativePath,
-					file.name,
-					context.i18n.labelFileProcessingAborted,
-					'failed'
-				);
-				abort();
-			},
-		};
+/**
+ * Converts then uploads one queued file, settling its status row either way.
+ *
+ * Marks the row "Converting…", optimises the file to WebP (falling back to the
+ * raw bytes on any client-side failure), then uploads it. The returned promise
+ * resolves when the file has settled; it never rejects, so the queue runner can
+ * treat every file uniformly.
+ *
+ * @since 0.5.0
+ *
+ * @param queued  - The file and its relative path.
+ * @param context - The per-block context.
+ * @param session - The mutable nonce session.
+ * @param status  - The keyed status list.
+ * @return A promise resolving once the file is uploaded or failed.
+ */
+async function processFile(
+	queued: QueuedFile,
+	context: DropZoneContext,
+	session: UploadSession,
+	status: StatusList
+): Promise< void > {
+	status.update(
+		queued.relativePath,
+		queued.file.name,
+		context.i18n.statusConverting,
+		'pending'
+	);
+	const blob = await optimiseToWebp(
+		queued.file,
+		context.maxWidth,
+		context.quality
+	);
+	await uploadBlob( blob, queued, context, session, status );
+}
+
+/**
+ * Drains a queue of files through a bounded number of concurrent uploads.
+ *
+ * Holds at most `MAX_CONCURRENT_UPLOADS` files in flight, pulling the next file
+ * the moment a slot frees, so a several-hundred-file batch keeps the link busy
+ * without opening a socket per file. Newly enqueued files (a second drop while
+ * the first batch is still running) are picked up by the same drain. The `busy`
+ * callback flips true while any file is queued or in flight and false once the
+ * queue empties, so the caller can arm and disarm the `beforeunload` guard.
+ *
+ * @since 0.5.0
+ *
+ * @param context - The per-block context.
+ * @param session - The mutable nonce session.
+ * @param status  - The keyed status list.
+ * @param onBusy  - Called with the busy state as the queue starts and empties.
+ * @return An enqueue function the intake paths push files to.
+ */
+function createUploadQueue(
+	context: DropZoneContext,
+	session: UploadSession,
+	status: StatusList,
+	onBusy: ( busy: boolean ) => void
+): ( files: readonly QueuedFile[] ) => void {
+	const pending: QueuedFile[] = [];
+	let inFlight = 0;
+	let draining = false;
+
+	// Pull the next file into a free slot; when the queue and the in-flight set
+	// are both empty, the batch is done and the guard can stand down.
+	const pump = (): void => {
+		while ( inFlight < MAX_CONCURRENT_UPLOADS && pending.length > 0 ) {
+			const next = pending.shift();
+			if ( ! next ) {
+				break;
+			}
+			inFlight += 1;
+			void processFile( next, context, session, status ).finally( () => {
+				inFlight -= 1;
+				if ( pending.length === 0 && inFlight === 0 ) {
+					draining = false;
+					onBusy( false );
+				} else {
+					pump();
+				}
+			} );
+		}
+	};
+
+	return ( files: readonly QueuedFile[] ): void => {
+		if ( files.length === 0 ) {
+			return;
+		}
+		pending.push( ...files );
+		if ( ! draining ) {
+			draining = true;
+			onBusy( true );
+		}
+		pump();
 	};
 }
 
 /**
- * Adds a batch of picked or dropped files to the pond, pre-filtered and keyed.
+ * Filters a batch and enqueues the survivors, keying each by its relative path.
  *
  * Applies the type pre-filter before any bytes move — a denied file gets an
- * immediate "skipped" row instead of a doomed multi-hundred-MB upload — and
- * attaches each accepted file's relative path as FilePond item metadata so
- * `server.process` sends it as `relativePath`. An `addFile` rejection becomes
- * a failed row rather than a silent loss.
+ * immediate "skipped" row instead of a doomed multi-hundred-MB upload — then
+ * hands the accepted files to the upload queue. Used by both intake paths (the
+ * click/folder pickers and the loose-file or consented-folder drop).
  *
- * @since 0.2.0
+ * @since 0.5.0
  *
- * @param pond    - The mounted FilePond instance.
- * @param files   - The files to add, paired with their relative paths.
- * @param status  - The keyed status list rows are reported to.
+ * @param files   - The files to consider, paired with their relative paths.
+ * @param enqueue - The upload queue's enqueue function.
+ * @param status  - The keyed status list.
  * @param strings - The pre-translated string map.
  */
-function addFilesToPond(
-	pond: FilePond,
-	files: ReadonlyArray< { file: File; relativePath: string } >,
+function intakeFiles(
+	files: readonly QueuedFile[],
+	enqueue: ( files: readonly QueuedFile[] ) => void,
 	status: StatusList,
 	strings: DropZoneStrings
 ): void {
-	for ( const { file, relativePath } of files ) {
+	const accepted: QueuedFile[] = [];
+
+	for ( const queued of files ) {
 		// Deny RAW and video before upload; the row tells the photographer
 		// immediately instead of after a wasted transfer.
-		if ( ! shouldUploadFile( file.name, file.type ) ) {
+		if ( ! shouldUploadFile( queued.file.name, queued.file.type ) ) {
 			status.update(
-				relativePath,
-				file.name,
+				queued.relativePath,
+				queued.file.name,
 				strings.skippedNotImage,
 				'skipped'
 			);
 			continue;
 		}
-
-		// Carry the per-file relative path so the structure is recreated
-		// server-side; a rejected add is an honest failed row, never silence.
-		pond.addFile( file, { metadata: { relativePath } } ).catch( () => {
-			status.update(
-				relativePath,
-				file.name,
-				strings.uploadFailed,
-				'failed'
-			);
-		} );
+		status.update(
+			queued.relativePath,
+			queued.file.name,
+			strings.statusQueued,
+			'pending'
+		);
+		accepted.push( queued );
 	}
-}
 
-/**
- * Clears FilePond's drag indicator after a swallowed drop.
- *
- * When the capture-phase folder handler stops a drop, FilePond's own drop
- * handler never runs and its hopper is left in the "drag over" state. A
- * synthetic `dragenter` immediately followed by `dragleave` on the pond root
- * resets it: the dragenter makes the root the hopper's `initialTarget`, which
- * is exactly the condition its dragleave handler requires before it dispatches
- * the drag-end cleanup (verified against FilePond 4.32.12).
- *
- * @since 0.2.0
- *
- * @param pond - The mounted FilePond instance.
- */
-function resetPondDragState( pond: FilePond ): void {
-	const root = pond.element;
-	if ( root ) {
-		root.dispatchEvent( new DragEvent( 'dragenter', { bubbles: true } ) );
-		root.dispatchEvent( new DragEvent( 'dragleave', { bubbles: true } ) );
-	}
+	enqueue( accepted );
 }
 
 /**
@@ -623,7 +642,7 @@ function resetPondDragState( pond: FilePond ): void {
  * instead of silently abandoning a half-uploaded batch on a back-swipe; when
  * idle, the handler is unregistered so normal navigation stays silent.
  *
- * @since 0.2.0
+ * @since 0.5.0
  *
  * @return The switch to flip as work starts and settles.
  */
@@ -647,37 +666,17 @@ function installUnloadGuard(): ( busy: boolean ) => void {
 	};
 }
 
-/**
- * Reads the status-row key for a FilePond item.
- *
- * Prefers the `relativePath` metadata the folder picker or drop handler
- * attached; a loose file added by FilePond itself falls back to the shared
- * name mapping, matching what `server.process` will send.
- *
- * @since 0.2.0
- *
- * @param item - The FilePond item to key.
- * @return The stable per-file key.
- */
-function itemKey( item: FilePondFile ): string {
-	const metadataPath: unknown = item.getMetadata( 'relativePath' );
-	return typeof metadataPath === 'string' && metadataPath !== ''
-		? metadataPath
-		: relativePathForFile( item.file );
-}
-
 const { state } = store( 'kntnt-photo-drop/drop-zone', {
 	state: {},
 	callbacks: {
 		/**
 		 * Initialise one Drop Zone block.
 		 *
-		 * Reads the per-block context, mounts FilePond on the drop area with
-		 * the custom Canvas→WebP upload process and the translated labels,
-		 * wires the "Select folder" input and the type pre-filter, intercepts
-		 * dragged folders ahead of FilePond's recursive traversal, and arms
-		 * the `beforeunload` guard. Idempotent via `mountedZones` so a re-run
-		 * never double-mounts.
+		 * Reads the per-block context, wires the whole inner-block surface as a
+		 * native drag-drop + click-to-browse zone, hooks the hidden loose-file
+		 * input and the "Select folder" input, intercepts dragged folders (warn,
+		 * then add only top-level images flat), and arms the `beforeunload`
+		 * guard. Idempotent via `mountedZones` so a re-run never double-wires.
 		 *
 		 * @since 0.5.0
 		 */
@@ -691,10 +690,13 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			}
 
 			// Locate the elements the render handler emitted; without them
-			// there is nothing to mount, so bail before reading any further
+			// there is nothing to wire, so bail before reading any further
 			// context rather than half-initialise.
-			const pondEl = ref.querySelector< HTMLElement >(
-				'.kntnt-photo-drop-drop-zone__pond'
+			const surfaceEl = ref.querySelector< HTMLElement >(
+				'.kntnt-photo-drop-drop-zone__surface'
+			);
+			const fileInput = ref.querySelector< HTMLInputElement >(
+				'.kntnt-photo-drop-drop-zone__file-input'
 			);
 			const statusListEl = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-drop-zone__status'
@@ -702,20 +704,23 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			const summaryEl = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-drop-zone__summary'
 			);
-			if ( ! pondEl || ! statusListEl || ! summaryEl ) {
+			if ( ! surfaceEl || ! fileInput || ! statusListEl || ! summaryEl ) {
 				return;
 			}
 
 			mountedZones.add( ref );
 
-			// Read the per-block context and assemble the per-mount state:
-			// the keyed status list, the mutable nonce session, and the
-			// beforeunload guard switch.
-			const context = getContext< DropZoneContext >();
-			const strings = context.i18n;
+			// The folder picker is optional chrome — the render emits it, but a
+			// builder could remove it; locate it after the required-element guard.
 			const folderInput = ref.querySelector< HTMLInputElement >(
 				'.kntnt-photo-drop-drop-zone__folder-input'
 			);
+
+			// Read the per-block context and assemble the per-mount state: the
+			// keyed status list, the mutable nonce session, the beforeunload
+			// guard, and the bounded upload queue the intake paths push to.
+			const context = getContext< DropZoneContext >();
+			const strings = context.i18n;
 			const status = createStatusList(
 				statusListEl,
 				summaryEl,
@@ -723,163 +728,157 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			);
 			const session: UploadSession = { nonce: context.nonce };
 			const setUnloadGuard = installUnloadGuard();
+			const enqueue = createUploadQueue(
+				context,
+				session,
+				status,
+				setUnloadGuard
+			);
 
-			// Recompute the guard from the pond's own item statuses on every
-			// FilePond transition; `pond` is assigned right below and the
-			// callbacks only fire afterwards.
-			let pond: FilePond | null = null;
-			const refreshGuard = (): void => {
-				if ( pond ) {
-					setUnloadGuard(
-						pond
-							.getFiles()
-							.some( ( item ) =>
-								BUSY_STATUSES.has( item.status )
-							)
-					);
+			// The surface is a click-to-browse trigger: a click anywhere on it
+			// that is not on an interactive child opens the hidden loose-file
+			// input. A click on a link or button inside the inner blocks is left
+			// to do its own thing.
+			surfaceEl.addEventListener( 'click', ( event: MouseEvent ) => {
+				const target = event.target;
+				if (
+					target instanceof Element &&
+					target.closest(
+						'a, button, input, label, select, textarea'
+					)
+				) {
+					return;
 				}
-			};
-
-			// Mount FilePond: the custom process runs the Canvas→WebP
-			// pipeline and uploads one file per request; the translated
-			// labels replace FilePond's hardcoded English, with the per-file
-			// error label resolved from the error body so the translated
-			// message reaches the item UI; `beforeAddFile` applies the type
-			// pre-filter to every entry path, including FilePond's own
-			// browse and loose-file drops.
-			pond = create( pondEl, {
-				allowMultiple: true,
-				allowProcess: true,
-				instantUpload: true,
-				labelIdle: strings.labelIdle,
-				labelFileProcessing: strings.labelFileProcessing,
-				labelFileProcessingComplete:
-					strings.labelFileProcessingComplete,
-				labelFileProcessingError: ( processError?: {
-					body?: string;
-				} ): string =>
-					// An empty body must fall back too, hence `||`.
-					processError?.body || strings.labelFileProcessingError,
-				labelFileProcessingAborted: strings.labelFileProcessingAborted,
-				labelTapToCancel: strings.labelTapToCancel,
-				labelTapToRetry: strings.labelTapToRetry,
-				labelTapToUndo: strings.labelTapToUndo,
-				beforeAddFile: ( item: FilePondFile ): boolean => {
-					const key = itemKey( item );
-					if ( ! shouldUploadFile( item.filename, item.fileType ) ) {
-						status.update(
-							key,
-							item.filename,
-							strings.skippedNotImage,
-							'skipped'
-						);
-						return false;
-					}
-					status.update(
-						key,
-						item.filename,
-						strings.statusQueued,
-						'pending'
-					);
-					return true;
-				},
-				server: {
-					process: makeProcess( context, session, status ),
-				},
-				onupdatefiles: refreshGuard,
-				onaddfile: refreshGuard,
-				onprocessfilestart: refreshGuard,
-				onprocessfile: refreshGuard,
-				onprocessfileabort: refreshGuard,
-				onprocessfiles: refreshGuard,
-				onremovefile: refreshGuard,
+				fileInput.click();
 			} );
-			const mountedPond = pond;
 
-			// Wire the native folder picker: each selected file's
-			// webkitRelativePath rides along as metadata so the server
-			// recreates its sub-directories.
-			folderInput?.addEventListener(
+			// Wire the hidden loose-file input: each picked file lands at the
+			// collection root keyed by its own name.
+			fileInput.addEventListener(
 				'change',
 				() => {
-					if ( folderInput.files ) {
-						addFilesToPond(
-							mountedPond,
-							Array.from( folderInput.files ).map( ( file ) => ( {
+					if ( fileInput.files ) {
+						intakeFiles(
+							Array.from( fileInput.files ).map( ( file ) => ( {
 								file,
 								relativePath: relativePathForFile( file ),
 							} ) ),
+							enqueue,
 							status,
 							strings
 						);
+						// Reset so picking the same file again re-fires change.
+						fileInput.value = '';
 					}
 				},
 				{ passive: true }
 			);
 
-			// Intercept dragged folders on the wrapper in the capture phase:
-			// FilePond replaces the mount element and listens on its own root
-			// in the bubble phase, so this listener both survives the mount
-			// and runs first (verified against FilePond 4.32.12). Left alone,
-			// FilePond would recursively ingest the whole tree and flatten
-			// it, silently colliding same-named files from different camera
-			// folders — instead the design contract applies: warn, and on
-			// consent add only the top-level images, flat.
-			ref.addEventListener(
-				'drop',
-				( event: DragEvent ) => {
-					const items = event.dataTransfer?.items;
-					if ( ! items ) {
-						return;
+			// Wire the native folder picker: each selected file's
+			// webkitRelativePath rides along so the server recreates its
+			// sub-directories.
+			folderInput?.addEventListener(
+				'change',
+				() => {
+					if ( folderInput.files ) {
+						intakeFiles(
+							Array.from( folderInput.files ).map( ( file ) => ( {
+								file,
+								relativePath: relativePathForFile( file ),
+							} ) ),
+							enqueue,
+							status,
+							strings
+						);
+						folderInput.value = '';
 					}
+				},
+				{ passive: true }
+			);
 
-					// Snapshot the entries synchronously — they are only
-					// readable while the drop event is being dispatched. A
-					// drop without a directory is the loose-file fast path
-					// and FilePond handles it untouched.
-					const entries = snapshotEntries( Array.from( items ) );
-					if ( ! hasDirectoryEntry( entries ) ) {
-						return;
+			// Highlight the whole surface while a drag hovers it, and suppress
+			// the browser's default "open the file" behaviour so a miss does not
+			// navigate away. `dragover` must call preventDefault for `drop` to
+			// fire at all.
+			const allowDrop = ( event: DragEvent ): void => {
+				event.preventDefault();
+				ref.classList.add( DRAGOVER_CLASS );
+			};
+			ref.addEventListener( 'dragenter', allowDrop );
+			ref.addEventListener( 'dragover', allowDrop );
+			ref.addEventListener( 'dragleave', ( event: DragEvent ): void => {
+				// Only clear the highlight when the pointer actually leaves the
+				// wrapper, not when it crosses between child elements.
+				if (
+					event.relatedTarget instanceof Node &&
+					ref.contains( event.relatedTarget )
+				) {
+					return;
+				}
+				ref.classList.remove( DRAGOVER_CLASS );
+			} );
+
+			// Handle the drop: loose files queue straight away; a dropped folder
+			// is detected, warned about, and — on consent — contributes only its
+			// top-level images, flat (folder structure is the "Select folder"
+			// picker's job). Entries that cannot be read get an honest failed
+			// row instead of vanishing.
+			ref.addEventListener( 'drop', ( event: DragEvent ): void => {
+				event.preventDefault();
+				ref.classList.remove( DRAGOVER_CLASS );
+
+				const items = event.dataTransfer?.items;
+				const entries = items
+					? snapshotEntries( Array.from( items ) )
+					: [];
+
+				// A drop with no directory entry is the loose-file fast path —
+				// take the plain `files` list, which avoids the async entry
+				// traversal entirely.
+				if ( ! hasDirectoryEntry( entries ) ) {
+					const dropped = event.dataTransfer?.files;
+					if ( dropped && dropped.length > 0 ) {
+						intakeFiles(
+							Array.from( dropped ).map( ( file ) => ( {
+								file,
+								relativePath: relativePathForFile( file ),
+							} ) ),
+							enqueue,
+							status,
+							strings
+						);
 					}
+					return;
+				}
 
-					// A folder is present: take the drop away from FilePond
-					// and ask before uploading anything.
-					event.preventDefault();
-					event.stopPropagation();
-					resetPondDragState( mountedPond );
-					// eslint-disable-next-line no-alert
-					if ( ! window.confirm( strings.folderWarningBody ) ) {
-						return;
-					}
-
-					// Collect the loose files plus each folder's top-level
-					// files (flat, no recursion) and add them through the
-					// shared pre-filtered path; entries that could not be
-					// read get an honest failed row.
-					void collectTopLevelFiles( entries ).then(
-						( { files, unreadable } ) => {
-							for ( const name of unreadable ) {
-								status.update(
-									name,
-									name,
-									strings.fileUnreadable,
-									'failed'
-								);
-							}
-							addFilesToPond(
-								mountedPond,
-								files.map( ( file ) => ( {
-									file,
-									relativePath: file.name,
-								} ) ),
-								status,
-								strings
+				// A folder is present: warn, and on consent collect each
+				// folder's top-level files plus any loose files, flat.
+				// eslint-disable-next-line no-alert
+				if ( ! window.confirm( strings.folderWarningBody ) ) {
+					return;
+				}
+				void collectTopLevelFiles( entries ).then(
+					( { files, unreadable } ) => {
+						for ( const name of unreadable ) {
+							status.update(
+								name,
+								name,
+								strings.fileUnreadable,
+								'failed'
 							);
 						}
-					);
-				},
-				{ capture: true }
-			);
+						intakeFiles(
+							files.map( ( file ) => ( {
+								file,
+								relativePath: file.name,
+							} ) ),
+							enqueue,
+							status,
+							strings
+						);
+					}
+				);
+			} );
 		},
 	},
 } );

@@ -1,16 +1,16 @@
 /**
  * The Canvas → WebP encode wrapper (the Cimo technique).
  *
- * The Drop Zone optimises each image in the browser before upload: FilePond's
- * image-resize plugin downscales to the collection's max width, then this wrapper
- * re-encodes the pixels to WebP at the collection's quality by drawing them onto a
- * canvas and calling `canvas.toBlob(…, 'image/webp', quality)`. No WebAssembly and
+ * The Drop Zone optimises each image in the browser before upload: the view
+ * module downscales the decoded bitmap to the collection's max width onto a
+ * canvas, then this wrapper re-encodes those pixels to WebP at the collection's
+ * quality by calling `canvas.toBlob(…, 'image/webp', quality)`. No WebAssembly and
  * no extra binary assets are involved — the browser's own canvas encoder does the
  * work (ADR: client-side optimisation via Canvas, not jSquash).
  *
  * The function is a thin, pure-ish promise wrapper around the inherently
- * callback-shaped `toBlob`, kept separate from any FilePond or DOM wiring so Jest
- * can cover it by mocking `toBlob` alone. The client optimisation is a bandwidth
+ * callback-shaped `toBlob`, kept separate from any DOM wiring so Jest can cover it
+ * by mocking `toBlob` alone. The client optimisation is a bandwidth
  * optimisation only; the server re-enforces the contract on every file
  * (ADR-0006), so a browser that cannot produce WebP simply uploads the canvas's
  * fallback bytes and the server converts them.

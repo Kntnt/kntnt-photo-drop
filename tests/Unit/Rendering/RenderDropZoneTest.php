@@ -6,11 +6,13 @@
  * the uploader and the `wp_rest` nonce only for a user who holds the upload
  * capability. These tests prove the load-bearing invariant — an un-capable user
  * gets nothing and, crucially, no nonce — and that a capable user with a real
- * temp-dir collection gets the drop area plus a nonce configured from the
- * descriptor. Only the WordPress seams are stubbed (`current_user_can`,
- * `apply_filters`, the escapers, `rest_url`, `admin_url`, `wp_create_nonce`,
- * `get_block_wrapper_attributes`); the `Repository` and `Descriptor` run against
- * a real collection on disk, the same harness pattern the upload tests use.
+ * temp-dir collection gets the native drop surface plus a nonce configured from
+ * the descriptor, with the `{kntnt-drop-zone-collection}` placeholder in the
+ * inner-block markup replaced by the collection's display name. Only the
+ * WordPress seams are stubbed (`current_user_can`, `apply_filters`, the escapers,
+ * `rest_url`, `admin_url`, `wp_create_nonce`, `get_block_wrapper_attributes`); the
+ * `Repository` and `Descriptor` run against a real collection on disk, the same
+ * harness pattern the upload tests use.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.5.0
@@ -171,20 +173,59 @@ test( 'an un-capable user gets an empty render and no nonce', function (): void 
 // The capable user — uploader plus a nonce, configured from the descriptor
 // ---------------------------------------------------------------------------
 
-test( 'a capable user gets the uploader markup and a nonce', function (): void {
+test( 'a capable user gets the drop-surface markup and a nonce', function (): void {
 
 	// The user holds the capability and the collection resolves: the markup must
-	// carry the drop area, the Interactivity directive, and the nonce.
+	// carry the native drop surface, the hidden loose-file input, the folder
+	// picker, the Interactivity directive, and the nonce.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
 	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
 
-	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
+	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
 
 	expect( $html )->toContain( 'test-nonce-abc123' );
-	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__pond' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__surface' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__file-input' );
 	expect( $html )->toContain( 'data-wp-interactive' );
 	expect( $html )->toContain( 'webkitdirectory' );
+
+	render_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// The collection placeholder — replaced with the display name at render
+// ---------------------------------------------------------------------------
+
+test( 'the collection placeholder is replaced with the display name', function (): void {
+
+	// The inner-block markup carries the literal placeholder; the render handler
+	// must substitute the collection's display name and emit no placeholder.
+	$basedir = fresh_render_basedir();
+	wire_render_stubs( $basedir, cap_ok: true );
+	seed_render_collection( $basedir, 'photos', new Descriptor( 'Field Trip', 1920, 80, [ 320 ] ) );
+
+	$content = '<p>Uploads go into the “{kntnt-drop-zone-collection}” collection.</p>';
+	$html    = Render_Drop_Zone::render( [ 'collection' => 'photos' ], $content, render_block_stub() );
+
+	expect( $html )->toContain( 'Uploads go into the “Field Trip” collection.' );
+	expect( $html )->not->toContain( '{kntnt-drop-zone-collection}' );
+
+	render_remove_tree( $basedir );
+} );
+
+test( 'inner markup without the placeholder passes through unchanged', function (): void {
+
+	// A builder who removed or edited the token leaves no placeholder to
+	// replace; the inner markup must reach the surface verbatim.
+	$basedir = fresh_render_basedir();
+	wire_render_stubs( $basedir, cap_ok: true );
+	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+
+	$content = '<h4>Drop your shots here</h4>';
+	$html    = Render_Drop_Zone::render( [ 'collection' => 'photos' ], $content, render_block_stub() );
+
+	expect( $html )->toContain( '<h4>Drop your shots here</h4>' );
 
 	render_remove_tree( $basedir );
 } );
@@ -227,10 +268,11 @@ test( 'the emitted context carries the ajax URL for nonce refresh', function ():
 	render_remove_tree( $basedir );
 } );
 
-test( 'the markup carries the summary line and the translated FilePond labels', function (): void {
+test( 'the markup carries the summary line and the translated status strings', function (): void {
 
 	// The keyed status report needs the summary element, and the i18n map must
-	// carry the FilePond labels so the visible uploader UI is translatable.
+	// carry the runtime status strings so the visible uploader UI is
+	// translatable; FilePond's own labels are gone with the native surface.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
 	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
@@ -238,8 +280,8 @@ test( 'the markup carries the summary line and the translated FilePond labels', 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
 
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__summary' );
-	expect( $html )->toContain( '"labelIdle"' );
-	expect( $html )->toContain( '"labelFileProcessingError"' );
+	expect( $html )->toContain( '"folderWarningBody"' );
+	expect( $html )->toContain( '"statusUploading"' );
 	expect( $html )->toContain( '"summaryTemplate"' );
 
 	render_remove_tree( $basedir );

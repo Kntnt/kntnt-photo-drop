@@ -14,7 +14,7 @@ Both blocks are **dynamic** (server-rendered via `render.php` → an autoloaded 
 
 ## Photo Drop Zone — `kntnt-photo-drop/drop-zone`
 
-A capability-gated front-end uploader bound to one existing collection. It selects a collection and uploads into it; it never establishes or reconfigures one, so its inspector has nothing that could conflict with the contract.
+A capability-gated front-end uploader bound to one existing collection. It selects a collection and uploads into it; it never establishes or reconfigures one, so its inspector has nothing that could conflict with the contract. The block is an **`InnerBlocks` wrapper**: its *editable appearance* is its inner blocks (a centred dashed group by default), and the whole inner-block surface becomes a **native drag-drop + click-to-browse** zone at render. There is no FilePond.
 
 ### `block.json`
 
@@ -25,6 +25,7 @@ A capability-gated front-end uploader bound to one existing collection. It selec
 	"name": "kntnt-photo-drop/drop-zone",
 	"title": "Photo Drop Zone",
 	"category": "kntnt",
+	"icon": "cloud-upload",
 	"description": "A capability-gated front-end uploader that optimises images in the browser and uploads them into a chosen collection.",
 	"keywords": [ "photo", "upload", "drop", "image", "collection" ],
 	"textdomain": "kntnt-photo-drop",
@@ -54,20 +55,21 @@ A capability-gated front-end uploader bound to one existing collection. It selec
 |---|---|---|---|
 | `collection` | string | `""` | The slug of the collection to upload into. The **only** persisted attribute. Everything about the contract is read live from the descriptor, never stored on the block. |
 
-The collection's output contract (max width, quality, WebP, thumbnail width) is **not** a block attribute — it is read from `collection.json` at edit time (for the read-only inspector display) and at render time (to configure FilePond). This is what keeps the Drop Zone unable to conflict with the contract.
+The collection's output contract (max width, quality, WebP, thumbnail width) is **not** a block attribute — it is read from `collection.json` at edit time (for the read-only inspector display) and at render time (to configure the client-side Canvas optimisation). This is what keeps the Drop Zone unable to conflict with the contract.
+
+This is a **dynamic block with inner blocks**: `save` returns `<InnerBlocks.Content />` (the inner-block markup is serialised into `post_content`), and `render.php` consumes that markup as `$content` — gating it by capability, replacing the collection placeholder, and wrapping it in the native drop surface. The block carries the `cloud-upload` icon in the inserter and list view.
 
 ### Editor UI (`edit.tsx`)
 
-- **Inspector → Collection** — a `SelectControl` listing discovered collections by display name (value = slug). Choosing one sets `collection`.
-- **Inspector → Output contract (read-only)** — a static display of the selected collection's `maxWidth` (or "No limit"), `quality`, format (always **WebP**), and `thumbnailWidths`. No fields to edit; a hint links to the admin page for lifecycle changes.
-- **Canvas (editor preview)** — a static representation of the drop area with the selected collection's name. No live upload happens in the editor.
-- When `collection` is empty or dangling, the canvas shows a notice prompting selection (or noting the collection is gone).
+- **Inner blocks (canvas)** — the block's editable appearance is an `InnerBlocks` region. On insertion it is seeded with a default (unlocked) template: a centred, constrained `core/group` with a dashed border (`#808080`) and background `#fafaff`, holding a level-4 `core/heading` "Photo Drop Zone", a `core/paragraph` `Uploads go into the "{kntnt-drop-zone-collection}" collection.`, and a smaller `core/paragraph` "The live uploader appears on the published page for users who can upload files." The template is **not locked**, so a site builder can rewrite the surface freely; the literal token `{kntnt-drop-zone-collection}` is a default placeholder, not a contract.
+- **Inspector → Collection** — a `SelectControl` listing discovered collections by display name (value = slug). Choosing one sets `collection`. An empty or dangling `collection` shows an inline notice in the panel (prompting selection or noting the collection is gone).
+- **Inspector → Output contract (read-only)** — a static display of the selected collection's `maxWidth` (or "No limit"), `quality`, format (always **WebP**), and `thumbnailWidths`. No fields to edit; a hint links to the admin page for lifecycle changes, set off by vertical space below the contract list.
 
 ### Render output (`render.php` → `Render_Drop_Zone`)
 
 - Renders **only** for users who hold the upload capability (`upload_files`, filter `kntnt_photo_drop_upload_capability`). For anyone else, the block renders nothing — and crucially **no `wp_rest` nonce** is emitted (defence in depth; see [ADR-0006](adr/0006-server-enforced-contract-rest-upload.md)).
-- For a capable user, emits the FilePond-backed drop area plus a **"Select folder"** control (`webkitdirectory`), wired through the Interactivity API view module. The descriptor's contract is read server-side and passed to the client so FilePond's `image-resize` + the `canvas.toBlob(…, 'image/webp', quality)` encode hook are configured from it.
-- Each file is uploaded one-per-request to `POST /wp-json/kntnt-photo-drop/v1/collections/<slug>/images` (multipart: the file + its `relativePath`), carrying the nonce. `webkitRelativePath` is preserved as FilePond item metadata so the server can recreate sub-directories (path hard-sanitised and `realpath`-confined). A folder dragged onto the zone is detected (`webkitGetAsEntry().isDirectory`) and **warned** about, offering to continue flat.
+- For a capable user, it replaces the literal `{kntnt-drop-zone-collection}` token in the inner-block markup with the collection's display name (a removed or edited token is simply not replaced), then wraps the result so the **whole inner-block surface** is a native drag-drop + click-to-browse zone, alongside a **"Select folder"** control (`webkitdirectory`), wired through the Interactivity API view module. The descriptor's contract is read server-side and passed to the client so the Canvas downscale + the `canvas.toBlob(…, 'image/webp', quality)` encode are configured from it.
+- Each file is uploaded one-per-request to `POST /wp-json/kntnt-photo-drop/v1/collections/<slug>/images` (multipart: the file + its `relativePath`), carrying the nonce. `webkitRelativePath` is preserved per file so the server can recreate sub-directories (path hard-sanitised and `realpath`-confined). A folder dragged onto the zone is detected (`webkitGetAsEntry().isDirectory`) and **warned** about, offering to continue flat. The view module keeps the per-file status list, the live summary, real XHR upload progress, and the one-shot nonce refresh on expiry.
 - The client optimisation is a bandwidth optimisation only; the server re-enforces the contract on every file.
 
 ---
