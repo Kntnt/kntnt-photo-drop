@@ -4,9 +4,10 @@
  * Mirrors the canonical schema in `block.json` and `docs/blocks.md`. The slug is
  * the only durable reference to a collection; everything else is presentation —
  * the start path and recursion that select which images render, the ordering, the
- * two layout modes and their knobs, the lightbox toggle, and the caption settings.
- * The interface is shared by the edit component and the inspector panels so a
- * single source of truth pins every attribute's type.
+ * two layout modes and their knobs, the click behaviour (lightbox + download) and
+ * the download-icon styling, and the caption settings. The interface is shared by
+ * the edit component and the inspector panels so a single source of truth pins
+ * every attribute's type.
  *
  * @since 0.6.0
  */
@@ -42,6 +43,16 @@ export type CaptionAnchor =
 export type GalleryLayout = 'grid' | 'justified';
 
 /**
+ * The nine anchor points for the overlay download icon.
+ *
+ * The same nine-point vocabulary as {@link CaptionAnchor}; kept a distinct alias
+ * so the download icon's anchor reads as its own concept at every call site.
+ *
+ * @since 0.5.0
+ */
+export type DownloadIconAnchor = CaptionAnchor;
+
+/**
  * The persisted attributes of the Photo Gallery block.
  *
  * @since 0.6.0
@@ -66,7 +77,17 @@ export interface GalleryAttributes {
 	/** Mode B: the target row height in pixels. */
 	targetRowHeight: number;
 	/** Whether the Interactivity-API lightbox is wired (the no-JS fallback is always present). */
-	enableLightbox: boolean;
+	lightbox: boolean;
+	/** Whether clicking an image downloads the full main image (lightbox image when both are on). */
+	download: boolean;
+	/** The overlay download icon's size (a CSS length, e.g. `2rem`). */
+	downloadIconSize: string;
+	/** The overlay download icon's background colour (a CSS colour). */
+	downloadIconBackground: string;
+	/** The overlay download icon's foreground (glyph) colour (a CSS colour). */
+	downloadIconForeground: string;
+	/** The nine-point anchor that places the overlay download icon inside the image. */
+	downloadIconAnchor: DownloadIconAnchor;
 	/** The caption content mode. */
 	captionContent: CaptionContent;
 	/** Whether to humanise filenames and path segments. */

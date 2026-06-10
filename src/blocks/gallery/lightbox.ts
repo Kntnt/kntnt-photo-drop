@@ -2,8 +2,8 @@
  * DOM controller for the Gallery lightbox — the thin wiring around the pure
  * reducers.
  *
- * One controller is created per gallery wrapper whose `enableLightbox` flag is
- * on. It progressively enhances the server-rendered `<a href="full.webp">`
+ * One controller is created per gallery wrapper whose `lightbox` flag is on. It
+ * progressively enhances the server-rendered `<a href="full.webp">`
  * thumbnails into a modal image viewer: a plain primary click opens the overlay
  * on the clicked image instead of navigating (so browser history is never
  * touched — the deciding flaw of a CSS `:target` lightbox, ADR-0007; a modified
@@ -21,6 +21,13 @@
  * onto the overlay. The overlay markup itself is emitted server-side by
  * `Render_Gallery` and escaped there; the controller only fills in the live
  * `src`/`srcset`, caption, counter, loading/error state, and `aria` state.
+ *
+ * When download is on (issue #34), the enlarged image is wrapped server-side in a
+ * `download` anchor and the controller points its `href` at the current slide's
+ * full image, so a click on the enlarged image saves it. When the gallery has a
+ * caption, the controller mirrors each slide's caption text onto the lightbox's
+ * caption figcaption (the same overlay element, anchor, and styling the gallery
+ * figures use).
  *
  * @since 0.7.0
  */
@@ -70,7 +77,9 @@ const ERROR_CLASS = 'kntnt-photo-drop-lightbox--error';
 /**
  * The per-image data the controller reads off each thumbnail anchor: the full
  * image URL it points at, the responsive srcset the server mirrored onto the
- * anchor, and the accessible label to announce when shown.
+ * anchor, the accessible label to announce when shown, and the overlay caption
+ * text the server mirrored onto the anchor (empty when the gallery has no
+ * caption).
  *
  * @since 0.7.0
  */
@@ -81,10 +90,16 @@ interface LightboxSlide {
 	readonly srcset: string;
 	/** The accessible label for the image (the thumbnail's `alt`). */
 	readonly label: string;
+	/** The overlay caption text mirrored from the gallery figure, or `''`. */
+	readonly caption: string;
 }
 
 /**
  * The overlay elements the controller drives, resolved once on construction.
+ *
+ * The download anchor and the caption figcaption are optional: the server emits
+ * them only when download / a caption is on, so they are `null` otherwise and the
+ * controller simply skips updating them.
  *
  * @since 0.7.0
  */
@@ -96,6 +111,10 @@ interface OverlayRefs {
 	readonly forward: HTMLButtonElement;
 	readonly dismiss: HTMLButtonElement;
 	readonly failure: HTMLElement;
+	/** The download anchor wrapping the image, or `null` when download is off. */
+	readonly download: HTMLAnchorElement | null;
+	/** The mirrored caption figcaption, or `null` when the gallery has no caption. */
+	readonly caption: HTMLElement | null;
 }
 
 /**
@@ -136,7 +155,26 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 	) {
 		return null;
 	}
-	return { overlay, image, counter, previous, forward, dismiss, failure };
+
+	// The download anchor and the caption figcaption are optional chrome; resolve
+	// them when present and leave them null otherwise.
+	const download = overlay.querySelector< HTMLAnchorElement >(
+		'.kntnt-photo-drop-lightbox__download'
+	);
+	const caption = overlay.querySelector< HTMLElement >(
+		'.kntnt-photo-drop-lightbox__caption'
+	);
+	return {
+		overlay,
+		image,
+		counter,
+		previous,
+		forward,
+		dismiss,
+		failure,
+		download,
+		caption,
+	};
 }
 
 /**
@@ -166,6 +204,9 @@ export class GalleryLightbox {
 
 	/** The counter announcement template, e.g. `"%1$d of %2$d"`. */
 	readonly #counterTemplate: string;
+
+	/** Whether the enlarged image carries a download affordance. */
+	readonly #download: boolean;
 
 	/**
 	 * The document keydown listener, bound while the lightbox is open.
@@ -201,18 +242,20 @@ export class GalleryLightbox {
 	 * @param links           - The thumbnail anchors, in gallery order.
 	 * @param overlay         - The overlay container emitted by `Render_Gallery`.
 	 * @param counterTemplate - The `%1$d of %2$d` counter template (already translated).
+	 * @param download        - Whether the enlarged image carries a download affordance.
 	 * @return The wired controller, or `null` when the overlay markup is incomplete.
 	 */
 	static mount(
 		links: readonly HTMLAnchorElement[],
 		overlay: HTMLElement,
-		counterTemplate: string
+		counterTemplate: string,
+		download: boolean
 	): GalleryLightbox | null {
 		const refs = resolveOverlay( overlay );
 		if ( ! refs ) {
 			return null;
 		}
-		return new GalleryLightbox( links, refs, counterTemplate );
+		return new GalleryLightbox( links, refs, counterTemplate, download );
 	}
 
 	/**
@@ -223,19 +266,23 @@ export class GalleryLightbox {
 	 * @param links           - The thumbnail anchors, in gallery order.
 	 * @param refs            - The resolved overlay elements.
 	 * @param counterTemplate - The `%1$d of %2$d` counter template (already translated).
+	 * @param download        - Whether the enlarged image carries a download affordance.
 	 */
 	private constructor(
 		links: readonly HTMLAnchorElement[],
 		refs: OverlayRefs,
-		counterTemplate: string
+		counterTemplate: string,
+		download: boolean
 	) {
 		this.#links = links;
 		this.#refs = refs;
 		this.#counterTemplate = counterTemplate;
+		this.#download = download;
 		this.#slides = links.map( ( link ) => ( {
 			url: link.dataset.kntntPhotoDropFull ?? link.href,
 			srcset: link.dataset.kntntPhotoDropSrcset ?? '',
 			label: link.querySelector< HTMLImageElement >( 'img' )?.alt ?? '',
+			caption: link.dataset.kntntPhotoDropCaption ?? '',
 		} ) );
 		this.#state = createLightboxState( links.length );
 		this.#bind();
@@ -494,8 +541,21 @@ export class GalleryLightbox {
 			this.#refs.image.src = slide.url;
 		}
 
-		// The alt doubles as the caption.
+		// The alt is the image's accessible label.
 		this.#refs.image.alt = slide.label;
+
+		// Point the download affordance at the current slide's full image, so a click
+		// on the enlarged image saves it; absent when download is off.
+		if ( this.#download && this.#refs.download ) {
+			this.#refs.download.href = slide.url;
+		}
+
+		// Mirror the gallery caption onto the lightbox figure when a caption element
+		// exists; the text comes from the slide's mirrored caption data.
+		if ( this.#refs.caption ) {
+			this.#refs.caption.textContent = slide.caption;
+			this.#refs.caption.hidden = slide.caption === '';
+		}
 
 		// Announce the position via the live-region counter (1-based for humans).
 		this.#refs.counter.textContent = this.#counterTemplate

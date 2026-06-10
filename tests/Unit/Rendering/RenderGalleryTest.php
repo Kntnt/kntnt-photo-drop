@@ -1177,10 +1177,10 @@ test( 'an empty collection attribute renders nothing for the public', function (
 } );
 
 // ---------------------------------------------------------------------------
-// Lightbox — overlay + Interactivity hooks gated on enableLightbox (ADR-0007)
+// Click behaviour — the lightbox + download matrix (issue #34, ADR-0007)
 // ---------------------------------------------------------------------------
 
-test( 'the lightbox is wired by default: the overlay, init hook, and flag are present', function (): void {
+test( 'the lightbox is wired by default: the overlay, init hook, and flags are present', function (): void {
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
@@ -1197,10 +1197,11 @@ test( 'the lightbox is wired by default: the overlay, init hook, and flag are pr
 		basedir_out: $basedir,
 	);
 
-	// enableLightbox defaults true: the flag is on, the Interactivity init hook
-	// and per-block context are bound, and the hidden dialog overlay is emitted
-	// with its server-translated load-failure message.
+	// lightbox defaults true, download defaults false: both flags are emitted, the
+	// Interactivity init hook and per-block context are bound, and the hidden dialog
+	// overlay is emitted with its server-translated load-failure message.
 	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="true"' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-download="false"' );
 	expect( $html )->toContain( 'data-wp-init="callbacks.init"' );
 	expect( $html )->toContain( 'counterTemplate' );
 	expect( $html )->toContain( 'class="kntnt-photo-drop-lightbox"' );
@@ -1216,7 +1217,7 @@ test( 'the no-JS anchor fallback still wraps every image when the lightbox is on
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
-		[ 'enableLightbox' => true ],
+		[ 'lightbox' => true ],
 		[
 			[
 				'path'   => 'a.jpg.webp',
@@ -1242,11 +1243,14 @@ test( 'the no-JS anchor fallback still wraps every image when the lightbox is on
 	gallery_remove_tree( $basedir );
 } );
 
-test( 'with the lightbox off, no overlay or init hook is emitted but the anchors remain', function (): void {
+test( 'cell 1 — both off: flags off, init suppression hook bound, no overlay, no icon', function (): void {
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
-		[ 'enableLightbox' => false ],
+		[
+			'lightbox' => false,
+			'download' => false,
+		],
 		[
 			[
 				'path'   => 'a.jpg.webp',
@@ -1259,16 +1263,188 @@ test( 'with the lightbox off, no overlay or init hook is emitted but the anchors
 		basedir_out: $basedir,
 	);
 
-	// The flag is off and the grid needs no client-side correction: no enhancement
-	// markup at all (no overlay, no init hook, no context), yet the anchor still
-	// wraps the image so a click navigates to it. The flag attribute itself still
-	// reflects the off state.
+	// Both flags read off; the init hook is still bound (the view module suppresses
+	// the otherwise-navigating click so the gallery is inert with JS). No lightbox
+	// overlay, no context, no download icon, no anchor download attribute — yet the
+	// anchor still wraps the image so a no-JS click navigates to the main image.
 	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="false"' );
-	expect( $html )->not->toContain( 'data-wp-init' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-download="false"' );
+	expect( $html )->toContain( 'data-wp-init="callbacks.init"' );
 	expect( $html )->not->toContain( 'role="dialog"' );
 	expect( $html )->not->toContain( 'class="kntnt-photo-drop-lightbox"' );
+	expect( $html )->not->toContain( 'counterTemplate' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__download' );
+	expect( $html )->not->toMatch( '/<a class="kntnt-photo-drop-gallery__link"[^>]* download/' );
 	expect( $html )->toContain( '<a class="kntnt-photo-drop-gallery__link"' );
 	expect( $html )->toContain( 'href="https://example.test/uploads/kntnt-photo-drop/photos/a.jpg.webp"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'cell 2 — lightbox on, download off: lightbox wired, no download affordance', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox' => true,
+			'download' => false,
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The lightbox overlay is present, but no download icon anywhere and the lightbox
+	// image is a bare <img> with no download anchor (clicking it does nothing). The
+	// gallery thumbnail anchor carries no download attribute either.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="true"' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-download="false"' );
+	expect( $html )->toContain( 'class="kntnt-photo-drop-lightbox"' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__download' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-lightbox__download' );
+	expect( $html )->not->toMatch( '/<a class="kntnt-photo-drop-gallery__link"[^>]* download/' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'cell 3 — lightbox off, download on: icon overlays each thumbnail, anchor downloads', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox' => false,
+			'download' => true,
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The download icon overlays the thumbnail and the thumbnail anchor carries the
+	// download attribute, so a plain click saves the main image. No lightbox overlay
+	// at all, since the lightbox is off.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="false"' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-download="true"' );
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__download' );
+	expect( $html )->toMatch( '/<a class="kntnt-photo-drop-gallery__link" href="[^"]+" download/' );
+	expect( $html )->not->toContain( 'class="kntnt-photo-drop-lightbox"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'cell 3 — the download icon carries the chosen size, colours, and anchor', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'               => false,
+			'download'               => true,
+			'downloadIconSize'       => '3rem',
+			'downloadIconBackground' => '#123456',
+			'downloadIconForeground' => '#abcdef',
+			'downloadIconAnchor'     => 'bottom-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The four custom controls reach the icon: the anchor class places it, the size
+	// and colours arrive as inline custom properties the stylesheet reads.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__download--anchor-bottom-right' );
+	expect( $html )->toContain( '--kntnt-photo-drop-download-size:3rem' );
+	expect( $html )->toContain( '--kntnt-photo-drop-download-bg:#123456' );
+	expect( $html )->toContain( '--kntnt-photo-drop-download-fg:#abcdef' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'cell 3 — the download icon uses the documented defaults when no controls are set', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox' => false,
+			'download' => true,
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// With no controls set the icon falls back to the documented defaults: 2rem,
+	// a translucent black background, white foreground, anchored top-left.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__download--anchor-top-left' );
+	expect( $html )->toContain( '--kntnt-photo-drop-download-size:2rem' );
+	expect( $html )->toContain( '--kntnt-photo-drop-download-bg:#00000080' );
+	expect( $html )->toContain( '--kntnt-photo-drop-download-fg:#ffffff' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'cell 4 — both on: no icon on the thumbnail; the icon and download live in the lightbox', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox' => true,
+			'download' => true,
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// Both on: the gallery thumbnail shows no download icon and its anchor carries no
+	// download attribute (a click opens the lightbox); the download icon and the
+	// download anchor appear inside the lightbox overlay instead. Split on the overlay
+	// boundary so "no icon on the thumbnail" is asserted against the figures only —
+	// the lightbox icon reuses the same `gallery__download` class on purpose.
+	$overlay_start = strpos( $html, 'class="kntnt-photo-drop-lightbox"' );
+	$figures_part  = $overlay_start === false ? $html : substr( $html, 0, $overlay_start );
+	$overlay_part  = $overlay_start === false ? '' : substr( $html, $overlay_start );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="true"' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-download="true"' );
+	expect( $figures_part )->not->toContain( 'kntnt-photo-drop-gallery__download' );
+	expect( $figures_part )->not->toMatch( '/<a class="kntnt-photo-drop-gallery__link"[^>]* download/' );
+	expect( $overlay_part )->toContain( 'kntnt-photo-drop-lightbox__download' );
+	expect( $overlay_part )->toMatch( '/<a class="kntnt-photo-drop-lightbox__download" href="" download>/' );
+	expect( $overlay_part )->toContain( 'kntnt-photo-drop-gallery__download' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -1278,8 +1454,9 @@ test( 'a justified gallery binds the init hook even with the lightbox off', func
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
 		[
-			'layout'         => 'justified',
-			'enableLightbox' => false,
+			'layout'   => 'justified',
+			'lightbox' => false,
+			'download' => false,
 		],
 		[
 			[
@@ -1293,12 +1470,110 @@ test( 'a justified gallery binds the init hook even with the lightbox off', func
 		basedir_out: $basedir,
 	);
 
-	// The justified layout's last-row flags are corrected client-side, so the
-	// init hook must run regardless of the lightbox flag — but the lightbox
-	// overlay and context stay gated on the flag.
+	// The justified layout's last-row flags are corrected client-side, so the init
+	// hook runs regardless of the click flags — but the lightbox overlay and context
+	// stay gated on the lightbox flag.
 	expect( $html )->toContain( 'data-wp-init="callbacks.init"' );
 	expect( $html )->not->toContain( 'role="dialog"' );
 	expect( $html )->not->toContain( 'counterTemplate' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Lightbox caption — mirrors the shared Caption settings when the lightbox is on
+// ---------------------------------------------------------------------------
+
+test( 'the lightbox carries a mirrored caption element when on and content is not none', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'       => true,
+			'captionContent' => 'filename',
+			'captionAnchor'  => 'top-right',
+		],
+		[
+			[
+				'path'   => 'sun_rise.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The lightbox overlay carries an empty caption figcaption — the same overlay
+	// element and anchor the gallery figures use — for the view module to fill per
+	// slide; the per-slide text is mirrored onto each thumbnail anchor.
+	expect( $html )->toMatch(
+		'/<figcaption class="kntnt-photo-drop-gallery__caption kntnt-photo-drop-lightbox__caption'
+			. ' kntnt-photo-drop-gallery__caption--anchor-top-right[^"]*"[^>]*><\/figcaption>/'
+	);
+	expect( $html )->toContain( 'data-kntnt-photo-drop-caption="sun rise"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the lightbox caption mirrors the colour and typography block-support projection', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'       => true,
+			'captionContent' => 'filename',
+			'style'          => [
+				'color'      => [ 'text' => '#445566' ],
+				'typography' => [ 'lineHeight' => '1.7' ],
+			],
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The same colour/typography projection that lands on the gallery figcaption
+	// lands on the lightbox caption, so the enlarged caption matches the gallery one.
+	$caption_open = '<figcaption class="[^"]*kntnt-photo-drop-lightbox__caption[^"]*"[^>]*style="[^"]*';
+	expect( $html )->toMatch( '/' . $caption_open . 'color:#445566;/' );
+	expect( $html )->toMatch( '/' . $caption_open . 'line-height:1\.7;/' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the lightbox carries no caption element when the caption content is none', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'       => true,
+			'captionContent' => 'none',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// With the caption content "none" there is no caption anywhere, including inside
+	// the lightbox.
+	expect( $html )->not->toContain( 'figcaption' );
+	expect( $html )->not->toContain( 'data-kntnt-photo-drop-caption' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -1352,7 +1627,7 @@ test( 'the editor preview suppresses the lightbox entirely, even with it enabled
 	$html       = render_seeded_gallery(
 		[
 			'isEditorPreview' => true,
-			'enableLightbox'  => true,
+			'lightbox'        => true,
 		],
 		gallery_image_specs( 3 ),
 		$descriptor,
@@ -1369,6 +1644,32 @@ test( 'the editor preview suppresses the lightbox entirely, even with it enabled
 	expect( $html )->not->toContain( 'class="kntnt-photo-drop-lightbox"' );
 	expect( $html )->not->toContain( 'counterTemplate' );
 	expect( $html )->toContain( '<a class="kntnt-photo-drop-gallery__link"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor preview shows the download icon in the download-on cell but binds no init', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'isEditorPreview' => true,
+			'lightbox'        => false,
+			'download'        => true,
+		],
+		gallery_image_specs( 3 ),
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// The preview suppresses interactivity (no init hook, so clicks stay inert), but
+	// the download icon still appears on the figures because it would appear on the
+	// frontend in this cell — the preview matches the published page's chrome.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__download' );
+	expect( $html )->not->toContain( 'data-wp-init' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="false"' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-download="true"' );
 
 	gallery_remove_tree( $basedir );
 } );

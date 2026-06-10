@@ -5,14 +5,20 @@
  * The gallery itself is pure server-rendered HTML; this module progressively
  * enhances it via the WordPress Interactivity API. The baseline is no-JS: every
  * thumbnail is wrapped in an `<a href="<main>.webp">` by `render.php`, so a
- * click navigates to the full image even with this module inert or absent. When
- * the block's `enableLightbox` flag is on (mirrored onto the wrapper as
- * `data-kntnt-photo-drop-lightbox`), the `init` callback wires a
- * {@link GalleryLightbox} controller that turns those anchors into a modal image
- * viewer — open/close, prev/next, keyboard, swipe, neighbour preload, focus
- * trap, and `aria` — and suppresses the navigation so browser history is never
- * touched (ADR-0007). With the flag off, the controller is not created and the
- * anchors keep navigating.
+ * click navigates to (or, with the `download` attribute, saves) the full image
+ * even with this module inert or absent. The wrapper carries two flags the `init`
+ * callback reads to apply the click matrix (issue #34):
+ * `data-kntnt-photo-drop-lightbox` and `data-kntnt-photo-drop-download`.
+ *
+ * - Lightbox on → a {@link GalleryLightbox} controller turns the anchors into a
+ *   modal image viewer (open/close, prev/next, keyboard, swipe, neighbour
+ *   preload, focus trap, `aria`) and suppresses the navigation so browser history
+ *   is never touched (ADR-0007). When download is also on, the lightbox image
+ *   carries a download affordance and the enlarged image saves on click.
+ * - Lightbox off + download on → nothing is wired; the native `<a download>`
+ *   saves the main image on click.
+ * - Lightbox off + download off → the click is suppressed so it does nothing
+ *   (the no-JS fallback would navigate, but with JS the gallery is inert).
  *
  * For the justified layout, `init` additionally corrects the server's last-row
  * flags: the server packs rows against an assumed container width, so the
@@ -86,6 +92,36 @@ const RESIZE_DEBOUNCE = 200;
 const mountedGalleries = new WeakSet< Element >();
 
 /**
+ * Suppresses plain navigation on each thumbnail anchor (the both-off cell).
+ *
+ * With neither the lightbox nor download on, a thumbnail click should do nothing
+ * — but the anchor still points at the main image (the no-JS fallback), so with
+ * JavaScript a plain click would navigate. This cancels that for a plain primary
+ * click while leaving modified clicks (new tab/window, save-as) to the browser,
+ * so the gallery is inert without breaking the visitor's own intentions.
+ *
+ * @since 0.5.0
+ *
+ * @param links - The thumbnail anchors to make inert.
+ */
+function suppressNavigation( links: readonly HTMLAnchorElement[] ): void {
+	links.forEach( ( link ) => {
+		link.addEventListener( 'click', ( event ) => {
+			if (
+				event.metaKey ||
+				event.ctrlKey ||
+				event.shiftKey ||
+				event.altKey ||
+				event.button !== 0
+			) {
+				return;
+			}
+			event.preventDefault();
+		} );
+	} );
+}
+
+/**
  * Corrects the justified layout's last-row flags against the real container.
  *
  * Reads every figure's rendered `offsetTop` first, then writes every
@@ -149,16 +185,21 @@ function wireLastRowCorrection( layout: HTMLElement ): void {
 store( 'kntnt-photo-drop/gallery', {
 	callbacks: {
 		/**
-		 * Enhances one gallery wrapper: the justified last-row correction and,
-		 * when enabled, the lightbox.
+		 * Enhances one gallery wrapper: the justified last-row correction and
+		 * the click matrix (lightbox, native download, or inert).
 		 *
 		 * The correction is wired whenever the gallery uses the justified
-		 * layout, independent of the lightbox flag. The lightbox mounts only
-		 * when the `enableLightbox` flag is on and the gallery has thumbnail
-		 * anchors plus the server overlay — in every bail path the no-JS
-		 * fallback stands and the anchors keep navigating.
+		 * layout, independent of the click flags. The click matrix then
+		 * branches on the two wrapper flags (issue #34): with the lightbox on,
+		 * a {@link GalleryLightbox} controller mounts (passing whether download
+		 * is on so the enlarged image gets a download affordance); with the
+		 * lightbox off and download on, nothing is wired so the native
+		 * `<a download>` saves the image; with both off, the thumbnail clicks
+		 * are suppressed so a click does nothing. In every lightbox bail path
+		 * the no-JS fallback markup stands.
 		 *
 		 * @since 0.7.0
+		 * @since 0.5.0 Branches on the lightbox + download click matrix.
 		 */
 		init(): void {
 			// Resolve the wrapper and guard against a double-init re-hydration.
@@ -180,36 +221,43 @@ store( 'kntnt-photo-drop/gallery', {
 				wireLastRowCorrection( justified );
 			}
 
-			// Respect the enableLightbox flag: when off, leave the anchors to
-			// navigate to the full image and wire nothing further.
-			if ( ref.dataset.kntntPhotoDropLightbox !== 'true' ) {
-				return;
-			}
-
-			// Locate the thumbnail anchors (the triggers and slides) and the
-			// server-emitted overlay; without either there is nothing to enhance,
-			// so the no-JS fallback stands.
+			// Collect the thumbnail anchors once — every click-matrix branch
+			// works from them.
 			const links = Array.from(
 				ref.querySelectorAll< HTMLAnchorElement >(
 					'.kntnt-photo-drop-gallery__link'
 				)
 			);
+			const lightbox = ref.dataset.kntntPhotoDropLightbox === 'true';
+			const download = ref.dataset.kntntPhotoDropDownload === 'true';
+
+			// Lightbox off: with download on the native `<a download>` saves the
+			// image (wire nothing); with both off, suppress the click so a plain
+			// thumbnail click does nothing rather than navigate.
+			if ( ! lightbox ) {
+				if ( ! download ) {
+					suppressNavigation( links );
+				}
+				return;
+			}
+
+			// Lightbox on: locate the server-emitted overlay and mount the
+			// controller. Without the anchors or the overlay there is nothing to
+			// enhance, so the no-JS fallback stands. The context can have degraded
+			// to `{}` server-side, so the counter template falls back to a neutral
+			// numeric form rather than crashing mid-open.
 			const overlay = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-lightbox'
 			);
 			if ( links.length === 0 || ! overlay ) {
 				return;
 			}
-
-			// Construct the controller, which resolves the overlay's children and
-			// binds the triggers, controls, keyboard, and swipe. The context can
-			// have degraded to `{}` server-side, so the template falls back to a
-			// neutral numeric form rather than crashing mid-open.
 			const context = getContext< GalleryContext >();
 			GalleryLightbox.mount(
 				links,
 				overlay,
-				context?.counterTemplate ?? FALLBACK_COUNTER_TEMPLATE
+				context?.counterTemplate ?? FALLBACK_COUNTER_TEMPLATE,
+				download
 			);
 		},
 	},

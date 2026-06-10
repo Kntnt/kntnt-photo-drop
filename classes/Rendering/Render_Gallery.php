@@ -66,6 +66,28 @@ final class Render_Gallery {
 	private const LAYOUT_JUSTIFIED = 'justified';
 
 	/**
+	 * The nine-point anchor vocabulary, shared by the caption and the download icon.
+	 *
+	 * Both the caption overlay and the download-icon overlay are placed by the same
+	 * nine anchors, so the allowed-value set and the default-narrowing live in one
+	 * place rather than being duplicated per overlay.
+	 *
+	 * @since 0.5.0
+	 * @var array<int,string>
+	 */
+	private const NINE_POINT_ANCHORS = [
+		'top-left',
+		'top-center',
+		'top-right',
+		'middle-left',
+		'middle-center',
+		'middle-right',
+		'bottom-left',
+		'bottom-center',
+		'bottom-right',
+	];
+
+	/**
 	 * The render-time-only attribute that flags an editor-preview render.
 	 *
 	 * Declared in `block.json` (it must be, or the REST block-renderer endpoint —
@@ -216,6 +238,21 @@ final class Render_Gallery {
 		$caption_support = Block_Style_Support::caption( $attributes );
 		$image_support   = Block_Style_Support::image( $attributes );
 
+		// Resolve the click behaviour once — the lightbox and download toggles drive
+		// the whole matrix (issue #34). The gallery thumbnail carries the download
+		// icon and downloads on click only when download is on and the lightbox is
+		// off; with the lightbox on, the icon and the download move into the lightbox.
+		$lightbox          = ! $is_preview && self::read_bool( $attributes, 'lightbox', true );
+		$download          = self::read_bool( $attributes, 'download', false );
+		$download_settings = self::download_settings( $attributes );
+		$on_thumbnail      = $download && ! $lightbox;
+		$figure_behaviour  = new Click_Behaviour(
+			$lightbox,
+			$on_thumbnail,
+			$on_thumbnail,
+			$download_settings,
+		);
+
 		// Choose the layout and build the figures accordingly: justified rows need
 		// per-image flex math, the grid needs only the per-image aspect ratio.
 		$layout = self::read_string( $attributes, 'layout' ) === self::LAYOUT_JUSTIFIED
@@ -229,6 +266,7 @@ final class Render_Gallery {
 				$caption,
 				$caption_support,
 				$image_support,
+				$figure_behaviour,
 				$attributes,
 			);
 		} else {
@@ -239,11 +277,22 @@ final class Render_Gallery {
 				$caption,
 				$caption_support,
 				$image_support,
+				$figure_behaviour,
 				$attributes,
 			);
 		}
 
-		return self::wrap( $attributes, $layout, $figures, $is_preview );
+		return self::wrap(
+			$attributes,
+			$layout,
+			$figures,
+			$lightbox,
+			$download,
+			$is_preview,
+			$caption,
+			$caption_support,
+			$download_settings,
+		);
 
 	}
 
@@ -262,6 +311,7 @@ final class Render_Gallery {
 	 * @param Caption_Settings                 $caption         The resolved caption settings.
 	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
 	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
+	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
 	 * @param array<string,mixed>              $attributes      The block attributes.
 	 * @return string The concatenated figure markup.
 	 */
@@ -272,6 +322,7 @@ final class Render_Gallery {
 		Caption_Settings $caption,
 		array $caption_support,
 		array $image_support,
+		Click_Behaviour $behaviour,
 		array $attributes,
 	): string {
 
@@ -301,6 +352,7 @@ final class Render_Gallery {
 				$caption,
 				$caption_support,
 				$image_support,
+				$behaviour,
 				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--grid',
@@ -327,6 +379,7 @@ final class Render_Gallery {
 	 * @param Caption_Settings                 $caption         The resolved caption settings.
 	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
 	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
+	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
 	 * @param array<string,mixed>              $attributes      The block attributes.
 	 * @return string The concatenated figure markup.
 	 */
@@ -337,6 +390,7 @@ final class Render_Gallery {
 		Caption_Settings $caption,
 		array $caption_support,
 		array $image_support,
+		Click_Behaviour $behaviour,
 		array $attributes,
 	): string {
 
@@ -381,6 +435,7 @@ final class Render_Gallery {
 				$caption,
 				$caption_support,
 				$image_support,
+				$behaviour,
 				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--justified',
@@ -406,11 +461,16 @@ final class Render_Gallery {
 	 * block-support panels land on the `<img>` (the core Image-block
 	 * skip-serialization pattern), pre-projected into `$image_support`. The
 	 * caption, when any, is always an anchored overlay inside the image
-	 * (issue #33) and so follows the link. Every URL and attribute is escaped at
-	 * the point of output.
+	 * (issue #33) and so follows the link; its text is also mirrored onto the
+	 * anchor as a data attribute so the lightbox slide can show the same caption.
+	 * The click behaviour (issue #34) decides whether the anchor carries the
+	 * `download` attribute — so a plain click saves the main image instead of
+	 * navigating — and whether the overlay download icon is painted on the
+	 * thumbnail. Every URL and attribute is escaped at the point of output.
 	 *
 	 * @since 0.7.0
 	 * @since 0.2.0 Added the `$sizes` parameter and the anchor's srcset data attribute.
+	 * @since 0.5.0 Added the click behaviour (download attribute, overlay icon, caption data attribute).
 	 *
 	 * @param Gallery_Item                     $item            The image.
 	 * @param Descriptor                       $descriptor      The collection contract.
@@ -418,6 +478,7 @@ final class Render_Gallery {
 	 * @param Caption_Settings                 $caption         The resolved caption settings.
 	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
 	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
+	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
 	 * @param string                           $sizes           The layout-aware `sizes` attribute value.
 	 * @param string                           $item_style      The inline style for the figure (layout-specific).
 	 * @param string                           $item_class      The layout-specific figure class.
@@ -430,6 +491,7 @@ final class Render_Gallery {
 		Caption_Settings $caption,
 		array $caption_support,
 		array $image_support,
+		Click_Behaviour $behaviour,
 		string $sizes,
 		string $item_style,
 		string $item_class,
@@ -448,17 +510,17 @@ final class Render_Gallery {
 		$srcset = Srcset_Builder::to_attribute( $candidates );
 
 		// Pick the smallest candidate as the <img> src (a sensible default the
-		// srcset refines) and derive a sizes hint from the largest candidate width.
-		$smallest  = $candidates[0]['url'] ?? $main_url;
-		$alt       = Caption_Builder::build( $relative, Caption_Builder::CONTENT_FILENAME, true, false, '', '' );
-		$caption_html = self::caption_html( $relative, $caption, $descriptor->name, $caption_support );
+		// srcset refines), derive the alt from the filename, and assemble the caption
+		// text once — it feeds both the overlay figcaption and the anchor's caption
+		// data attribute the lightbox mirrors.
+		$smallest      = $candidates[0]['url'] ?? $main_url;
+		$alt           = Caption_Builder::build( $relative, Caption_Builder::CONTENT_FILENAME, true, false, '', '' );
+		$caption_text  = self::caption_text( $relative, $caption, $descriptor->name );
+		$caption_html  = self::caption_html( $caption_text, $caption->anchor, $caption_support );
 
 		// Compose the lazy, dimensioned <img>, carrying the border/shadow block
-		// supports, and wrap it in an <a href> to the main image — the no-JS fallback
-		// and the lightbox's upgrade hook. The image class folds in any preset
-		// classnames the border-colour panel contributed; the inline style carries
-		// the panels' declarations. The data attributes hand the main URL and the
-		// srcset to the lightbox without re-parsing the href or the thumbnail markup.
+		// supports. The image class folds in any preset classnames the border-colour
+		// panel contributed; the inline style carries the panels' declarations.
 		$image_class = 'kntnt-photo-drop-gallery__image';
 		if ( $image_support['class'] !== '' ) {
 			$image_class .= ' ' . $image_support['class'];
@@ -475,57 +537,104 @@ final class Render_Gallery {
 			$item->height,
 			esc_attr( $alt ),
 		);
-		$link = sprintf(
-			'<a class="kntnt-photo-drop-gallery__link" href="%1$s" data-kntnt-photo-drop-full="%1$s"'
-				. ' data-kntnt-photo-drop-srcset="%2$s">%3$s</a>',
+
+		// Wrap the image in an <a href> to the main image — the no-JS fallback and the
+		// lightbox's upgrade hook. The data attributes hand the main URL, the srcset,
+		// and the caption text to the lightbox without re-parsing the markup. When the
+		// behaviour downloads, the `download` attribute makes a plain click save the
+		// main image rather than navigate; the no-JS fallback (no attribute) navigates.
+		$download_attr = $behaviour->downloads ? ' download' : '';
+		$caption_attr  = $caption_text !== ''
+			? sprintf( ' data-kntnt-photo-drop-caption="%s"', esc_attr( $caption_text ) )
+			: '';
+		$link          = sprintf(
+			'<a class="kntnt-photo-drop-gallery__link" href="%1$s"%2$s data-kntnt-photo-drop-full="%1$s"'
+				. ' data-kntnt-photo-drop-srcset="%3$s"%4$s>%5$s</a>',
 			esc_url( $main_url ),
+			$download_attr,
 			esc_attr( $srcset ),
+			$caption_attr,
 			$image,
 		);
 
-		// The caption is always an anchored overlay over the image, so it follows the
-		// link inside the figure and is positioned absolutely by its anchor class.
+		// Paint the overlay download icon on the thumbnail only in the download-on /
+		// lightbox-off cell; in every other cell the figure carries no icon.
+		$icon = $behaviour->shows_icon ? self::download_icon( $behaviour->download ) : '';
+
+		// The caption and the icon are both anchored overlays over the image, so they
+		// follow the link inside the figure and are positioned absolutely by their
+		// anchor classes.
 		return sprintf(
-			'<figure class="kntnt-photo-drop-gallery__item %1$s" style="%2$s">%3$s%4$s</figure>',
+			'<figure class="kntnt-photo-drop-gallery__item %1$s" style="%2$s">%3$s%4$s%5$s</figure>',
 			esc_attr( $item_class ),
 			esc_attr( $item_style ),
 			$link,
+			$icon,
 			$caption_html,
 		);
 
 	}
 
 	/**
-	 * Builds the overlay caption element for one image, or `''` when none is wanted.
+	 * Builds the overlay download-icon element for one gallery thumbnail.
 	 *
-	 * Delegates the text assembly to the pure `Caption_Builder`, then wraps the
-	 * escaped text in a `<figcaption>`. Captions are always an anchored overlay
-	 * inside the image (issue #33), so the class always carries the nine-point
-	 * anchor variant. The figcaption's colour and typography arrive from the
-	 * colour/typography block-support panels, pre-projected by
-	 * `Block_Style_Support::caption()` into the `$support` style/class pair (the
-	 * core Image-block skip-serialization pattern), so this method appends them
-	 * verbatim rather than reading any bespoke colour attribute. The `none` content
-	 * (and an empty assembled string) yields no element at all.
+	 * A small, decorative `<span>` (the click target is the enclosing anchor, which
+	 * carries the `download` attribute) anchored inside the image by the nine-point
+	 * anchor class and styled by the bespoke download-icon controls — size,
+	 * background, foreground — projected as inline custom properties the stylesheet
+	 * reads. The glyph itself is a CSS-drawn down-arrow-to-tray, so no SVG or font
+	 * dependency is needed. It is `aria-hidden`: the accessible affordance is the
+	 * anchor's own download semantics.
 	 *
-	 * @since 0.7.0
+	 * @since 0.5.0
 	 *
-	 * @param string                           $relative_path   The image path relative to the root.
-	 * @param Caption_Settings                 $caption         The resolved caption settings.
-	 * @param string                           $collection_name The collection display name.
-	 * @param array{style:string,class:string} $support        The figcaption block-support style and classes.
-	 * @return string The figcaption markup, or '' when none.
+	 * @param Download_Settings $download The resolved download-icon styling.
+	 * @return string The icon overlay markup.
 	 */
-	private static function caption_html(
+	private static function download_icon( Download_Settings $download ): string {
+
+		// Place the icon by its anchor class and carry its size/colours as inline
+		// custom properties; the stylesheet draws the glyph from those properties.
+		$class = 'kntnt-photo-drop-gallery__download'
+			. ' kntnt-photo-drop-gallery__download--anchor-' . $download->anchor;
+		$style = sprintf(
+			'--kntnt-photo-drop-download-size:%1$s;'
+				. '--kntnt-photo-drop-download-bg:%2$s;'
+				. '--kntnt-photo-drop-download-fg:%3$s;',
+			$download->size,
+			$download->background,
+			$download->foreground,
+		);
+
+		return sprintf(
+			'<span class="%1$s" style="%2$s" aria-hidden="true"></span>',
+			esc_attr( $class ),
+			esc_attr( $style ),
+		);
+
+	}
+
+	/**
+	 * Assembles the caption text for one image from its path and the settings.
+	 *
+	 * A thin pass-through to the pure `Caption_Builder`, kept so both the overlay
+	 * figcaption and the anchor's caption data attribute (which the lightbox mirrors)
+	 * draw on the same single assembly per figure. An empty result (content "none"
+	 * or an empty breadcrumb) means no caption is shown anywhere for that image.
+	 *
+	 * @since 0.5.0
+	 *
+	 * @param string           $relative_path   The image path relative to the root.
+	 * @param Caption_Settings $caption         The resolved caption settings.
+	 * @param string           $collection_name The collection display name.
+	 * @return string The caption text, or '' when none.
+	 */
+	private static function caption_text(
 		string $relative_path,
 		Caption_Settings $caption,
 		string $collection_name,
-		array $support,
 	): string {
-
-		// Assemble the caption text from the path; an empty result (content "none"
-		// or an empty breadcrumb) means no caption element is emitted at all.
-		$text = Caption_Builder::build(
+		return Caption_Builder::build(
 			$relative_path,
 			$caption->content,
 			$caption->humanize,
@@ -533,6 +642,36 @@ final class Render_Gallery {
 			$caption->separator,
 			$collection_name,
 		);
+	}
+
+	/**
+	 * Wraps already-assembled caption text in an anchored overlay `<figcaption>`.
+	 *
+	 * Captions are always an anchored overlay inside the image (issue #33), so the
+	 * class always carries the nine-point anchor variant. The figcaption's colour and
+	 * typography arrive from the colour/typography block-support panels, pre-projected
+	 * by `Block_Style_Support::caption()` into the `$support` style/class pair (the
+	 * core Image-block skip-serialization pattern), so this method appends them
+	 * verbatim rather than reading any bespoke colour attribute. Empty text yields no
+	 * element at all. The same builder serves the gallery figures and the lightbox
+	 * slide, so the lightbox caption is the identical overlay element (issue #34).
+	 *
+	 * @since 0.7.0
+	 * @since 0.5.0 Takes pre-assembled text and the anchor so the lightbox can reuse it.
+	 *
+	 * @param string                           $text    The assembled caption text (escaped here).
+	 * @param string                           $anchor  The nine-point overlay anchor.
+	 * @param array{style:string,class:string} $support The figcaption block-support style and classes.
+	 * @return string The figcaption markup, or '' when the text is empty.
+	 */
+	private static function caption_html(
+		string $text,
+		string $anchor,
+		array $support,
+	): string {
+
+		// Empty text means no caption element at all (content "none" or an empty
+		// breadcrumb).
 		if ( $text === '' ) {
 			return '';
 		}
@@ -540,7 +679,7 @@ final class Render_Gallery {
 		// Compose the overlay's classes — the base, the nine-point anchor, and the
 		// preset classnames the colour/typography panels contributed — plus the
 		// inline declarations the same panels produced (border/shadow go to the image).
-		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-gallery__caption--anchor-' . $caption->anchor;
+		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-gallery__caption--anchor-' . $anchor;
 		if ( $support['class'] !== '' ) {
 			$classes .= ' ' . $support['class'];
 		}
@@ -560,31 +699,52 @@ final class Render_Gallery {
 	 * Mode A applies core's Grid layout via the `minimumColumnWidth` and `gap`
 	 * style variables on the inner container; mode B applies the justified flex
 	 * container. The outer wrapper is core's block-supports wrapper (alignment,
-	 * colour, typography, spacing, anchor) plus the project class and a lightbox
-	 * flag and the Interactivity directives the view module reads. The
-	 * Interactivity `init` hook is bound whenever the view module has work to do:
-	 * when the lightbox is enabled, and for the justified layout regardless (the
-	 * view module corrects the server's assumed-width last-row flags against the
-	 * real container). The per-block context (the counter announcement template)
-	 * and the hidden overlay are appended only when the lightbox is enabled, so a
-	 * lightbox-off gallery emits no lightbox markup and the anchors navigate.
+	 * colour, typography, spacing, anchor) plus the project class, the lightbox and
+	 * download flags, and the Interactivity directives the view module reads.
 	 *
-	 * The editor preview suppresses the lightbox unconditionally: the flag reads
-	 * `false`, no overlay/context/init is emitted, and clicks stay inert in the
-	 * canvas. The justified layout still binds its `init` hook in the preview so
-	 * the last-row correction runs, but it never emits lightbox chrome there.
+	 * The two flags drive the whole click matrix (issue #34): the view module reads
+	 * `data-kntnt-photo-drop-lightbox` and `data-kntnt-photo-drop-download` to decide
+	 * whether a thumbnail click opens the lightbox, suppresses navigation entirely
+	 * (both off — the click does nothing), or is left to the native `<a download>`
+	 * (download on, lightbox off). The `init` hook is bound on every frontend render
+	 * — for the lightbox wiring, the justified layout's last-row correction, or the
+	 * click suppression — and the per-block context and the hidden overlay are
+	 * appended only when the lightbox is on, so a lightbox-off gallery carries no
+	 * overlay chrome. When the lightbox is on, the overlay also carries a download
+	 * affordance (active only when download is on) and a caption element (filled only
+	 * when the shared Caption content is not "none").
+	 *
+	 * The editor preview suppresses interactivity unconditionally: the lightbox flag
+	 * reads `false`, no overlay/context is emitted, and no `init` is bound, so clicks
+	 * stay inert in the canvas — yet the download icon may still appear on a figure
+	 * (the download-on / lightbox-off cell) so the preview matches the frontend.
 	 *
 	 * @since 0.6.0
 	 * @since 0.2.0 The `init` hook is also bound for the justified layout with the lightbox off.
-	 * @since 0.5.0 Added the `$is_preview` flag that suppresses the lightbox in the editor.
+	 * @since 0.5.0 Replaced the single lightbox flag with the lightbox + download click matrix.
 	 *
-	 * @param array<string,mixed> $attributes The block attributes.
-	 * @param string              $layout     The resolved layout token.
-	 * @param string              $figures    The concatenated figure markup.
-	 * @param bool                $is_preview Whether this is the capped editor preview.
+	 * @param array<string,mixed>              $attributes        The block attributes.
+	 * @param string                           $layout            The resolved layout token.
+	 * @param string                           $figures           The concatenated figure markup.
+	 * @param bool                             $lightbox          Whether the lightbox is wired (false in preview).
+	 * @param bool                             $download          Whether the download behaviour is on.
+	 * @param bool                             $is_preview        Whether this is the capped editor preview.
+	 * @param Caption_Settings                 $caption           The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support   The figcaption block-support style/class.
+	 * @param Download_Settings                $download_settings The resolved download-icon styling.
 	 * @return string The full gallery markup.
 	 */
-	private static function wrap( array $attributes, string $layout, string $figures, bool $is_preview ): string {
+	private static function wrap(
+		array $attributes,
+		string $layout,
+		string $figures,
+		bool $lightbox,
+		bool $download,
+		bool $is_preview,
+		Caption_Settings $caption,
+		array $caption_support,
+		Download_Settings $download_settings,
+	): string {
 
 		// Build the inner container's style from the gap (both layouts) and, for the
 		// grid, the minimum column width that drives core's auto-fill grid. The gap
@@ -606,28 +766,31 @@ final class Render_Gallery {
 		}
 
 		// Compose the block-supports wrapper: the project class, the Interactivity
-		// namespace, and the lightbox flag the view module reads. The lightbox is
-		// suppressed in the editor preview so clicks stay inert; otherwise the
-		// `init` hook is bound when there is anything to enhance — the lightbox, or
-		// the justified layout's client-side last-row correction — and the per-block
-		// context exists only for the lightbox.
-		$enabled        = ! $is_preview && self::read_bool( $attributes, 'enableLightbox', true );
-		$wrapper_attrs  = [
+		// namespace, and the lightbox/download flags the view module reads. On the
+		// frontend the `init` hook always runs — the view module wires the lightbox,
+		// corrects the justified last row, and/or suppresses inert clicks — while the
+		// per-block context exists only for the lightbox. The editor preview binds no
+		// `init` at all so the canvas stays inert.
+		$wrapper_attrs = [
 			'class'                          => 'kntnt-photo-drop-gallery',
 			'data-wp-interactive'            => 'kntnt-photo-drop/gallery',
-			'data-kntnt-photo-drop-lightbox' => $enabled ? 'true' : 'false',
+			'data-kntnt-photo-drop-lightbox' => $lightbox ? 'true' : 'false',
+			'data-kntnt-photo-drop-download' => $download ? 'true' : 'false',
 		];
-		if ( $enabled || $layout === self::LAYOUT_JUSTIFIED ) {
+		if ( ! $is_preview ) {
 			$wrapper_attrs['data-wp-init'] = 'callbacks.init';
 		}
-		if ( $enabled ) {
+		if ( $lightbox ) {
 			$wrapper_attrs['data-wp-context'] = self::lightbox_context();
 		}
 		$wrapper = get_block_wrapper_attributes( $wrapper_attrs );
 
-		// Append the hidden lightbox overlay only when enabled, so a lightbox-off
-		// gallery carries no enhancement markup at all.
-		$overlay = $enabled ? self::lightbox_overlay() : '';
+		// Append the hidden lightbox overlay only when the lightbox is on, carrying its
+		// own download affordance and caption element so the enlarged image mirrors the
+		// gallery (issue #34); a lightbox-off gallery carries no overlay chrome.
+		$overlay = $lightbox
+			? self::lightbox_overlay( $download, $caption, $caption_support, $download_settings )
+			: '';
 
 		return sprintf(
 			'<div %1$s><div class="%2$s" style="%3$s">%4$s</div>%5$s</div>',
@@ -681,12 +844,32 @@ final class Render_Gallery {
 	 * data as its slide source, so it adds no image URLs of its own to escape —
 	 * only static, translated chrome.
 	 *
+	 * When download is on (issue #34), the live image is wrapped in a `download`
+	 * anchor whose `href` the view module sets to the current slide's main image,
+	 * and an overlay download icon — styled by the bespoke download-icon controls,
+	 * placed by its nine-point anchor — sits inside the figure, so a click on the
+	 * enlarged image saves the full image. When download is off the image is a bare
+	 * `<img>` and a click does nothing. When the shared Caption content is not
+	 * "none", a caption `<figcaption>` (the identical overlay element the gallery
+	 * figures use — same anchor and colour/typography projection) sits inside the
+	 * figure for the view module to fill per slide.
+	 *
 	 * @since 0.7.0
 	 * @since 0.2.0 Added the hidden load-failure message element.
+	 * @since 0.5.0 Added the in-lightbox download affordance and the mirrored caption.
 	 *
+	 * @param bool                             $download          Whether the in-lightbox download is on.
+	 * @param Caption_Settings                 $caption           The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support   The figcaption block-support style/class.
+	 * @param Download_Settings                $download_settings The resolved download-icon styling.
 	 * @return string The escaped overlay markup.
 	 */
-	private static function lightbox_overlay(): string {
+	private static function lightbox_overlay(
+		bool $download,
+		Caption_Settings $caption,
+		array $caption_support,
+		Download_Settings $download_settings,
+	): string {
 
 		// Label every control and the dialog itself; these are the only runtime
 		// strings the overlay carries, all translated and escaped at output.
@@ -696,25 +879,116 @@ final class Render_Gallery {
 		$next_label   = esc_attr__( 'Next image', 'kntnt-photo-drop' );
 		$error_text   = esc_html__( 'The image could not be loaded.', 'kntnt-photo-drop' );
 
-		// Compose the dialog: backdrop, controls, the live image, the polite
-		// counter region, and the hidden failure message. The image starts empty;
-		// the view module fills it on open.
+		// Build the figure's inner markup: the live image, wrapped in a download
+		// anchor with the overlay icon when download is on, and the mirrored caption
+		// element when the caption content is not "none". The view module fills the
+		// image, the anchor href, and the caption text on open and on each page.
+		$figure_inner = self::lightbox_figure_inner( $download, $caption, $caption_support, $download_settings );
+
+		// Compose the dialog: backdrop, controls, the live figure, the polite counter
+		// region, and the hidden failure message. The image starts empty; the view
+		// module fills it on open.
 		return sprintf(
 			'<div class="kntnt-photo-drop-lightbox" role="dialog" aria-modal="true" aria-label="%1$s" hidden>'
 				. '<button type="button" class="kntnt-photo-drop-lightbox__close" aria-label="%2$s">&times;</button>'
 				. '<button type="button" class="kntnt-photo-drop-lightbox__prev" aria-label="%3$s">&lsaquo;</button>'
-				. '<figure class="kntnt-photo-drop-lightbox__figure">'
-				. '<img class="kntnt-photo-drop-lightbox__image" src="" alt="" />'
-				. '</figure>'
+				. '<figure class="kntnt-photo-drop-lightbox__figure">%5$s</figure>'
 				. '<button type="button" class="kntnt-photo-drop-lightbox__next" aria-label="%4$s">&rsaquo;</button>'
 				. '<p class="kntnt-photo-drop-lightbox__counter" aria-live="polite"></p>'
-				. '<p class="kntnt-photo-drop-lightbox__error" role="alert" hidden>%5$s</p>'
+				. '<p class="kntnt-photo-drop-lightbox__error" role="alert" hidden>%6$s</p>'
 				. '</div>',
 			$dialog_label,
 			$close_label,
 			$prev_label,
 			$next_label,
+			$figure_inner,
 			$error_text,
+		);
+
+	}
+
+	/**
+	 * Builds the lightbox figure's inner markup: the image, the download affordance,
+	 * and the mirrored caption.
+	 *
+	 * With download on the image is wrapped in a `download` anchor (its `href` set by
+	 * the view module per slide) and an overlay icon — placed by the download anchor,
+	 * styled by the bespoke download controls — so a click on the enlarged image
+	 * saves the full image. With download off the image stands bare so a click does
+	 * nothing. The caption, when the content is not "none", is the same anchored
+	 * overlay `<figcaption>` the gallery figures carry — same anchor, same
+	 * colour/typography projection — so the lightbox caption mirrors the gallery; the
+	 * view module fills its text per slide.
+	 *
+	 * @since 0.5.0
+	 *
+	 * @param bool                             $download          Whether the in-lightbox download is on.
+	 * @param Caption_Settings                 $caption           The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support   The figcaption block-support style/class.
+	 * @param Download_Settings                $download_settings The resolved download-icon styling.
+	 * @return string The figure's inner markup.
+	 */
+	private static function lightbox_figure_inner(
+		bool $download,
+		Caption_Settings $caption,
+		array $caption_support,
+		Download_Settings $download_settings,
+	): string {
+
+		// The live image the view module swaps per slide; it starts empty.
+		$image = '<img class="kntnt-photo-drop-lightbox__image" src="" alt="" />';
+
+		// With download on, wrap the image in a download anchor (href set per slide)
+		// and add the overlay icon so a click on the enlarged image saves the full
+		// image; with download off the bare image makes a click do nothing.
+		if ( $download ) {
+			$icon  = self::download_icon( $download_settings );
+			$image = sprintf(
+				'<a class="kntnt-photo-drop-lightbox__download" href="" download>%1$s%2$s</a>',
+				$image,
+				$icon,
+			);
+		}
+
+		// Mirror the gallery caption inside the lightbox figure when the content is not
+		// "none": the same overlay element, anchor, and block-support projection, with
+		// the text left empty for the view module to fill per slide.
+		$caption_element = $caption->content === Caption_Builder::CONTENT_NONE
+			? ''
+			: self::lightbox_caption( $caption->anchor, $caption_support );
+
+		return $image . $caption_element;
+
+	}
+
+	/**
+	 * Builds the empty mirrored caption element for the lightbox figure.
+	 *
+	 * The identical overlay `<figcaption>` the gallery figures carry — the base
+	 * class, the nine-point anchor variant, and the colour/typography block-support
+	 * preset classnames and inline declarations — but with empty text the view module
+	 * fills per slide from each thumbnail's caption data attribute.
+	 *
+	 * @since 0.5.0
+	 *
+	 * @param string                           $anchor  The nine-point overlay anchor.
+	 * @param array{style:string,class:string} $support The figcaption block-support style/class.
+	 * @return string The empty figcaption markup.
+	 */
+	private static function lightbox_caption( string $anchor, array $support ): string {
+
+		// Compose the same caption classes the gallery figures use, so the lightbox
+		// caption is styled and placed identically; the view module supplies the text.
+		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-lightbox__caption'
+			. ' kntnt-photo-drop-gallery__caption--anchor-' . $anchor;
+		if ( $support['class'] !== '' ) {
+			$classes .= ' ' . $support['class'];
+		}
+
+		return sprintf(
+			'<figcaption class="%1$s" style="%2$s"></figcaption>',
+			esc_attr( $classes ),
+			esc_attr( $support['style'] ),
 		);
 
 	}
@@ -825,24 +1099,53 @@ final class Render_Gallery {
 		// Captions are always an overlay (issue #33), so there is no position to read.
 		$contents = [ 'none', 'filename', 'path' ];
 		$content  = self::one_of( self::read_string( $attributes, 'captionContent' ), $contents, 'none' );
-		$anchors  = [
-			'top-left',
-			'top-center',
-			'top-right',
-			'middle-left',
-			'middle-center',
-			'middle-right',
+		$anchor   = self::one_of(
+			self::read_string( $attributes, 'captionAnchor' ),
+			self::NINE_POINT_ANCHORS,
 			'bottom-left',
-			'bottom-center',
-			'bottom-right',
-		];
-		$anchor   = self::one_of( self::read_string( $attributes, 'captionAnchor' ), $anchors, 'bottom-left' );
+		);
 
 		return new Caption_Settings(
 			$content,
 			self::read_bool( $attributes, 'captionHumanize', true ),
 			self::read_bool( $attributes, 'captionIncludeCollectionName', false ),
 			self::read_string( $attributes, 'captionSeparator' ),
+			$anchor,
+		);
+
+	}
+
+	/**
+	 * Collects the download-icon styling from the attributes into one value object.
+	 *
+	 * Reads the four custom download-icon controls once — size, background,
+	 * foreground, and the nine-point anchor — defaulting each to the documented
+	 * value when absent or empty, and narrowing the anchor to the allowed set. The
+	 * block-support colour panel is claimed by the caption, so the icon's colours
+	 * are bespoke attributes resolved here, not block supports (issue #34).
+	 *
+	 * @since 0.5.0
+	 *
+	 * @param array<string,mixed> $attributes The block attributes.
+	 * @return Download_Settings The resolved download-icon settings.
+	 */
+	private static function download_settings( array $attributes ): Download_Settings {
+
+		// Default each control to its documented value when unset, so a missing
+		// attribute still yields a legible icon; narrow the anchor to the nine points.
+		$size       = self::read_string( $attributes, 'downloadIconSize' );
+		$background = self::read_string( $attributes, 'downloadIconBackground' );
+		$foreground = self::read_string( $attributes, 'downloadIconForeground' );
+		$anchor     = self::one_of(
+			self::read_string( $attributes, 'downloadIconAnchor' ),
+			self::NINE_POINT_ANCHORS,
+			'top-left',
+		);
+
+		return new Download_Settings(
+			$size === '' ? '2rem' : $size,
+			$background === '' ? '#00000080' : $background,
+			$foreground === '' ? '#ffffff' : $foreground,
 			$anchor,
 		);
 

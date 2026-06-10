@@ -50,6 +50,17 @@
 		object-fit: contain;
 	}
 
+	&__download {
+		// The download anchor wraps the enlarged image when download is on; a click
+		// on the image saves the full image (the anchor carries `download`). It is a
+		// shrink-to-fit block so the overlay download icon (the gallery's
+		// `__download` badge, placed by its nine-point anchor) sits inside the
+		// image's own box rather than the whole viewport.
+		position: relative;
+		display: block;
+		cursor: pointer;
+	}
+
 	// While the current slide is loading, the (still-previous) image dims and a
 	// spinner sits over the figure, so a slow link never looks like a stale
 	// photo under an already-updated counter.

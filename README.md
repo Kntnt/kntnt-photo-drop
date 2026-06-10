@@ -98,8 +98,8 @@ Add the **Photo Gallery** block where you want the images shown, and select a co
 
 - **Layout** – a uniform **grid** (mode A, built on core's Grid layout, with a minimum column width and per-image aspect ratio for zero layout shift) or bespoke **justified rows** (mode B, with a target row height).
 - **Ordering** – ascending or descending, by natural sort of the full relative path, so each folder's images stay together.
-- **Captions** – none, filename, or a path breadcrumb, positioned under, above, or as an overlay, with the usual colour and typography controls.
-- **Lightbox** – on by default, built with the WordPress Interactivity API (keyboard, swipe, focus trap, neighbour preload). Each thumbnail is also a plain link to the full image, so the gallery still works without JavaScript.
+- **Captions** – none, filename, or a path breadcrumb, always shown as an anchored overlay inside the image (nine-point anchor), with the caption's colour and typography from the core Colour and Typography panels and each image's border and shadow from the core Border panel.
+- **Click behaviour** – two toggles, **Lightbox** (on by default) and **Download** (off by default). Lightbox opens the image in a modal viewer built with the WordPress Interactivity API (keyboard, swipe, focus trap, neighbour preload). Download saves the full image on click — a download icon overlays each thumbnail when the lightbox is off, or appears only inside the lightbox when both are on (clicking the enlarged image then saves it). The lightbox also mirrors the gallery caption. Each thumbnail is always a plain link to the full image, so the gallery still works without JavaScript.
 
 The gallery is pure server-rendered output plus its view module; it makes no REST or third-party request at view time.
 

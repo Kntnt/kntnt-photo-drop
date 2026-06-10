@@ -7,13 +7,14 @@
  * Collection panel (selector from the editor REST list, start-path control, and a
  * "this folder only" toggle), an Ordering panel, a Layout panel whose revealed
  * controls depend on the mode, a Captions panel whose controls reveal with the
- * content, and a Lightbox toggle — plus an in-canvas `ServerSideRender` preview,
- * so the canvas shows the same markup `Render_Gallery` emits on the frontend.
- * The preview runs in editor-preview mode: it sends the render-time-only
- * `isEditorPreview` flag so the server caps the figures and suppresses the
- * lightbox (clicks stay inert; a collection of thousands never floods the
- * canvas). When there is nothing to render — no collection chosen, a dangling
- * slug, an empty collection, or while the preview loads — a grid of grey
+ * content, and a Click behaviour panel (the Lightbox and Download toggles plus the
+ * download-icon styling that reveals with Download) — plus an in-canvas
+ * `ServerSideRender` preview, so the canvas shows the same markup `Render_Gallery`
+ * emits on the frontend. The preview runs in editor-preview mode: it sends the
+ * render-time-only `isEditorPreview` flag so the server caps the figures and
+ * suppresses the lightbox (clicks stay inert; a collection of thousands never
+ * floods the canvas). When there is nothing to render — no collection chosen, a
+ * dangling slug, an empty collection, or while the preview loads — a grid of grey
  * placeholders stands in for the gallery rather than a bare notice.
  *
  * The collection list comes from the editor-only endpoint
@@ -23,7 +24,11 @@
  * @since 0.6.0
  */
 
-import { useBlockProps, InspectorControls } from '@wordpress/block-editor';
+import {
+	useBlockProps,
+	InspectorControls,
+	PanelColorSettings,
+} from '@wordpress/block-editor';
 import {
 	PanelBody,
 	SelectControl,
@@ -48,6 +53,7 @@ import type {
 	GalleryAttributes,
 	CaptionContent,
 	CaptionAnchor,
+	DownloadIconAnchor,
 	GalleryLayout,
 } from './attributes';
 
@@ -127,6 +133,9 @@ function PreviewPlaceholders(): JSX.Element {
 /**
  * The nine overlay anchor options, paired with their translated labels.
  *
+ * Shared by the caption anchor and the download-icon anchor — both use the same
+ * nine-point vocabulary, so one option list drives both selects.
+ *
  * @since 0.6.0
  *
  * @return The anchor select options.
@@ -191,7 +200,12 @@ export function GalleryEdit( {
 		imageFit,
 		aspectRatio,
 		targetRowHeight,
-		enableLightbox,
+		lightbox,
+		download,
+		downloadIconSize,
+		downloadIconBackground,
+		downloadIconForeground,
+		downloadIconAnchor,
 		captionContent,
 		captionHumanize,
 		captionIncludeCollectionName,
@@ -574,21 +588,106 @@ export function GalleryEdit( {
 				</PanelBody>
 
 				<PanelBody
-					title={ __( 'Lightbox', 'kntnt-photo-drop' ) }
+					title={ __( 'Click behaviour', 'kntnt-photo-drop' ) }
 					initialOpen={ false }
 				>
 					<ToggleControl
 						__nextHasNoMarginBottom
-						label={ __( 'Enable lightbox', 'kntnt-photo-drop' ) }
-						checked={ enableLightbox }
+						label={ __( 'Lightbox', 'kntnt-photo-drop' ) }
+						checked={ lightbox }
 						onChange={ ( value: boolean ) =>
-							setAttributes( { enableLightbox: value } )
+							setAttributes( { lightbox: value } )
 						}
 						help={ __(
-							'A no-JS link to the full image is always present; the lightbox enhances it when on.',
+							'When on, clicking an image opens it in a modal viewer. A no-JS link to the full image is always present.',
 							'kntnt-photo-drop'
 						) }
 					/>
+					<ToggleControl
+						__nextHasNoMarginBottom
+						label={ __( 'Download', 'kntnt-photo-drop' ) }
+						checked={ download }
+						onChange={ ( value: boolean ) =>
+							setAttributes( { download: value } )
+						}
+						help={
+							lightbox
+								? __(
+										'When on, a download icon appears inside the lightbox and clicking the enlarged image downloads the full image.',
+										'kntnt-photo-drop'
+								  )
+								: __(
+										'When on, a download icon overlays each image and clicking it downloads the full image.',
+										'kntnt-photo-drop'
+								  )
+						}
+					/>
+					{ download && (
+						<>
+							<UnitControl
+								__next40pxDefaultSize
+								label={ __(
+									'Download icon size',
+									'kntnt-photo-drop'
+								) }
+								value={ downloadIconSize }
+								onChange={ ( value: string | undefined ) =>
+									setAttributes( {
+										downloadIconSize: value ?? '2rem',
+									} )
+								}
+							/>
+							<SelectControl
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								label={ __(
+									'Download icon anchor',
+									'kntnt-photo-drop'
+								) }
+								value={ downloadIconAnchor }
+								options={ anchorOptions() }
+								onChange={ ( value: string ) =>
+									setAttributes( {
+										downloadIconAnchor:
+											value as DownloadIconAnchor,
+									} )
+								}
+							/>
+							<PanelColorSettings
+								__experimentalIsRenderedInSidebar
+								title={ __(
+									'Download icon colours',
+									'kntnt-photo-drop'
+								) }
+								colorSettings={ [
+									{
+										value: downloadIconBackground,
+										onChange: ( value?: string ) =>
+											setAttributes( {
+												downloadIconBackground:
+													value ?? '#00000080',
+											} ),
+										label: __(
+											'Background',
+											'kntnt-photo-drop'
+										),
+									},
+									{
+										value: downloadIconForeground,
+										onChange: ( value?: string ) =>
+											setAttributes( {
+												downloadIconForeground:
+													value ?? '#ffffff',
+											} ),
+										label: __(
+											'Foreground',
+											'kntnt-photo-drop'
+										),
+									},
+								] }
+							/>
+						</>
+					) }
 				</PanelBody>
 			</InspectorControls>
 

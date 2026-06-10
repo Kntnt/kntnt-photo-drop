@@ -96,6 +96,91 @@
 		line-height: 1.3;
 	}
 
+	&__download {
+		// The overlay download icon: a circular, absolutely-placed badge inside the
+		// image, drawn purely from the three inline custom properties the server
+		// emits (size, background, foreground). It is decorative — the click target
+		// is the enclosing anchor's `download` — so it never intercepts the pointer.
+		position: absolute;
+		z-index: 2;
+		box-sizing: border-box;
+		width: var(--kntnt-photo-drop-download-size, 2rem);
+		height: var(--kntnt-photo-drop-download-size, 2rem);
+		padding: 0.25em;
+		color: var(--kntnt-photo-drop-download-fg, #fff);
+		background: var(--kntnt-photo-drop-download-bg, #00000080);
+		border-radius: 50%;
+		pointer-events: none;
+
+		// The download glyph is a masked SVG so the foreground colour paints it; no
+		// SVG element, icon font, or extra request is needed. The arrow-into-tray
+		// glyph is an inline SVG data URI; both the standard and the -webkit- mask
+		// are set for Safari.
+		&::before {
+			--kntnt-photo-drop-download-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3v10m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+			content: "";
+			display: block;
+			width: 100%;
+			height: 100%;
+			background: currentcolor;
+			mask: var(--kntnt-photo-drop-download-glyph) center / contain no-repeat;
+			-webkit-mask: var(--kntnt-photo-drop-download-glyph) center / contain no-repeat;
+		}
+	}
+
+	// The nine anchors place the download icon at the same edge insets the caption
+	// uses; a small inset keeps the badge clear of the very corner.
+	&__download--anchor-top-left {
+		top: 0.4em;
+		left: 0.4em;
+	}
+
+	&__download--anchor-top-center {
+		top: 0.4em;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	&__download--anchor-top-right {
+		top: 0.4em;
+		right: 0.4em;
+	}
+
+	&__download--anchor-middle-left {
+		top: 50%;
+		left: 0.4em;
+		transform: translateY(-50%);
+	}
+
+	&__download--anchor-middle-center {
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+	}
+
+	&__download--anchor-middle-right {
+		top: 50%;
+		right: 0.4em;
+		transform: translateY(-50%);
+	}
+
+	&__download--anchor-bottom-left {
+		bottom: 0.4em;
+		left: 0.4em;
+	}
+
+	&__download--anchor-bottom-center {
+		bottom: 0.4em;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	&__download--anchor-bottom-right {
+		bottom: 0.4em;
+		right: 0.4em;
+	}
+
 	// The legible default overlay colours live at zero specificity (`:where`), so
 	// both a panel's preset classname and a panel's inline declaration win over
 	// them — the caption reads on an unstyled image yet defers the moment the
