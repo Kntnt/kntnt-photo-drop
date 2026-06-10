@@ -72,7 +72,7 @@ export interface FileSystemEntryLike {
  * Only `kind` and `webkitGetAsEntry` are needed; a real `DataTransferItem`
  * satisfies this structurally. `webkitGetAsEntry` is optional in the type
  * because older or non-Chromium browsers may not expose it — such items
- * simply yield no entry and are left to FilePond's own handling.
+ * simply yield no entry and fall through to the plain-file intake.
  *
  * @since 0.5.0
  */
@@ -119,7 +119,7 @@ export function snapshotEntries(
 	const entries: FileSystemEntryLike[] = [];
 
 	// Only file-kind items can carry an entry; everything else is dragged
-	// text or an unsupported browser, both left to FilePond.
+	// text or an unsupported browser, both excluded from the snapshot.
 	for ( const item of items ) {
 		if ( item.kind !== 'file' || ! item.webkitGetAsEntry ) {
 			continue;
@@ -137,7 +137,7 @@ export function snapshotEntries(
  * Reports whether a snapshot contains at least one directory.
  *
  * This is the trigger for the folder warning: a drop with no directory entry
- * is the loose-file fast path and FilePond handles it untouched.
+ * is the loose-file fast path and uploads proceed untouched.
  *
  * @since 0.2.0
  *

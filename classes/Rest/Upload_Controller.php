@@ -343,9 +343,9 @@ class Upload_Controller {
 	/**
 	 * Reads the `wp_rest` nonce from the request, header first.
 	 *
-	 * Prefers the canonical `X-WP-Nonce` header that `wp.apiFetch` and FilePond's
-	 * configured headers send, falling back to a `_wpnonce` parameter. The value
-	 * is sanitised before it reaches `wp_verify_nonce()`.
+	 * Prefers the canonical `X-WP-Nonce` header that `wp.apiFetch` and the Drop
+	 * Zone's upload pipeline send, falling back to a `_wpnonce` parameter. The
+	 * value is sanitised before it reaches `wp_verify_nonce()`.
 	 *
 	 * @since 0.4.0
 	 *
