@@ -138,7 +138,7 @@ final class Admin_Page {
 	 * registered (and when registration fails), in which case no styles are
 	 * ever added.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 * @var string
 	 */
 	private string $page_hook = '';
@@ -212,7 +212,7 @@ final class Admin_Page {
 	 * They ride the always-present `common` admin stylesheet as inline CSS, so
 	 * no extra stylesheet request is made for a few rules.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param string $hook_suffix The current admin screen's hook suffix.
 	 */

@@ -60,6 +60,7 @@ function wire_render_stubs( string $basedir, bool $cap_ok ): void {
 	);
 	Functions\when( '__' )->returnArg( 1 );
 	Functions\when( 'esc_html__' )->returnArg( 1 );
+	Functions\when( 'esc_attr__' )->returnArg( 1 );
 	Functions\when( 'esc_html' )->returnArg( 1 );
 	Functions\when( 'esc_attr' )->returnArg( 1 );
 	Functions\when( 'wp_json_encode' )->alias(
@@ -189,6 +190,24 @@ test( 'a capable user gets the drop-surface markup and a nonce', function (): vo
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__file-input' );
 	expect( $html )->toContain( 'data-wp-interactive' );
 	expect( $html )->toContain( 'webkitdirectory' );
+
+	render_remove_tree( $basedir );
+} );
+
+test( 'the drop surface is keyboard-operable: tabindex, role, and an aria-label', function (): void {
+
+	// The surface is the click-to-browse trigger; a keyboard user must be able to
+	// Tab to it and activate it, so it carries tabindex="0", role="button", and a
+	// translatable aria-label (issue #31 accessibility).
+	$basedir = fresh_render_basedir();
+	wire_render_stubs( $basedir, cap_ok: true );
+	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+
+	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
+
+	expect( $html )->toMatch( '/<div class="kntnt-photo-drop-drop-zone__surface"[^>]* tabindex="0"/' );
+	expect( $html )->toMatch( '/<div class="kntnt-photo-drop-drop-zone__surface"[^>]* role="button"/' );
+	expect( $html )->toMatch( '/<div class="kntnt-photo-drop-drop-zone__surface"[^>]* aria-label="[^"]+"/' );
 
 	render_remove_tree( $basedir );
 } );

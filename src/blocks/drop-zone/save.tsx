@@ -12,7 +12,7 @@
  * wrapper is left to render.php, which calls `get_block_wrapper_attributes()`
  * there, so this component emits no wrapper of its own.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 
 import { InnerBlocks } from '@wordpress/block-editor';
@@ -25,7 +25,7 @@ import type { JSX } from '@wordpress/element';
  * placeholder replacement, the drop surface, the nonce — is produced by
  * render.php on every request, never stored here.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @return The serialised inner-block markup.
  */

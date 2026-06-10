@@ -72,7 +72,7 @@ final class Render_Gallery {
 	 * nine anchors, so the allowed-value set and the default-narrowing live in one
 	 * place rather than being duplicated per overlay.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 * @var array<int,string>
 	 */
 	private const NINE_POINT_ANCHORS = [
@@ -99,7 +99,7 @@ final class Render_Gallery {
 	 * a frontend render reads `false` and neither the cap nor the lightbox
 	 * suppression below can leak past the editor.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 * @var string
 	 */
 	private const PREVIEW_ATTRIBUTE = 'isEditorPreview';
@@ -111,7 +111,7 @@ final class Render_Gallery {
 	 * render them all into the canvas. The frontend has no cap — it walks and
 	 * emits the whole set.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 * @var int
 	 */
 	private const PREVIEW_FIGURE_CAP = 6;
@@ -133,7 +133,7 @@ final class Render_Gallery {
 	 * on the preview request, so the frontend render is unaffected.
 	 *
 	 * @since 0.6.0
-	 * @since 0.5.0 Added the capped, lightbox-suppressed editor-preview mode.
+	 * @since 0.4.0 Added the capped, lightbox-suppressed editor-preview mode.
 	 *
 	 * @param array<string,mixed> $attributes Block attributes (see docs/blocks.md).
 	 * @param string              $content    Inner block HTML (unused — no inner blocks).
@@ -206,7 +206,7 @@ final class Render_Gallery {
 	 * standard block-supports attributes plus a lightbox flag the view module reads.
 	 *
 	 * @since 0.6.0
-	 * @since 0.5.0 Added the `$is_preview` flag to suppress the lightbox in the editor.
+	 * @since 0.4.0 Added the `$is_preview` flag to suppress the lightbox in the editor.
 	 *
 	 * @param array<string,mixed>     $attributes The block attributes.
 	 * @param array<int,Gallery_Item> $items      The flattened, ordered images.
@@ -242,16 +242,22 @@ final class Render_Gallery {
 		// the whole matrix (issue #34). The gallery thumbnail carries the download
 		// icon and downloads on click only when download is on and the lightbox is
 		// off; with the lightbox on, the icon and the download move into the lightbox.
-		$lightbox          = ! $is_preview && self::read_bool( $attributes, 'lightbox', true );
+		// The `$lightbox_enabled` flag is the editor-set toggle as authored; `$lightbox`
+		// is that toggle gated by the preview (a preview never wires the lightbox). The
+		// thumbnail cell keys off the authored toggle, not the gated one, so an editor
+		// preview with lightbox+download on still moves the download into the lightbox
+		// rather than wrongly painting thumbnail icons.
+		$lightbox_enabled  = self::read_bool( $attributes, 'lightbox', true );
+		$lightbox          = ! $is_preview && $lightbox_enabled;
 		$download          = self::read_bool( $attributes, 'download', false );
 		$download_settings = self::download_settings( $attributes );
-		$on_thumbnail      = $download && ! $lightbox;
-		$figure_behaviour  = new Click_Behaviour(
-			$lightbox,
-			$on_thumbnail,
-			$on_thumbnail,
-			$download_settings,
-		);
+		$on_thumbnail      = $download && ! $lightbox_enabled;
+		$figure_behaviour  = new Click_Behaviour( $on_thumbnail, $download_settings );
+
+		// Pre-compose every render-constant string the figure loop would otherwise
+		// rebuild per image — the download icon, the image class/style, and the caption
+		// class prefix/style — so a thousand-image gallery escapes each only once.
+		$chrome = self::figure_chrome( $figure_behaviour, $caption, $caption_support, $image_support );
 
 		// Choose the layout and build the figures accordingly: justified rows need
 		// per-image flex math, the grid needs only the per-image aspect ratio.
@@ -259,27 +265,9 @@ final class Render_Gallery {
 			? self::LAYOUT_JUSTIFIED
 			: self::LAYOUT_GRID;
 		if ( $layout === self::LAYOUT_JUSTIFIED ) {
-			$figures = self::justified_figures(
-				$items,
-				$descriptor,
-				$base_url,
-				$caption,
-				$caption_support,
-				$image_support,
-				$figure_behaviour,
-				$attributes,
-			);
+			$figures = self::justified_figures( $items, $descriptor, $base_url, $caption, $chrome, $attributes );
 		} else {
-			$figures = self::grid_figures(
-				$items,
-				$descriptor,
-				$base_url,
-				$caption,
-				$caption_support,
-				$image_support,
-				$figure_behaviour,
-				$attributes,
-			);
+			$figures = self::grid_figures( $items, $descriptor, $base_url, $caption, $chrome, $attributes );
 		}
 
 		return self::wrap(
@@ -297,6 +285,63 @@ final class Render_Gallery {
 	}
 
 	/**
+	 * Pre-composes the render-constant figure chrome once per gallery render.
+	 *
+	 * Everything a figure carries that does not vary from image to image — the
+	 * overlay download icon, the `<img>` class and style, and the caption class
+	 * prefix and style — is composed and escaped here, so the per-figure hot loop
+	 * (a gallery can hold thousands of images) interpolates the finished strings
+	 * instead of rebuilding and re-escaping them on every iteration. The image and
+	 * caption styles come back empty when their block-support panels contributed
+	 * nothing, so the figure builder can omit the `style` attribute entirely.
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
+	 * @param Caption_Settings                 $caption         The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
+	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
+	 * @return Figure_Chrome The render-constant chrome the figure loop reuses.
+	 */
+	private static function figure_chrome(
+		Click_Behaviour $behaviour,
+		Caption_Settings $caption,
+		array $caption_support,
+		array $image_support,
+	): Figure_Chrome {
+
+		// Paint the overlay download icon and arm the anchor's download attribute only
+		// in the download-on / lightbox-off cell; in every other cell both are absent.
+		$icon          = $behaviour->on_thumbnail ? self::download_icon( $behaviour->settings ) : '';
+		$download_attr = $behaviour->on_thumbnail ? ' download' : '';
+
+		// Compose the <img> class (base plus any border-colour preset classnames) and
+		// fold in the panels' inline declarations as the style.
+		$image_class = 'kntnt-photo-drop-gallery__image';
+		if ( $image_support['class'] !== '' ) {
+			$image_class .= ' ' . $image_support['class'];
+		}
+
+		// Compose the caption class prefix (base, nine-point anchor, and any
+		// colour/typography preset classnames); the per-figure text is appended later.
+		$caption_class = 'kntnt-photo-drop-gallery__caption'
+			. ' kntnt-photo-drop-gallery__caption--anchor-' . $caption->anchor;
+		if ( $caption_support['class'] !== '' ) {
+			$caption_class .= ' ' . $caption_support['class'];
+		}
+
+		return new Figure_Chrome(
+			$download_attr,
+			$icon,
+			esc_attr( $image_class ),
+			esc_attr( $image_support['style'] ),
+			esc_attr( $caption_class ),
+			esc_attr( $caption_support['style'] ),
+		);
+
+	}
+
+	/**
 	 * Builds the figures for the uniform-grid layout (mode A).
 	 *
 	 * Each figure carries the image's stored dimensions and an `aspect-ratio` (the
@@ -305,14 +350,12 @@ final class Render_Gallery {
 	 *
 	 * @since 0.6.0
 	 *
-	 * @param array<int,Gallery_Item>          $items           The images.
-	 * @param Descriptor                       $descriptor      The collection contract.
-	 * @param string                           $base_url        The collection base URL.
-	 * @param Caption_Settings                 $caption         The resolved caption settings.
-	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
-	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
-	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
-	 * @param array<string,mixed>              $attributes      The block attributes.
+	 * @param array<int,Gallery_Item> $items      The images.
+	 * @param Descriptor              $descriptor The collection contract.
+	 * @param string                  $base_url   The collection base URL.
+	 * @param Caption_Settings        $caption    The resolved caption settings.
+	 * @param Figure_Chrome           $chrome     The render-constant figure chrome.
+	 * @param array<string,mixed>     $attributes The block attributes.
 	 * @return string The concatenated figure markup.
 	 */
 	private static function grid_figures(
@@ -320,15 +363,14 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $base_url,
 		Caption_Settings $caption,
-		array $caption_support,
-		array $image_support,
-		Click_Behaviour $behaviour,
+		Figure_Chrome $chrome,
 		array $attributes,
 	): string {
 
-		// A fixed block aspect-ratio overrides the per-image ratio for every cell;
-		// an empty value keeps each image's own stored ratio (zero layout shift).
-		$fixed_ratio = self::read_string( $attributes, 'aspectRatio' );
+		// A fixed block aspect-ratio overrides the per-image ratio for every cell; a
+		// malformed or empty value keeps each image's own stored ratio (zero layout
+		// shift). The ratio is shape-validated because it lands in an inline style.
+		$fixed_ratio = self::css_aspect_ratio( self::read_string( $attributes, 'aspectRatio' ) );
 		$image_fit   = self::read_string( $attributes, 'imageFit' ) === 'contain' ? 'contain' : 'cover';
 
 		// Derive one sizes hint for every cell from the minimum column width: below
@@ -340,7 +382,9 @@ final class Render_Gallery {
 		$sizes      = sprintf( 'auto, (max-width: %dpx) 100vw, %dpx', $min_column, (int) round( $min_column * 1.5 ) );
 
 		// Build one figure per image, giving each a wrapper style that fixes its
-		// aspect ratio and the object-fit so the grid cell is stable before load.
+		// aspect ratio and the object-fit so the grid cell is stable before load. The
+		// per-image aspect ratio is the only render-varying part of the grid style; a
+		// fixed block ratio (validated once above) overrides it for every cell.
 		$markup = '';
 		foreach ( $items as $item ) {
 			$ratio   = $fixed_ratio !== '' ? $fixed_ratio : $item->width . ' / ' . $item->height;
@@ -350,9 +394,7 @@ final class Render_Gallery {
 				$descriptor,
 				$base_url,
 				$caption,
-				$caption_support,
-				$image_support,
-				$behaviour,
+				$chrome,
 				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--grid',
@@ -373,14 +415,12 @@ final class Render_Gallery {
 	 *
 	 * @since 0.6.0
 	 *
-	 * @param array<int,Gallery_Item>          $items           The images.
-	 * @param Descriptor                       $descriptor      The collection contract.
-	 * @param string                           $base_url        The collection base URL.
-	 * @param Caption_Settings                 $caption         The resolved caption settings.
-	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
-	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
-	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
-	 * @param array<string,mixed>              $attributes      The block attributes.
+	 * @param array<int,Gallery_Item> $items      The images.
+	 * @param Descriptor              $descriptor The collection contract.
+	 * @param string                  $base_url   The collection base URL.
+	 * @param Caption_Settings        $caption    The resolved caption settings.
+	 * @param Figure_Chrome           $chrome     The render-constant figure chrome.
+	 * @param array<string,mixed>     $attributes The block attributes.
 	 * @return string The concatenated figure markup.
 	 */
 	private static function justified_figures(
@@ -388,9 +428,7 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $base_url,
 		Caption_Settings $caption,
-		array $caption_support,
-		array $image_support,
-		Click_Behaviour $behaviour,
+		Figure_Chrome $chrome,
 		array $attributes,
 	): string {
 
@@ -433,9 +471,7 @@ final class Render_Gallery {
 				$descriptor,
 				$base_url,
 				$caption,
-				$caption_support,
-				$image_support,
-				$behaviour,
+				$chrome,
 				$sizes,
 				$style,
 				'kntnt-photo-drop-gallery__item--justified',
@@ -463,25 +499,23 @@ final class Render_Gallery {
 	 * caption, when any, is always an anchored overlay inside the image
 	 * (issue #33) and so follows the link; its text is also mirrored onto the
 	 * anchor as a data attribute so the lightbox slide can show the same caption.
-	 * The click behaviour (issue #34) decides whether the anchor carries the
-	 * `download` attribute — so a plain click saves the main image instead of
-	 * navigating — and whether the overlay download icon is painted on the
-	 * thumbnail. Every URL and attribute is escaped at the point of output.
+	 * The render-constant chrome (issue #34) — the download attribute, the overlay
+	 * download icon, and the image/caption classes and styles — is pre-composed once
+	 * per render and threaded in via `$chrome`, so this loop only fills in the
+	 * per-image URL, dimensions, srcset, and caption text. Every URL and attribute is
+	 * escaped at the point of output (the `$chrome` strings were escaped on
+	 * construction).
 	 *
-	 * @since 0.7.0
-	 * @since 0.2.0 Added the `$sizes` parameter and the anchor's srcset data attribute.
-	 * @since 0.5.0 Added the click behaviour (download attribute, overlay icon, caption data attribute).
+	 * @since 0.4.0
 	 *
-	 * @param Gallery_Item                     $item            The image.
-	 * @param Descriptor                       $descriptor      The collection contract.
-	 * @param string                           $base_url        The collection base URL.
-	 * @param Caption_Settings                 $caption         The resolved caption settings.
-	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
-	 * @param array{style:string,class:string} $image_support   The image block-support style/class.
-	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
-	 * @param string                           $sizes           The layout-aware `sizes` attribute value.
-	 * @param string                           $item_style      The inline style for the figure (layout-specific).
-	 * @param string                           $item_class      The layout-specific figure class.
+	 * @param Gallery_Item     $item       The image.
+	 * @param Descriptor       $descriptor The collection contract.
+	 * @param string           $base_url   The collection base URL.
+	 * @param Caption_Settings $caption The resolved caption settings.
+	 * @param Figure_Chrome    $chrome     The render-constant figure chrome.
+	 * @param string           $sizes      The layout-aware `sizes` attribute value.
+	 * @param string           $item_style The inline style for the figure (layout-specific).
+	 * @param string           $item_class The layout-specific figure class.
 	 * @return string The figure markup.
 	 */
 	private static function figure(
@@ -489,9 +523,7 @@ final class Render_Gallery {
 		Descriptor $descriptor,
 		string $base_url,
 		Caption_Settings $caption,
-		array $caption_support,
-		array $image_support,
-		Click_Behaviour $behaviour,
+		Figure_Chrome $chrome,
 		string $sizes,
 		string $item_style,
 		string $item_class,
@@ -513,23 +545,19 @@ final class Render_Gallery {
 		// srcset refines), derive the alt from the filename, and assemble the caption
 		// text once — it feeds both the overlay figcaption and the anchor's caption
 		// data attribute the lightbox mirrors.
-		$smallest      = $candidates[0]['url'] ?? $main_url;
-		$alt           = Caption_Builder::build( $relative, Caption_Builder::CONTENT_FILENAME, true, false, '', '' );
-		$caption_text  = self::caption_text( $relative, $caption, $descriptor->name );
-		$caption_html  = self::caption_html( $caption_text, $caption->anchor, $caption_support );
+		$smallest     = $candidates[0]['url'] ?? $main_url;
+		$alt          = Caption_Builder::build( $relative, Caption_Builder::CONTENT_FILENAME, true, false, '', '' );
+		$caption_text = self::caption_text( $relative, $caption, $descriptor->name );
+		$caption_html = self::caption_html( $caption_text, $chrome->caption_class, $chrome->caption_style );
 
-		// Compose the lazy, dimensioned <img>, carrying the border/shadow block
-		// supports. The image class folds in any preset classnames the border-colour
-		// panel contributed; the inline style carries the panels' declarations.
-		$image_class = 'kntnt-photo-drop-gallery__image';
-		if ( $image_support['class'] !== '' ) {
-			$image_class .= ' ' . $image_support['class'];
-		}
+		// Compose the lazy, dimensioned <img>, carrying the pre-escaped border/shadow
+		// block-support class and style; the style attribute is omitted entirely when
+		// the panels contributed nothing rather than shipping an empty `style=""`.
 		$image = sprintf(
-			'<img class="%1$s" style="%2$s" src="%3$s" srcset="%4$s" sizes="%5$s"'
+			'<img class="%1$s"%2$s src="%3$s" srcset="%4$s" sizes="%5$s"'
 				. ' width="%6$d" height="%7$d" loading="lazy" decoding="async" alt="%8$s" />',
-			esc_attr( $image_class ),
-			esc_attr( $image_support['style'] ),
+			$chrome->image_class,
+			$chrome->image_style === '' ? '' : sprintf( ' style="%s"', $chrome->image_style ),
 			esc_url( $smallest ),
 			esc_attr( $srcset ),
 			esc_attr( $sizes ),
@@ -540,36 +568,32 @@ final class Render_Gallery {
 
 		// Wrap the image in an <a href> to the main image — the no-JS fallback and the
 		// lightbox's upgrade hook. The data attributes hand the main URL, the srcset,
-		// and the caption text to the lightbox without re-parsing the markup. When the
-		// behaviour downloads, the `download` attribute makes a plain click save the
-		// main image rather than navigate; the no-JS fallback (no attribute) navigates.
-		$download_attr = $behaviour->downloads ? ' download' : '';
-		$caption_attr  = $caption_text !== ''
+		// and the caption text to the lightbox without re-parsing the markup. The
+		// pre-composed download attribute makes a plain click save the main image rather
+		// than navigate in the download-on / lightbox-off cell; the no-JS fallback (no
+		// attribute) navigates.
+		$caption_attr = $caption_text !== ''
 			? sprintf( ' data-kntnt-photo-drop-caption="%s"', esc_attr( $caption_text ) )
 			: '';
-		$link          = sprintf(
+		$link         = sprintf(
 			'<a class="kntnt-photo-drop-gallery__link" href="%1$s"%2$s data-kntnt-photo-drop-full="%1$s"'
 				. ' data-kntnt-photo-drop-srcset="%3$s"%4$s>%5$s</a>',
 			esc_url( $main_url ),
-			$download_attr,
+			$chrome->download_attr,
 			esc_attr( $srcset ),
 			$caption_attr,
 			$image,
 		);
 
-		// Paint the overlay download icon on the thumbnail only in the download-on /
-		// lightbox-off cell; in every other cell the figure carries no icon.
-		$icon = $behaviour->shows_icon ? self::download_icon( $behaviour->download ) : '';
-
-		// The caption and the icon are both anchored overlays over the image, so they
-		// follow the link inside the figure and are positioned absolutely by their
-		// anchor classes.
+		// The caption and the pre-built icon are both anchored overlays over the image,
+		// so they follow the link inside the figure and are positioned absolutely by
+		// their anchor classes.
 		return sprintf(
 			'<figure class="kntnt-photo-drop-gallery__item %1$s" style="%2$s">%3$s%4$s%5$s</figure>',
 			esc_attr( $item_class ),
 			esc_attr( $item_style ),
 			$link,
-			$icon,
+			$chrome->icon,
 			$caption_html,
 		);
 
@@ -582,11 +606,11 @@ final class Render_Gallery {
 	 * carries the `download` attribute) anchored inside the image by the nine-point
 	 * anchor class and styled by the bespoke download-icon controls — size,
 	 * background, foreground — projected as inline custom properties the stylesheet
-	 * reads. The glyph itself is a CSS-drawn down-arrow-to-tray, so no SVG or font
-	 * dependency is needed. It is `aria-hidden`: the accessible affordance is the
-	 * anchor's own download semantics.
+	 * reads. The glyph itself is an inline SVG data URI painted through a CSS mask, so
+	 * there is no SVG element in the markup, icon font, or extra request. It is
+	 * `aria-hidden`: the accessible affordance is the anchor's own download semantics.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param Download_Settings $download The resolved download-icon styling.
 	 * @return string The icon overlay markup.
@@ -622,7 +646,7 @@ final class Render_Gallery {
 	 * draw on the same single assembly per figure. An empty result (content "none"
 	 * or an empty breadcrumb) means no caption is shown anywhere for that image.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param string           $relative_path   The image path relative to the root.
 	 * @param Caption_Settings $caption         The resolved caption settings.
@@ -650,25 +674,20 @@ final class Render_Gallery {
 	 * Captions are always an anchored overlay inside the image (issue #33), so the
 	 * class always carries the nine-point anchor variant. The figcaption's colour and
 	 * typography arrive from the colour/typography block-support panels, pre-projected
-	 * by `Block_Style_Support::caption()` into the `$support` style/class pair (the
-	 * core Image-block skip-serialization pattern), so this method appends them
-	 * verbatim rather than reading any bespoke colour attribute. Empty text yields no
-	 * element at all. The same builder serves the gallery figures and the lightbox
-	 * slide, so the lightbox caption is the identical overlay element (issue #34).
+	 * into the `$class`/`$style` pair the caller passes (the core Image-block
+	 * skip-serialization pattern), so this method emits them verbatim rather than
+	 * reading any bespoke colour attribute. Empty text yields no element at all — the
+	 * lightbox's always-present empty caption uses the shared `figcaption()` composer
+	 * directly instead.
 	 *
-	 * @since 0.7.0
-	 * @since 0.5.0 Takes pre-assembled text and the anchor so the lightbox can reuse it.
+	 * @since 0.4.0
 	 *
-	 * @param string                           $text    The assembled caption text (escaped here).
-	 * @param string                           $anchor  The nine-point overlay anchor.
-	 * @param array{style:string,class:string} $support The figcaption block-support style and classes.
+	 * @param string $text       The assembled caption text (escaped here).
+	 * @param string $class_attr The pre-escaped figcaption class attribute value.
+	 * @param string $style_attr The pre-escaped figcaption style attribute value.
 	 * @return string The figcaption markup, or '' when the text is empty.
 	 */
-	private static function caption_html(
-		string $text,
-		string $anchor,
-		array $support,
-	): string {
+	private static function caption_html( string $text, string $class_attr, string $style_attr ): string {
 
 		// Empty text means no caption element at all (content "none" or an empty
 		// breadcrumb).
@@ -676,21 +695,32 @@ final class Render_Gallery {
 			return '';
 		}
 
-		// Compose the overlay's classes — the base, the nine-point anchor, and the
-		// preset classnames the colour/typography panels contributed — plus the
-		// inline declarations the same panels produced (border/shadow go to the image).
-		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-gallery__caption--anchor-' . $anchor;
-		if ( $support['class'] !== '' ) {
-			$classes .= ' ' . $support['class'];
-		}
+		return self::figcaption( $class_attr, $style_attr, esc_html( $text ) );
 
+	}
+
+	/**
+	 * Emits the single `<figcaption>` markup both the gallery and the lightbox use.
+	 *
+	 * The one source of the overlay caption element, so the gallery figures and the
+	 * lightbox slide share identical structure (issue #34). The class and style are
+	 * already escaped by the caller; the style attribute is omitted entirely when the
+	 * block-support panels contributed nothing.
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param string $class_attr The pre-escaped figcaption class attribute value.
+	 * @param string $style_attr The pre-escaped figcaption style attribute value.
+	 * @param string $inner      The figcaption's inner HTML (already escaped, or '' for the lightbox).
+	 * @return string The figcaption markup.
+	 */
+	private static function figcaption( string $class_attr, string $style_attr, string $inner ): string {
 		return sprintf(
-			'<figcaption class="%1$s" style="%2$s">%3$s</figcaption>',
-			esc_attr( $classes ),
-			esc_attr( $support['style'] ),
-			esc_html( $text ),
+			'<figcaption class="%1$s"%2$s>%3$s</figcaption>',
+			$class_attr,
+			$style_attr === '' ? '' : sprintf( ' style="%s"', $style_attr ),
+			$inner,
 		);
-
 	}
 
 	/**
@@ -721,7 +751,7 @@ final class Render_Gallery {
 	 *
 	 * @since 0.6.0
 	 * @since 0.2.0 The `init` hook is also bound for the justified layout with the lightbox off.
-	 * @since 0.5.0 Replaced the single lightbox flag with the lightbox + download click matrix.
+	 * @since 0.4.0 Replaced the single lightbox flag with the lightbox + download click matrix.
 	 *
 	 * @param array<string,mixed>              $attributes        The block attributes.
 	 * @param string                           $layout            The resolved layout token.
@@ -755,8 +785,7 @@ final class Render_Gallery {
 			$container_class = 'kntnt-photo-drop-gallery__layout kntnt-photo-drop-gallery__layout--justified';
 			$container_style = sprintf( '--kntnt-photo-drop-gap:%s;', $gap );
 		} else {
-			$min_column      = self::read_string( $attributes, 'minimumColumnWidth' );
-			$min_column      = $min_column === '' ? '320px' : $min_column;
+			$min_column      = self::css_length( self::read_string( $attributes, 'minimumColumnWidth' ), '320px' );
 			$container_class = 'kntnt-photo-drop-gallery__layout kntnt-photo-drop-gallery__layout--grid';
 			$container_style = sprintf(
 				'--kntnt-photo-drop-gap:%s;--kntnt-photo-drop-min-column:%s;',
@@ -856,7 +885,7 @@ final class Render_Gallery {
 	 *
 	 * @since 0.7.0
 	 * @since 0.2.0 Added the hidden load-failure message element.
-	 * @since 0.5.0 Added the in-lightbox download affordance and the mirrored caption.
+	 * @since 0.4.0 Added the in-lightbox download affordance and the mirrored caption.
 	 *
 	 * @param bool                             $download          Whether the in-lightbox download is on.
 	 * @param Caption_Settings                 $caption           The resolved caption settings.
@@ -920,7 +949,7 @@ final class Render_Gallery {
 	 * colour/typography projection — so the lightbox caption mirrors the gallery; the
 	 * view module fills its text per slide.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param bool                             $download          Whether the in-lightbox download is on.
 	 * @param Caption_Settings                 $caption           The resolved caption settings.
@@ -969,7 +998,7 @@ final class Render_Gallery {
 	 * preset classnames and inline declarations — but with empty text the view module
 	 * fills per slide from each thumbnail's caption data attribute.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param string                           $anchor  The nine-point overlay anchor.
 	 * @param array{style:string,class:string} $support The figcaption block-support style/class.
@@ -977,19 +1006,16 @@ final class Render_Gallery {
 	 */
 	private static function lightbox_caption( string $anchor, array $support ): string {
 
-		// Compose the same caption classes the gallery figures use, so the lightbox
-		// caption is styled and placed identically; the view module supplies the text.
+		// Compose the same caption classes the gallery figures use plus the lightbox
+		// marker, so the lightbox caption is styled and placed identically; the view
+		// module supplies the text, so this figcaption ships empty (always present).
 		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-lightbox__caption'
 			. ' kntnt-photo-drop-gallery__caption--anchor-' . $anchor;
 		if ( $support['class'] !== '' ) {
 			$classes .= ' ' . $support['class'];
 		}
 
-		return sprintf(
-			'<figcaption class="%1$s" style="%2$s"></figcaption>',
-			esc_attr( $classes ),
-			esc_attr( $support['style'] ),
-		);
+		return self::figcaption( esc_attr( $classes ), esc_attr( $support['style'] ), '' );
 
 	}
 
@@ -1124,30 +1150,28 @@ final class Render_Gallery {
 	 * block-support colour panel is claimed by the caption, so the icon's colours
 	 * are bespoke attributes resolved here, not block supports (issue #34).
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @return Download_Settings The resolved download-icon settings.
 	 */
 	private static function download_settings( array $attributes ): Download_Settings {
 
-		// Default each control to its documented value when unset, so a missing
-		// attribute still yields a legible icon; narrow the anchor to the nine points.
-		$size       = self::read_string( $attributes, 'downloadIconSize' );
-		$background = self::read_string( $attributes, 'downloadIconBackground' );
-		$foreground = self::read_string( $attributes, 'downloadIconForeground' );
+		// Default each control to its documented value when unset, and strictly
+		// shape-validate the free-text size and colours so a hostile value cannot
+		// inject extra declarations into the icon's inline style (these values are
+		// interpolated, and esc_attr does not strip `;`/`:`). Narrow the anchor to the
+		// nine points.
+		$size       = self::css_length( self::read_string( $attributes, 'downloadIconSize' ), '2rem' );
+		$background = self::css_color( self::read_string( $attributes, 'downloadIconBackground' ), '#00000080' );
+		$foreground = self::css_color( self::read_string( $attributes, 'downloadIconForeground' ), '#ffffff' );
 		$anchor     = self::one_of(
 			self::read_string( $attributes, 'downloadIconAnchor' ),
 			self::NINE_POINT_ANCHORS,
 			'top-left',
 		);
 
-		return new Download_Settings(
-			$size === '' ? '2rem' : $size,
-			$background === '' ? '#00000080' : $background,
-			$foreground === '' ? '#ffffff' : $foreground,
-			$anchor,
-		);
+		return new Download_Settings( $size, $background, $foreground, $anchor );
 
 	}
 
@@ -1160,7 +1184,7 @@ final class Render_Gallery {
 	 * treats an empty response as its empty case and shows its own grey
 	 * placeholders, which is the chosen "no collection / empty / dangling" UI.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param bool $is_preview Whether this is the capped editor preview.
 	 * @return string The notice markup, '', or '' for the preview's placeholder case.
@@ -1265,20 +1289,104 @@ final class Render_Gallery {
 	}
 
 	/**
-	 * Extracts a leading pixel count from a CSS length, defaulting when absent.
+	 * The CSS pixels assumed per `rem`/`em` when packing a non-`px` gap.
 	 *
-	 * The gap attribute is a CSS length such as `12px`; the justified math needs a
-	 * plain pixel number for row packing. A non-`px` value (a `var()`, an `em`)
-	 * falls back to the default so the packing still runs.
+	 * The justified row-packing math needs a plain pixel number; `rem`/`em` values
+	 * are converted at the browser default of 16px per unit. It is only the packing
+	 * input for last-row detection, which the view module re-flags against the real
+	 * container at runtime, so an off-by-a-few-pixels assumption is harmless.
+	 *
+	 * @since 0.4.0
+	 * @var int
+	 */
+	private const PIXELS_PER_EM = 16;
+
+	/**
+	 * Resolves a CSS length to a pixel count for the justified packing math.
+	 *
+	 * Accepts a `px` length verbatim and a `rem`/`em` length converted at
+	 * {@see PIXELS_PER_EM}; any other form (a `var()` preset token, a `%`, a unitless
+	 * value) falls back to the default. The packing is only the no-JS/first-paint
+	 * last-row guess — the view module re-flags the actual last row at runtime — so a
+	 * preset token falling back here is acceptable.
 	 *
 	 * @since 0.6.0
+	 * @since 0.4.0 Also accepts `rem`/`em`, converted at 16px per unit.
 	 *
 	 * @param string $length   The CSS length value.
 	 * @param int    $fallback The fallback pixel count.
 	 * @return int The pixel count.
 	 */
 	private static function pixels( string $length, int $fallback ): int {
-		return preg_match( '/^(\d+)\s*px$/', trim( $length ), $matches ) === 1 ? (int) $matches[1] : $fallback;
+		if ( preg_match( '/^(\d+(?:\.\d+)?)\s*(px|rem|em)$/', trim( $length ), $matches ) !== 1 ) {
+			return $fallback;
+		}
+		$value = (float) $matches[1];
+		return (int) round( $matches[2] === 'px' ? $value : $value * self::PIXELS_PER_EM );
+	}
+
+	/**
+	 * Validates a free-text CSS length, falling back when the shape is unexpected.
+	 *
+	 * Bespoke length attributes (the download-icon size, the grid's minimum column
+	 * width, the non-preset block gap) are interpolated straight into inline `style`
+	 * attributes, where `esc_attr` does not strip `;`/`:` — so a hostile value such as
+	 * `"4px;position:fixed;inset:0"` would inject extra declarations onto the public
+	 * page (block-comment JSON escapes KSES). Only a single numeric length with a
+	 * known unit is accepted; anything else falls back to the attribute default.
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param string $value    The candidate length.
+	 * @param string $fallback The default to use when the value is not a clean length.
+	 * @return string The validated length, or the fallback.
+	 */
+	private static function css_length( string $value, string $fallback ): string {
+		return preg_match( '/^\d+(\.\d+)?(px|rem|em|%|vw|vh|ch|ex|vmin|vmax)$/', trim( $value ) ) === 1
+			? trim( $value )
+			: $fallback;
+	}
+
+	/**
+	 * Validates a free-text CSS colour, falling back when the shape is unexpected.
+	 *
+	 * The download-icon background and foreground are bespoke attributes interpolated
+	 * into an inline `style`, so the same injection surface as {@see css_length}
+	 * applies. A hex colour (3/4/6/8 digits), an `rgb()/rgba()/hsl()/hsla()` function
+	 * whose argument list holds only digits, separators, and `%`, or a bare CSS ident
+	 * keyword (e.g. `red`, `transparent`) is accepted; anything else — anything that
+	 * could carry a `;` or `:` and inject a declaration — falls back to the default.
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param string $value    The candidate colour.
+	 * @param string $fallback The default to use when the value is not a clean colour.
+	 * @return string The validated colour, or the fallback.
+	 */
+	private static function css_color( string $value, string $fallback ): string {
+		$value = trim( $value );
+		$is_hex     = preg_match( '/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $value ) === 1;
+		$is_func    = preg_match( '/^(rgb|rgba|hsl|hsla)\([0-9.,%\s\/]+\)$/', $value ) === 1;
+		$is_keyword = preg_match( '/^[a-zA-Z]+$/', $value ) === 1;
+		return $is_hex || $is_func || $is_keyword ? $value : $fallback;
+	}
+
+	/**
+	 * Validates a free-text CSS aspect ratio, falling back to empty when malformed.
+	 *
+	 * The grid's `aspectRatio` attribute is interpolated into each figure's inline
+	 * `style`, so the injection surface in {@see css_length} applies. A bare ratio
+	 * (`1.5`) or a slash ratio (`16 / 9`) is accepted; anything else falls back to the
+	 * empty string, which the caller reads as "use each image's own stored ratio".
+	 *
+	 * @since 0.4.0
+	 *
+	 * @param string $value The candidate aspect ratio.
+	 * @return string The validated ratio, or '' when malformed or empty.
+	 */
+	private static function css_aspect_ratio( string $value ): string {
+		$value = trim( $value );
+		return preg_match( '/^\d+(\.\d+)?(\s*\/\s*\d+(\.\d+)?)?$/', $value ) === 1 ? $value : '';
 	}
 
 	/**
@@ -1305,9 +1413,12 @@ final class Render_Gallery {
 	 * preset token (`"var:preset|spacing|40"`), the latter rewritten to its
 	 * `var( --wp--preset--spacing--40 )` reference so the emitted custom property is
 	 * a valid CSS length. An absent or empty value falls back to the documented
-	 * default so both layouts always have a gap.
+	 * default so both layouts always have a gap. Both the preset slug and the custom
+	 * length are strictly shape-validated, because the result lands in an inline
+	 * `style` where `esc_attr` does not strip `;`/`:` — a hostile blockGap (which KSES
+	 * does not filter inside block-comment JSON) would otherwise inject declarations.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @return string The resolved CSS gap length.
@@ -1324,12 +1435,16 @@ final class Render_Gallery {
 		}
 
 		// Rewrite a spacing preset token to its CSS custom-property reference so the
-		// emitted gap is a usable length rather than the raw `var:preset|…` token.
+		// emitted gap is a usable length rather than the raw `var:preset|…` token; only
+		// a clean preset slug is accepted, else the documented default.
 		if ( preg_match( '/^var:preset\|spacing\|(.+)$/', $gap, $matches ) === 1 ) {
-			return sprintf( 'var(--wp--preset--spacing--%s)', $matches[1] );
+			return preg_match( '/^[a-zA-Z0-9-]+$/', $matches[1] ) === 1
+				? sprintf( 'var(--wp--preset--spacing--%s)', $matches[1] )
+				: '12px';
 		}
 
-		return $gap;
+		// A custom length must be a single clean CSS length; anything else falls back.
+		return self::css_length( $gap, '12px' );
 
 	}
 

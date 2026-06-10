@@ -12,7 +12,7 @@
  * set so the renderer threads one typed object rather than four loose values.
  *
  * @package Kntnt\Photo_Drop
- * @since   0.5.0
+ * @since   0.4.0
  */
 
 declare( strict_types = 1 );
@@ -27,14 +27,14 @@ namespace Kntnt\Photo_Drop\Rendering;
  * `anchor` field is already narrowed to one of the nine documented values by the
  * caller.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 final readonly class Download_Settings {
 
 	/**
 	 * Constructs the resolved download-icon settings.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 *
 	 * @param string $size       The icon size as a CSS length (e.g. `2rem`).
 	 * @param string $background The icon background colour (a CSS colour).

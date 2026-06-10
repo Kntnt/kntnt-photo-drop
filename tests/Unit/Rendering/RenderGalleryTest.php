@@ -1648,6 +1648,32 @@ test( 'the editor preview suppresses the lightbox entirely, even with it enabled
 	gallery_remove_tree( $basedir );
 } );
 
+test( 'the editor preview with lightbox+download on shows no thumbnail icon or anchor download', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'isEditorPreview' => true,
+			'lightbox'        => true,
+			'download'        => true,
+		],
+		gallery_image_specs( 3 ),
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// The thumbnail cell keys off the authored lightbox toggle, not the
+	// preview-gated one (issue #34): with lightbox+download on, the download moves
+	// into the lightbox, so the figures carry no download icon and the thumbnail
+	// anchor carries no download attribute — even though the preview suppresses the
+	// lightbox overlay itself. The previous bug painted thumbnail icons here.
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__download' );
+	expect( $html )->not->toMatch( '/<a class="kntnt-photo-drop-gallery__link"[^>]* download/' );
+
+	gallery_remove_tree( $basedir );
+} );
+
 test( 'the editor preview shows the download icon in the download-on cell but binds no init', function (): void {
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
@@ -1745,6 +1771,154 @@ test( 'a dangling collection on the frontend still shows the editor notice (prev
 	// The frontend (non-preview) path is unchanged: a user who can edit still sees
 	// the broken-reference notice on the live page.
 	expect( $html )->toContain( 'kntnt-photo-drop-gallery--notice' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// CSS injection — bespoke style values are strictly shape-validated (F3)
+// ---------------------------------------------------------------------------
+
+test( 'a malicious download-icon background falls back to the default colour', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'               => false,
+			'download'               => true,
+			'downloadIconBackground' => 'red;position:fixed;inset:0;z-index:99999',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The hostile value cannot inject `position:fixed` into the inline style; the
+	// background falls back to the documented default instead.
+	expect( $html )->not->toContain( 'position:fixed' );
+	expect( $html )->toContain( '--kntnt-photo-drop-download-bg:#00000080' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a malicious minimum column width falls back to the default length', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'layout'             => 'grid',
+			'minimumColumnWidth' => '300px;position:fixed;inset:0',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The injected declaration is stripped by falling back to the 320px default.
+	expect( $html )->not->toContain( 'position:fixed' );
+	expect( $html )->toContain( '--kntnt-photo-drop-min-column:320px' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a malicious blockGap falls back to the default gap', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'layout' => 'grid',
+			'style'  => [ 'spacing' => [ 'blockGap' => '20px;position:fixed;inset:0' ] ],
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 100,
+				'height' => 100,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->not->toContain( 'position:fixed' );
+	expect( $html )->toContain( '--kntnt-photo-drop-gap:12px' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a malicious aspect ratio falls back to the stored per-image ratio', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'layout'      => 'grid',
+			'aspectRatio' => '1;position:fixed;inset:0',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// A malformed ratio is dropped (empty), so the figure uses the image's own
+	// stored ratio and no declaration is injected.
+	expect( $html )->not->toContain( 'position:fixed' );
+	expect( $html )->toContain( 'aspect-ratio:800 / 600' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Justified packing accepts rem/em gaps (F6)
+// ---------------------------------------------------------------------------
+
+test( 'the justified packing accepts a rem blockGap (converted at 16px) rather than the fallback', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'layout'          => 'justified',
+			'targetRowHeight' => 200,
+			'style'           => [ 'spacing' => [ 'blockGap' => '1rem' ] ],
+		],
+		[
+			[
+				'path'   => 'wide.jpg.webp',
+				'width'  => 300,
+				'height' => 200,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The gap variable still carries the rem length verbatim, and the packing math
+	// accepts it (1rem → 16px) rather than silently using the 12px fallback. A 3:2
+	// image at a 200px row height still bases at 300px.
+	expect( $html )->toContain( '--kntnt-photo-drop-gap:1rem' );
+	expect( $html )->toContain( 'flex-basis:300px' );
 
 	gallery_remove_tree( $basedir );
 } );

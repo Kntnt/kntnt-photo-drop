@@ -104,7 +104,7 @@ const LIST_PATH = '/kntnt-photo-drop/v1/collections';
  * deletes or edits it simply forgoes the substitution (a removed token is never
  * replaced). Kept in sync with `Render_Drop_Zone::COLLECTION_PLACEHOLDER`.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const COLLECTION_PLACEHOLDER = '{kntnt-drop-zone-collection}';
 
@@ -118,7 +118,7 @@ const COLLECTION_PLACEHOLDER = '{kntnt-drop-zone-collection}';
  * locked, so a builder can edit any of it; the placeholder is just a default, not
  * a contract.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const DEFAULT_TEMPLATE: readonly [ string, Record< string, unknown > ][] = [
 	[
@@ -293,8 +293,7 @@ export function DropZoneEdit( {
 }: BlockEditProps< DropZoneAttributes > ): JSX.Element {
 	const { collection } = attributes;
 	const blockProps = useBlockProps( {
-		className:
-			'kntnt-photo-drop-drop-zone kntnt-photo-drop-drop-zone--editor',
+		className: 'kntnt-photo-drop-drop-zone',
 	} );
 
 	// The inner blocks are the editable drop surface; seed the default template

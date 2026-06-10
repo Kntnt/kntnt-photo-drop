@@ -48,7 +48,7 @@ export type GalleryLayout = 'grid' | 'justified';
  * The same nine-point vocabulary as {@link CaptionAnchor}; kept a distinct alias
  * so the download icon's anchor reads as its own concept at every call site.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 export type DownloadIconAnchor = CaptionAnchor;
 

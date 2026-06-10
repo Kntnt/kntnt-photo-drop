@@ -39,6 +39,7 @@ import {
 	// aliased import is what core blocks themselves do.
 	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
 	__experimentalUnitControl as UnitControl,
+	Disabled,
 	Notice,
 	Spinner,
 } from '@wordpress/components';
@@ -96,7 +97,7 @@ const LIST_PATH = '/kntnt-photo-drop/v1/collections';
  * Matches the server's editor-preview figure cap so a populated preview and an
  * empty one occupy the same footprint in the canvas.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const PREVIEW_PLACEHOLDER_COUNT = 6;
 
@@ -108,7 +109,7 @@ const PREVIEW_PLACEHOLDER_COUNT = 6;
  * a gallery-in-waiting rather than a notice or a blank frame. It is purely
  * decorative: aria-hidden, no images, no interactivity.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @return The placeholder grid markup.
  */
@@ -695,16 +696,23 @@ export function GalleryEdit( {
 				{ selected === null ? (
 					<PreviewPlaceholders />
 				) : (
-					<ServerSideRender
-						block="kntnt-photo-drop/gallery"
-						attributes={ {
-							...attributes,
-							isEditorPreview: true,
-						} }
-						EmptyResponsePlaceholder={ PreviewPlaceholders }
-						LoadingResponsePlaceholder={ PreviewPlaceholders }
-						ErrorResponsePlaceholder={ PreviewPlaceholders }
-					/>
+					// Wrap the server-rendered preview in Disabled (core's own pattern
+					// for SSR blocks, e.g. latest-posts) so a click on a preview
+					// thumbnail never navigates the editor canvas — clicking an image
+					// in the editor does nothing (#32/#34). The placeholders are
+					// already interactivity-free.
+					<Disabled>
+						<ServerSideRender
+							block="kntnt-photo-drop/gallery"
+							attributes={ {
+								...attributes,
+								isEditorPreview: true,
+							} }
+							EmptyResponsePlaceholder={ PreviewPlaceholders }
+							LoadingResponsePlaceholder={ PreviewPlaceholders }
+							ErrorResponsePlaceholder={ PreviewPlaceholders }
+						/>
+					</Disabled>
 				) }
 			</div>
 		</div>

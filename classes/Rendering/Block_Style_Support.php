@@ -24,7 +24,7 @@
  * back into the token shape the engine expects and lets the engine do the rest.
  *
  * @package Kntnt\Photo_Drop
- * @since   0.7.0
+ * @since   0.4.0
  */
 
 declare( strict_types = 1 );
@@ -42,7 +42,7 @@ namespace Kntnt\Photo_Drop\Rendering;
  * and emits. The two never overlap, so a caption never inherits a border and an
  * image never inherits the caption colour.
  *
- * @since 0.7.0
+ * @since 0.4.0
  */
 final class Block_Style_Support {
 
@@ -55,7 +55,7 @@ final class Block_Style_Support {
 	 * `fontSize`, `fontFamily`) — and projects them through the style engine. The
 	 * result lands on each `<figcaption>`, never on the block wrapper.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @return array{style:string,class:string} The figcaption inline style and classnames.
@@ -82,7 +82,7 @@ final class Block_Style_Support {
 	 * plus the preset shorthand attributes (`borderColor`, `shadow`) — and projects
 	 * them through the style engine. The result lands on each `<img>`.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @return array{style:string,class:string} The image inline style and classnames.
@@ -108,7 +108,7 @@ final class Block_Style_Support {
 	 * stray custom value under the same key, mirroring how the editor only ever
 	 * sets one of the two for a given slot.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $style      The block's `style` subtree.
 	 * @param array<string,mixed> $attributes The block attributes (for preset shorthands).
@@ -143,7 +143,7 @@ final class Block_Style_Support {
 	 * typography key), and the `fontSize` / `fontFamily` preset shorthands are
 	 * folded in as engine preset tokens.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $style      The block's `style` subtree.
 	 * @param array<string,mixed> $attributes The block attributes (for preset shorthands).
@@ -170,7 +170,7 @@ final class Block_Style_Support {
 	 * shape) is passed through, with the `borderColor` preset shorthand folded in as
 	 * an engine preset token when present.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $style      The block's `style` subtree.
 	 * @param array<string,mixed> $attributes The block attributes (for the colour preset).
@@ -194,7 +194,7 @@ final class Block_Style_Support {
 	 * which becomes the engine's preset token; a custom shadow lives at
 	 * `style.shadow` and is passed through. The preset wins when both are present.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $style      The block's `style` subtree.
 	 * @param array<string,mixed> $attributes The block attributes (for the preset shorthand).
@@ -222,7 +222,7 @@ final class Block_Style_Support {
 	 * untouched. A present preset overwrites the key, mirroring the editor's
 	 * one-or-the-other behaviour for a given slot.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $subtree The subtree to mutate, by reference.
 	 * @param string              $key     The key to set.
@@ -239,7 +239,7 @@ final class Block_Style_Support {
 	/**
 	 * Reads a preset-slug attribute as a string, defaulting to `''`.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @param string              $key        The shorthand attribute key.
@@ -258,7 +258,7 @@ final class Block_Style_Support {
 	 * a non-array (or a list with integer keys) collapses to the empty array the
 	 * engine treats as "nothing set".
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param mixed $value The raw attribute value.
 	 * @return array<string,mixed> The value as a string-keyed array, or `[]`.
@@ -290,7 +290,7 @@ final class Block_Style_Support {
 	 * string and the preset classnames as a space-joined string, which the renderer
 	 * emits on the sub-element's `style` and `class`.
 	 *
-	 * @since 0.7.0
+	 * @since 0.4.0
 	 *
 	 * @param array<string,mixed> $block_styles The block-styles subtree for one element.
 	 * @return array{style:string,class:string} The inline style and classnames.

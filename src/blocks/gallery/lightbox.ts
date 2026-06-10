@@ -205,9 +205,6 @@ export class GalleryLightbox {
 	/** The counter announcement template, e.g. `"%1$d of %2$d"`. */
 	readonly #counterTemplate: string;
 
-	/** Whether the enlarged image carries a download affordance. */
-	readonly #download: boolean;
-
 	/**
 	 * The document keydown listener, bound while the lightbox is open.
 	 *
@@ -242,20 +239,18 @@ export class GalleryLightbox {
 	 * @param links           - The thumbnail anchors, in gallery order.
 	 * @param overlay         - The overlay container emitted by `Render_Gallery`.
 	 * @param counterTemplate - The `%1$d of %2$d` counter template (already translated).
-	 * @param download        - Whether the enlarged image carries a download affordance.
 	 * @return The wired controller, or `null` when the overlay markup is incomplete.
 	 */
 	static mount(
 		links: readonly HTMLAnchorElement[],
 		overlay: HTMLElement,
-		counterTemplate: string,
-		download: boolean
+		counterTemplate: string
 	): GalleryLightbox | null {
 		const refs = resolveOverlay( overlay );
 		if ( ! refs ) {
 			return null;
 		}
-		return new GalleryLightbox( links, refs, counterTemplate, download );
+		return new GalleryLightbox( links, refs, counterTemplate );
 	}
 
 	/**
@@ -266,18 +261,15 @@ export class GalleryLightbox {
 	 * @param links           - The thumbnail anchors, in gallery order.
 	 * @param refs            - The resolved overlay elements.
 	 * @param counterTemplate - The `%1$d of %2$d` counter template (already translated).
-	 * @param download        - Whether the enlarged image carries a download affordance.
 	 */
 	private constructor(
 		links: readonly HTMLAnchorElement[],
 		refs: OverlayRefs,
-		counterTemplate: string,
-		download: boolean
+		counterTemplate: string
 	) {
 		this.#links = links;
 		this.#refs = refs;
 		this.#counterTemplate = counterTemplate;
-		this.#download = download;
 		this.#slides = links.map( ( link ) => ( {
 			url: link.dataset.kntntPhotoDropFull ?? link.href,
 			srcset: link.dataset.kntntPhotoDropSrcset ?? '',
@@ -545,8 +537,9 @@ export class GalleryLightbox {
 		this.#refs.image.alt = slide.label;
 
 		// Point the download affordance at the current slide's full image, so a click
-		// on the enlarged image saves it; absent when download is off.
-		if ( this.#download && this.#refs.download ) {
+		// on the enlarged image saves it; the anchor is null (so this is skipped) when
+		// download is off, since the server then emits no download anchor.
+		if ( this.#refs.download ) {
 			this.#refs.download.href = slide.url;
 		}
 

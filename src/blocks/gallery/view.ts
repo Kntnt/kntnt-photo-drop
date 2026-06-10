@@ -92,32 +92,38 @@ const RESIZE_DEBOUNCE = 200;
 const mountedGalleries = new WeakSet< Element >();
 
 /**
- * Suppresses plain navigation on each thumbnail anchor (the both-off cell).
+ * Suppresses plain navigation on the gallery's thumbnail anchors (both-off cell).
  *
  * With neither the lightbox nor download on, a thumbnail click should do nothing
  * — but the anchor still points at the main image (the no-JS fallback), so with
- * JavaScript a plain click would navigate. This cancels that for a plain primary
- * click while leaving modified clicks (new tab/window, save-as) to the browser,
- * so the gallery is inert without breaking the visitor's own intentions.
+ * JavaScript a plain click would navigate. A single delegated listener on the
+ * wrapper cancels that for a plain primary click on (or inside) any thumbnail
+ * anchor, while leaving modified clicks (new tab/window, save-as) to the browser,
+ * so the gallery is inert without breaking the visitor's own intentions — and
+ * without one listener per anchor in a thousand-image gallery.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
- * @param links - The thumbnail anchors to make inert.
+ * @param wrapper - The gallery wrapper the thumbnail anchors live in.
  */
-function suppressNavigation( links: readonly HTMLAnchorElement[] ): void {
-	links.forEach( ( link ) => {
-		link.addEventListener( 'click', ( event ) => {
-			if (
-				event.metaKey ||
-				event.ctrlKey ||
-				event.shiftKey ||
-				event.altKey ||
-				event.button !== 0
-			) {
-				return;
-			}
+function suppressNavigation( wrapper: HTMLElement ): void {
+	wrapper.addEventListener( 'click', ( event ) => {
+		if (
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey ||
+			event.button !== 0
+		) {
+			return;
+		}
+		const target = event.target;
+		if (
+			target instanceof Element &&
+			target.closest( '.kntnt-photo-drop-gallery__link' )
+		) {
 			event.preventDefault();
-		} );
+		}
 	} );
 }
 
@@ -199,7 +205,7 @@ store( 'kntnt-photo-drop/gallery', {
 		 * the no-JS fallback markup stands.
 		 *
 		 * @since 0.7.0
-		 * @since 0.5.0 Branches on the lightbox + download click matrix.
+		 * @since 0.4.0 Branches on the lightbox + download click matrix.
 		 */
 		init(): void {
 			// Resolve the wrapper and guard against a double-init re-hydration.
@@ -221,31 +227,30 @@ store( 'kntnt-photo-drop/gallery', {
 				wireLastRowCorrection( justified );
 			}
 
-			// Collect the thumbnail anchors once — every click-matrix branch
-			// works from them.
+			const lightbox = ref.dataset.kntntPhotoDropLightbox === 'true';
+			const download = ref.dataset.kntntPhotoDropDownload === 'true';
+
+			// Lightbox off: with download on the native `<a download>` saves the
+			// image (wire nothing); with both off, suppress the plain click via one
+			// delegated listener on the wrapper so a thumbnail click does nothing
+			// rather than navigate. Neither branch needs the anchors materialised.
+			if ( ! lightbox ) {
+				if ( ! download ) {
+					suppressNavigation( ref );
+				}
+				return;
+			}
+
+			// Lightbox on: collect the thumbnail anchors and locate the server-emitted
+			// overlay, then mount the controller. Without the anchors or the overlay
+			// there is nothing to enhance, so the no-JS fallback stands. The context can
+			// have degraded to `{}` server-side, so the counter template falls back to a
+			// neutral numeric form rather than crashing mid-open.
 			const links = Array.from(
 				ref.querySelectorAll< HTMLAnchorElement >(
 					'.kntnt-photo-drop-gallery__link'
 				)
 			);
-			const lightbox = ref.dataset.kntntPhotoDropLightbox === 'true';
-			const download = ref.dataset.kntntPhotoDropDownload === 'true';
-
-			// Lightbox off: with download on the native `<a download>` saves the
-			// image (wire nothing); with both off, suppress the click so a plain
-			// thumbnail click does nothing rather than navigate.
-			if ( ! lightbox ) {
-				if ( ! download ) {
-					suppressNavigation( links );
-				}
-				return;
-			}
-
-			// Lightbox on: locate the server-emitted overlay and mount the
-			// controller. Without the anchors or the overlay there is nothing to
-			// enhance, so the no-JS fallback stands. The context can have degraded
-			// to `{}` server-side, so the counter template falls back to a neutral
-			// numeric form rather than crashing mid-open.
 			const overlay = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-lightbox'
 			);
@@ -256,8 +261,7 @@ store( 'kntnt-photo-drop/gallery', {
 			GalleryLightbox.mount(
 				links,
 				overlay,
-				context?.counterTemplate ?? FALLBACK_COUNTER_TEMPLATE,
-				download
+				context?.counterTemplate ?? FALLBACK_COUNTER_TEMPLATE
 			);
 		},
 	},

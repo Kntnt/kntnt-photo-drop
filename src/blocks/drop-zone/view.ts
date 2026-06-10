@@ -31,7 +31,7 @@
  * or encode failure simply uploads the original bytes and the server converts
  * them.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 
 import { getContext, getElement, store } from '@wordpress/interactivity';
@@ -52,6 +52,7 @@ import {
 	readOutcome,
 } from './upload-response';
 import { createStatusList, type StatusList } from './status-list';
+import { formatUploadingLabel } from './uploading-label';
 
 /**
  * The pre-translated UI strings the module surfaces.
@@ -60,7 +61,7 @@ import { createStatusList, type StatusList } from './status-list';
  * translates every runtime string server-side and passes them through the
  * Interactivity context. The keys mirror `Render_Drop_Zone::translations()`.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 interface DropZoneStrings {
 	readonly folderWarningBody: string;
@@ -75,7 +76,7 @@ interface DropZoneStrings {
 	readonly statusQueued: string;
 	readonly statusConverting: string;
 	readonly statusUploading: string;
-	readonly uploadCancelled: string;
+	readonly statusUploadingPercent: string;
 	readonly summaryTemplate: string;
 	readonly [ key: string ]: string;
 }
@@ -88,7 +89,7 @@ interface DropZoneStrings {
  * `nonce`, the admin-ajax URL the nonce-refresh endpoint lives behind, the
  * collection display name, and the pre-translated strings.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 interface DropZoneContext {
 	readonly slug: string;
@@ -109,7 +110,7 @@ interface DropZoneContext {
  * The relative path is the file's status-row key and the `relativePath` field the
  * server recreates sub-directories from; a loose file's path is its plain name.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 interface QueuedFile {
 	readonly file: File;
@@ -123,7 +124,7 @@ interface QueuedFile {
  * upload bounces on it, the module fetches a fresh one and retries once. The
  * fresh nonce lives here so every later upload in the same batch uses it too.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 interface UploadSession {
 	nonce: string;
@@ -136,7 +137,7 @@ interface UploadSession {
  * making progress is never punished, while a dead connection frees its
  * concurrency slot after one minute instead of blocking the queue forever.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const INACTIVITY_TIMEOUT_MS = 60_000;
 
@@ -147,7 +148,7 @@ const INACTIVITY_TIMEOUT_MS = 60_000;
  * overlap. Four keeps a fast link busy through the per-file convert→encode
  * latency without opening a socket per file in a several-hundred-file batch.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const MAX_CONCURRENT_UPLOADS = 4;
 
@@ -158,7 +159,7 @@ const MAX_CONCURRENT_UPLOADS = 4;
  * text; anything else (a login page, a `0` from a logged-out session) fails
  * this pattern and the refresh is treated as unsuccessful.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const NONCE_PATTERN = /^[a-f0-9]{10}$/;
 
@@ -169,7 +170,7 @@ const NONCE_PATTERN = /^[a-f0-9]{10}$/;
  * drop target; the module adds it on `dragenter`/`dragover` and removes it on
  * `dragleave`/`drop`.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const DRAGOVER_CLASS = 'kntnt-photo-drop-drop-zone--dragover';
 
@@ -179,7 +180,7 @@ const DRAGOVER_CLASS = 'kntnt-photo-drop-drop-zone--dragover';
  * Keyed by the block wrapper so the Interactivity API re-running `init` (e.g. on a
  * re-hydration) never wires a second set of listeners over the same surface.
  *
- * @since 0.5.0
+ * @since 0.4.0
  */
 const mountedZones = new WeakSet< Element >();
 
@@ -192,7 +193,7 @@ const mountedZones = new WeakSet< Element >();
  * orient by default anyway). Any other failure propagates to the caller's
  * raw-upload fallback.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param file - The source file to decode.
  * @return The decoded, orientation-corrected bitmap.
@@ -223,7 +224,7 @@ async function decodeBitmap( file: File ): Promise< ImageBitmap > {
  * canvas into a valid-looking WebP and destroy the pixels, so both abort the
  * client optimisation and route the caller to the raw-upload fallback.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param bitmap   - The decoded source image.
  * @param maxWidth - The contract ceiling in pixels, or `null` for no limit.
@@ -274,7 +275,7 @@ function drawDownscaled(
  * contract on every upload (ADR-0006), so the raw fallback is always
  * contract-correct.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param file     - The source file from the drop or the folder picker.
  * @param maxWidth - The contract ceiling in pixels, or `null` for no limit.
@@ -310,7 +311,7 @@ async function optimiseToWebp(
  * carrying a plausible nonce, null on any failure — the caller then surfaces
  * the server's original error instead of retrying.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param ajaxUrl - The `admin-ajax.php` URL from the block context.
  * @return The fresh nonce, or null when no usable nonce was obtained.
@@ -346,7 +347,7 @@ async function refreshNonce( ajaxUrl: string ): Promise< string | null > {
  * first — in the status row. The promise always resolves (never rejects), so one
  * failed file never aborts the batch (ADR-0006).
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param blob    - The optimised (or raw fallback) bytes to upload.
  * @param queued  - The source file and its relative path.
@@ -449,8 +450,23 @@ function uploadBlob(
 			// watchdog.
 			request.open( 'POST', context.uploadUrl );
 			request.setRequestHeader( 'X-WP-Nonce', session.nonce );
-			request.upload.onprogress = (): void => {
+			request.upload.onprogress = ( event: ProgressEvent ): void => {
+				// Re-arm the watchdog on every byte, and — when the length is known —
+				// surface the live percentage on the row so a large file shows real
+				// progress instead of a static "Uploading…". The row stays 'pending'.
 				touch();
+				if ( event.lengthComputable ) {
+					status.update(
+						relativePath,
+						file.name,
+						formatUploadingLabel(
+							context.i18n.statusUploadingPercent,
+							event.loaded,
+							event.total
+						),
+						'pending'
+					);
+				}
 			};
 			request.onreadystatechange = (): void => {
 				if ( request.readyState !== XMLHttpRequest.DONE ) {
@@ -498,7 +514,7 @@ function uploadBlob(
  * resolves when the file has settled; it never rejects, so the queue runner can
  * treat every file uniformly.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param queued  - The file and its relative path.
  * @param context - The per-block context.
@@ -536,7 +552,7 @@ async function processFile(
  * callback flips true while any file is queued or in flight and false once the
  * queue empties, so the caller can arm and disarm the `beforeunload` guard.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param context - The per-block context.
  * @param session - The mutable nonce session.
@@ -596,7 +612,7 @@ function createUploadQueue(
  * hands the accepted files to the upload queue. Used by both intake paths (the
  * click/folder pickers and the loose-file or consented-folder drop).
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @param files   - The files to consider, paired with their relative paths.
  * @param enqueue - The upload queue's enqueue function.
@@ -642,7 +658,7 @@ function intakeFiles(
  * instead of silently abandoning a half-uploaded batch on a back-swipe; when
  * idle, the handler is unregistered so normal navigation stays silent.
  *
- * @since 0.5.0
+ * @since 0.4.0
  *
  * @return The switch to flip as work starts and settles.
  */
@@ -678,7 +694,7 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 		 * then add only top-level images flat), and arms the `beforeunload`
 		 * guard. Idempotent via `mountedZones` so a re-run never double-wires.
 		 *
-		 * @since 0.5.0
+		 * @since 0.4.0
 		 */
 		init(): void {
 			const { ref } = getElement();
@@ -735,6 +751,23 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 				setUnloadGuard
 			);
 
+			// Map a picked/dropped file list to queued files keyed by each file's
+			// own relative path and hand them to the intake. The file-input, the
+			// folder-input, and the loose-file drop all take this path; only the
+			// consented-folder drop differs (it keys by bare name), so it stays
+			// inline below.
+			const intake = ( list: ArrayLike< File > ): void => {
+				intakeFiles(
+					Array.from( list ).map( ( file ) => ( {
+						file,
+						relativePath: relativePathForFile( file ),
+					} ) ),
+					enqueue,
+					status,
+					strings
+				);
+			};
+
 			// The surface is a click-to-browse trigger: a click anywhere on it
 			// that is not on an interactive child opens the hidden loose-file
 			// input. A click on a link or button inside the inner blocks is left
@@ -752,21 +785,29 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 				fileInput.click();
 			} );
 
+			// The surface carries role="button" + tabindex="0", so it must answer the
+			// keyboard too: Enter or Space opens the picker. Space's preventDefault
+			// stops the page from scrolling, and the handler only fires when the
+			// surface element itself holds focus, so a focused interactive child keeps
+			// its own key behaviour.
+			surfaceEl.addEventListener( 'keydown', ( event: KeyboardEvent ) => {
+				if (
+					event.target !== surfaceEl ||
+					( event.key !== 'Enter' && event.key !== ' ' )
+				) {
+					return;
+				}
+				event.preventDefault();
+				fileInput.click();
+			} );
+
 			// Wire the hidden loose-file input: each picked file lands at the
 			// collection root keyed by its own name.
 			fileInput.addEventListener(
 				'change',
 				() => {
 					if ( fileInput.files ) {
-						intakeFiles(
-							Array.from( fileInput.files ).map( ( file ) => ( {
-								file,
-								relativePath: relativePathForFile( file ),
-							} ) ),
-							enqueue,
-							status,
-							strings
-						);
+						intake( fileInput.files );
 						// Reset so picking the same file again re-fires change.
 						fileInput.value = '';
 					}
@@ -781,15 +822,7 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 				'change',
 				() => {
 					if ( folderInput.files ) {
-						intakeFiles(
-							Array.from( folderInput.files ).map( ( file ) => ( {
-								file,
-								relativePath: relativePathForFile( file ),
-							} ) ),
-							enqueue,
-							status,
-							strings
-						);
+						intake( folderInput.files );
 						folderInput.value = '';
 					}
 				},
@@ -838,15 +871,7 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 				if ( ! hasDirectoryEntry( entries ) ) {
 					const dropped = event.dataTransfer?.files;
 					if ( dropped && dropped.length > 0 ) {
-						intakeFiles(
-							Array.from( dropped ).map( ( file ) => ( {
-								file,
-								relativePath: relativePathForFile( file ),
-							} ) ),
-							enqueue,
-							status,
-							strings
-						);
+						intake( dropped );
 					}
 					return;
 				}

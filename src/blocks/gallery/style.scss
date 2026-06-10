@@ -11,6 +11,64 @@
 // nothing inside it can collapse to zero height — the bug that left
 // under-captions blank and justified rows showing only alt-text.
 
+// The nine-point anchor placement, shared by the download badge and the
+// caption. Both overlays use the identical nine anchors; only the edge inset
+// differs (the badge sits a little clear of the corner, the caption flush
+// against it), so one mixin emits both sets parameterised by `$inset`. The
+// emitted selectors and declarations are identical to the former hand-written
+// sets.
+@mixin nine-point-anchors($element, $inset) {
+	&__#{$element}--anchor-top-left {
+		top: $inset;
+		left: $inset;
+	}
+
+	&__#{$element}--anchor-top-center {
+		top: $inset;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	&__#{$element}--anchor-top-right {
+		top: $inset;
+		right: $inset;
+	}
+
+	&__#{$element}--anchor-middle-left {
+		top: 50%;
+		left: $inset;
+		transform: translateY(-50%);
+	}
+
+	&__#{$element}--anchor-middle-center {
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+	}
+
+	&__#{$element}--anchor-middle-right {
+		top: 50%;
+		right: $inset;
+		transform: translateY(-50%);
+	}
+
+	&__#{$element}--anchor-bottom-left {
+		bottom: $inset;
+		left: $inset;
+	}
+
+	&__#{$element}--anchor-bottom-center {
+		bottom: $inset;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	&__#{$element}--anchor-bottom-right {
+		bottom: $inset;
+		right: $inset;
+	}
+}
+
 .kntnt-photo-drop-gallery {
 
 	&__layout {
@@ -86,7 +144,10 @@
 		// The caption is always an absolutely-placed overlay inside the image. Only
 		// the structural rules live at this specificity; the colour and typography
 		// come from the Color / Typography block-support panels, projected onto the
-		// figcaption as inline declarations or preset classnames.
+		// figcaption as inline declarations or preset classnames. Like the download
+		// badge, it never intercepts the pointer, so the click target stays the
+		// enclosing anchor (the lightbox trigger or the no-JS link) — this fixes the
+		// dead click zone over both gallery figures and the lightbox caption.
 		position: absolute;
 		z-index: 1;
 		max-width: 100%;
@@ -94,6 +155,7 @@
 		padding: 0.3em 0.5em;
 		font-size: 0.85em;
 		line-height: 1.3;
+		pointer-events: none;
 	}
 
 	&__download {
@@ -129,57 +191,8 @@
 		}
 	}
 
-	// The nine anchors place the download icon at the same edge insets the caption
-	// uses; a small inset keeps the badge clear of the very corner.
-	&__download--anchor-top-left {
-		top: 0.4em;
-		left: 0.4em;
-	}
-
-	&__download--anchor-top-center {
-		top: 0.4em;
-		left: 50%;
-		transform: translateX(-50%);
-	}
-
-	&__download--anchor-top-right {
-		top: 0.4em;
-		right: 0.4em;
-	}
-
-	&__download--anchor-middle-left {
-		top: 50%;
-		left: 0.4em;
-		transform: translateY(-50%);
-	}
-
-	&__download--anchor-middle-center {
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-	}
-
-	&__download--anchor-middle-right {
-		top: 50%;
-		right: 0.4em;
-		transform: translateY(-50%);
-	}
-
-	&__download--anchor-bottom-left {
-		bottom: 0.4em;
-		left: 0.4em;
-	}
-
-	&__download--anchor-bottom-center {
-		bottom: 0.4em;
-		left: 50%;
-		transform: translateX(-50%);
-	}
-
-	&__download--anchor-bottom-right {
-		bottom: 0.4em;
-		right: 0.4em;
-	}
+	// The nine anchors place the download badge a small inset clear of the corner.
+	@include nine-point-anchors("download", 0.4em);
 
 	// The legible default overlay colours live at zero specificity (`:where`), so
 	// both a panel's preset classname and a panel's inline declaration win over
@@ -190,57 +203,9 @@
 		color: #fff;
 	}
 
-	// The nine anchors map to edge insets; centre variants translate to the
-	// midpoint on the relevant axis.
-	&__caption--anchor-top-left {
-		top: 0;
-		left: 0;
-	}
-
-	&__caption--anchor-top-center {
-		top: 0;
-		left: 50%;
-		transform: translateX(-50%);
-	}
-
-	&__caption--anchor-top-right {
-		top: 0;
-		right: 0;
-	}
-
-	&__caption--anchor-middle-left {
-		top: 50%;
-		left: 0;
-		transform: translateY(-50%);
-	}
-
-	&__caption--anchor-middle-center {
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-	}
-
-	&__caption--anchor-middle-right {
-		top: 50%;
-		right: 0;
-		transform: translateY(-50%);
-	}
-
-	&__caption--anchor-bottom-left {
-		bottom: 0;
-		left: 0;
-	}
-
-	&__caption--anchor-bottom-center {
-		bottom: 0;
-		left: 50%;
-		transform: translateX(-50%);
-	}
-
-	&__caption--anchor-bottom-right {
-		bottom: 0;
-		right: 0;
-	}
+	// The nine anchors map to edge insets flush against the corner; centre
+	// variants translate to the midpoint on the relevant axis.
+	@include nine-point-anchors("caption", 0);
 }
 
 // The editor-only notice variant reuses the wrapper, message-only.

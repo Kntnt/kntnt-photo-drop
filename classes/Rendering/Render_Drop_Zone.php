@@ -83,7 +83,7 @@ final class Render_Drop_Zone {
 	 * token simply forgoes the substitution, which is the documented behaviour —
 	 * a removed placeholder is never replaced.
 	 *
-	 * @since 0.5.0
+	 * @since 0.4.0
 	 * @var string
 	 */
 	private const COLLECTION_PLACEHOLDER = '{kntnt-drop-zone-collection}';
@@ -208,12 +208,15 @@ final class Render_Drop_Zone {
 		// Compose the native drop surface: the whole wrapper is the drop zone and a
 		// click-to-browse trigger (the view module wires the hidden loose-file
 		// input and the drag handlers). The inner-block surface carries the visible
-		// appearance; the folder input carries `webkitdirectory` so a directory
-		// selection preserves each file's `webkitRelativePath`; the summary line is
-		// the single live region (the per-file list would be far too chatty for a
-		// screen reader at batch scale). A `data-wp-init` hook hands the element to
-		// the view module.
-		$folder_label = esc_html__( 'Select folder', 'kntnt-photo-drop' );
+		// appearance and is itself the keyboard-operable browse trigger — it takes
+		// `tabindex="0"`, `role="button"`, and an `aria-label` so a keyboard user can
+		// Tab to it and Enter/Space to open the picker, not only a pointer user. The
+		// folder input carries `webkitdirectory` so a directory selection preserves
+		// each file's `webkitRelativePath`; the summary line is the single live region
+		// (the per-file list would be far too chatty for a screen reader at batch
+		// scale). A `data-wp-init` hook hands the element to the view module.
+		$folder_label  = esc_html__( 'Select folder', 'kntnt-photo-drop' );
+		$surface_label = esc_attr__( 'Add photos — drop them here or activate to browse', 'kntnt-photo-drop' );
 
 		return sprintf(
 			'<div %1$s'
@@ -222,7 +225,8 @@ final class Render_Drop_Zone {
 				. ' data-wp-init="callbacks.init">'
 				// phpcs:ignore Generic.Files.LineLength.TooLong -- The loose-file input is a single coherent input declaration.
 				. '<input type="file" class="kntnt-photo-drop-drop-zone__file-input" multiple accept="image/*" hidden />'
-				. '<div class="kntnt-photo-drop-drop-zone__surface" data-wp-ignore>%3$s</div>'
+				// phpcs:ignore Generic.Files.LineLength.TooLong -- The keyboard-operable browse surface is a single coherent element declaration.
+				. '<div class="kntnt-photo-drop-drop-zone__surface" data-wp-ignore tabindex="0" role="button" aria-label="%5$s">%3$s</div>'
 				. '<p class="kntnt-photo-drop-drop-zone__folder">'
 				. '<label class="kntnt-photo-drop-drop-zone__folder-label">'
 				. '<span>%4$s</span>'
@@ -238,6 +242,7 @@ final class Render_Drop_Zone {
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $surface is serialised inner-block HTML, already sanitised by the block serializer; the substituted name is escaped above.
 			$surface,
 			$folder_label,
+			$surface_label,
 		);
 
 	}
@@ -250,8 +255,9 @@ final class Render_Drop_Zone {
 	 * runtime is translated here and passed through the context. The map covers
 	 * the module's own status rows and summary (inserted via `textContent`, never
 	 * `innerHTML`, so no output escaping is applied here) and the `window.confirm`
-	 * folder warning. The `summaryTemplate` tokens are replaced with live counts
-	 * in the browser.
+	 * folder warning. The `summaryTemplate` tokens and the `statusUploadingPercent`
+	 * `%d` token are replaced with live counts and the live upload percentage in the
+	 * browser.
 	 *
 	 * @since 0.5.0
 	 *
@@ -260,22 +266,23 @@ final class Render_Drop_Zone {
 	private static function translations(): array {
 		return [
 			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-			'folderWarningBody' => __( 'Dropping a folder uploads only its top-level images, not its sub-folders. Use “Select folder” to include sub-folders. Continue with the top-level images?', 'kntnt-photo-drop' ),
-			'outcomeStored'     => __( 'Uploaded', 'kntnt-photo-drop' ),
-			'outcomeReencoded'  => __( 'Uploaded (re-encoded)', 'kntnt-photo-drop' ),
-			'outcomeSkipped'    => __( 'Skipped — already present', 'kntnt-photo-drop' ),
-			'outcomeRejected'   => __( 'Rejected', 'kntnt-photo-drop' ),
-			'uploadFailed'      => __( 'Upload failed', 'kntnt-photo-drop' ),
+			'folderWarningBody'      => __( 'Dropping a folder uploads only its top-level images, not its sub-folders. Use “Select folder” to include sub-folders. Continue with the top-level images?', 'kntnt-photo-drop' ),
+			'outcomeStored'          => __( 'Uploaded', 'kntnt-photo-drop' ),
+			'outcomeReencoded'       => __( 'Uploaded (re-encoded)', 'kntnt-photo-drop' ),
+			'outcomeSkipped'         => __( 'Skipped — already present', 'kntnt-photo-drop' ),
+			'outcomeRejected'        => __( 'Rejected', 'kntnt-photo-drop' ),
+			'uploadFailed'           => __( 'Upload failed', 'kntnt-photo-drop' ),
 			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-			'uploadStalled'     => __( 'Upload stalled — check your connection and try again.', 'kntnt-photo-drop' ),
-			'skippedNotImage'   => __( 'Skipped — not an image', 'kntnt-photo-drop' ),
-			'fileUnreadable'    => __( 'Could not be read', 'kntnt-photo-drop' ),
-			'statusQueued'      => __( 'Queued', 'kntnt-photo-drop' ),
-			'statusConverting'  => __( 'Converting…', 'kntnt-photo-drop' ),
-			'statusUploading'   => __( 'Uploading…', 'kntnt-photo-drop' ),
-			'uploadCancelled'   => __( 'Upload cancelled', 'kntnt-photo-drop' ),
+			'uploadStalled'          => __( 'Upload stalled — check your connection and try again.', 'kntnt-photo-drop' ),
+			'skippedNotImage'        => __( 'Skipped — not an image', 'kntnt-photo-drop' ),
+			'fileUnreadable'         => __( 'Could not be read', 'kntnt-photo-drop' ),
+			'statusQueued'           => __( 'Queued', 'kntnt-photo-drop' ),
+			'statusConverting'       => __( 'Converting…', 'kntnt-photo-drop' ),
+			'statusUploading'        => __( 'Uploading…', 'kntnt-photo-drop' ),
+			/* translators: %d is replaced with the live upload percentage in the browser. */
+			'statusUploadingPercent' => __( 'Uploading… %d%%', 'kntnt-photo-drop' ),
 			/* translators: {uploaded}, {skipped} and {failed} are replaced with live file counts in the browser. */
-			'summaryTemplate'   => __( '{uploaded} uploaded · {skipped} skipped · {failed} failed', 'kntnt-photo-drop' ), // phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+			'summaryTemplate'        => __( '{uploaded} uploaded · {skipped} skipped · {failed} failed', 'kntnt-photo-drop' ), // phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		];
 	}
 
