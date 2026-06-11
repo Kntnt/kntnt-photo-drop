@@ -1,7 +1,7 @@
 /**
  * The `webkitRelativePath` → upload-metadata mapping for picker-sourced files.
  *
- * The Drop Zone preserves folder structure through the "Select folder" control:
+ * The Drop Zone preserves folder structure through the folder-picker control:
  * when a directory is picked, each `File` carries a `webkitRelativePath` such as
  * `trip/day1/IMG_2024.jpg`. The server recreates those sub-directories under the
  * collection root (the path is hard-sanitised and `realpath`-confined server-side,

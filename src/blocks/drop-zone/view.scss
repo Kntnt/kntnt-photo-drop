@@ -30,11 +30,47 @@
 		cursor: auto;
 	}
 
+	// The folder picker is demoted to a quiet, link-style afterthought beside the
+	// emphasised "Add photos" button (issue #40). The label is the inline wrapper;
+	// its visible text reads as a link, while the real webkitdirectory input is
+	// hidden from view but kept focusable and keyboard-operable so the
+	// hierarchy-preserving route stays fully accessible.
 	&__folder-label {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		font-size: 0.85em;
 		cursor: pointer;
+	}
+
+	// Reduce the native file input to a focusable point: it takes no layout space
+	// and shows no default file-button chrome, but it is never `display: none` or
+	// `hidden`, so it stays in the tab order and answers Enter/Space to open the
+	// folder picker. A click on the label text triggers it through native label
+	// association.
+	&__folder-input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		border: 0;
+		clip: rect(0 0 0 0);
+		clip-path: inset(50%);
+		overflow: hidden;
+		white-space: nowrap;
+	}
+
+	// The visible affordance reads as a low-emphasis inline link. Keyboard focus
+	// lands on the hidden input, so mirror that focus onto the text the user sees
+	// with a focus ring the input would otherwise have shown.
+	&__folder-text {
+		color: var(--wp--preset--color--link, currentcolor);
+		text-decoration: underline;
+		text-underline-offset: 0.15em;
+	}
+
+	&__folder-input:focus-visible + &__folder-text {
+		outline: 2px solid currentcolor;
+		outline-offset: 2px;
 	}
 
 	&__summary {

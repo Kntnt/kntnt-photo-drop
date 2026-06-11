@@ -199,9 +199,9 @@ test( 'a capable user gets the drop-surface markup and a nonce', function (): vo
 test( 'the wrapper carries no role or tabindex; an "Add photos" button is the keyboard path', function (): void {
 
 	// The wrapper is the layout container and the pointer click-to-browse surface,
-	// but the keyboard/AT browse path is a real <button> rendered next to "Select
-	// folder"; the wrapper itself carries neither role="button" nor tabindex
-	// (issue #35 accessibility).
+	// but the keyboard/AT browse path is a real <button> rendered beside the demoted
+	// link-style folder picker; the wrapper itself carries neither role="button" nor
+	// tabindex (issue #35 accessibility).
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
 	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
@@ -211,6 +211,30 @@ test( 'the wrapper carries no role or tabindex; an "Add photos" button is the ke
 	expect( $html )->toMatch( '/<button type="button" class="kntnt-photo-drop-drop-zone__browse">[^<]+<\/button>/' );
 	expect( $html )->not->toContain( 'role="button"' );
 	expect( $html )->not->toContain( 'tabindex' );
+
+	render_remove_tree( $basedir );
+} );
+
+test( 'the folder picker is a quiet link-style affordance with the input kept accessible', function (): void {
+
+	// The folder picker is demoted to a low-emphasis inline affordance (issue #40):
+	// a <label> wrapping the real webkitdirectory input followed by a link-style
+	// text span. The input stays a focusable, labelled file control — never a
+	// button — so keyboard- and touch-accessible folder selection survives the
+	// visual demotion.
+	$basedir = fresh_render_basedir();
+	wire_render_stubs( $basedir, cap_ok: true );
+	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+
+	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
+
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__folder-label' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__folder-text' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__folder-input' );
+	expect( $html )->toContain( 'webkitdirectory' );
+	expect( $html )->toContain( 'or select a folder' );
+	// The picker is never promoted to a second prominent button.
+	expect( $html )->not->toMatch( '/<button[^>]*folder/' );
 
 	render_remove_tree( $basedir );
 } );

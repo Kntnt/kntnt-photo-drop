@@ -84,6 +84,20 @@ test.describe( 'Drop Zone upload', () => {
 			page.locator( '.kntnt-photo-drop-drop-zone__browse' )
 		).toBeVisible();
 
+		// The folder picker is demoted to a quiet, link-style affordance (issue
+		// #40): the visible text reads as a link, but the real webkitdirectory
+		// input stays focusable and keyboard-operable — never removed from the
+		// tab order — so the accessible hierarchy-preserving route survives.
+		await expect(
+			page.locator( '.kntnt-photo-drop-drop-zone__folder-text' )
+		).toBeVisible();
+		const folderInput = page.locator(
+			'.kntnt-photo-drop-drop-zone__folder-input'
+		);
+		await expect( folderInput ).toHaveAttribute( 'webkitdirectory', '' );
+		await folderInput.focus();
+		await expect( folderInput ).toBeFocused();
+
 		// Hand the fixture to the hidden loose-file input the wrapper click or
 		// the "Add photos" button would open; the view module converts it to
 		// WebP and POSTs it.

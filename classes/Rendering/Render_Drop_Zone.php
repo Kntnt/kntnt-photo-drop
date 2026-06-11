@@ -159,10 +159,13 @@ final class Render_Drop_Zone {
 	 * centring and `blockGap` — applies to them), and the upload chrome are
 	 * further layout children inside the same styled box — a hidden loose-file
 	 * input the surface click triggers, a real "Add photos" button for the
-	 * keyboard/AT path, a native "Select folder" picker, and the per-file status
-	 * list and live summary the module writes to. The wrapper carries no
-	 * `role`/`tabindex`; the click-anywhere convenience excludes interactive
-	 * children, and the button is the accessible browse trigger. Everything is
+	 * keyboard/AT path, a quiet link-style folder picker (demoted to a low-emphasis
+	 * inline affordance, but kept fully focusable, labelled, and keyboard-operable
+	 * because its `webkitdirectory` input is the only accessible route to a
+	 * preserved hierarchy), and the per-file status list and live summary the module
+	 * writes to. The wrapper carries no `role`/`tabindex`; the click-anywhere
+	 * convenience excludes interactive children, and the button is the accessible
+	 * browse trigger. Everything is
 	 * escaped at the point of output and every visible string is translatable; the
 	 * inner-block markup is already sanitised by `the_content`-equivalent block
 	 * serialisation and is passed through unescaped here by design.
@@ -215,23 +218,33 @@ final class Render_Drop_Zone {
 		// stylesheet targets.
 		$wrapper = get_block_wrapper_attributes( [ 'class' => 'kntnt-photo-drop-drop-zone' ] );
 
-		// Translate the two visible upload-chrome labels. The folder picker's
-		// `webkitdirectory` preserves each file's `webkitRelativePath` so a
-		// directory selection recreates its sub-directories server-side; the "Add
-		// photos" button is the keyboard/AT browse trigger that replaces the old
-		// surface role (the click-anywhere convenience is pointer-only chrome).
-		$folder_label = esc_html__( 'Select folder', 'kntnt-photo-drop' );
+		// Translate the two visible upload-chrome labels. The "Add photos" button is
+		// the prominent keyboard/AT browse trigger that replaces the old surface
+		// role (the click-anywhere convenience is pointer-only chrome). The folder
+		// picker is demoted to a quiet, link-style afterthought now that a dropped
+		// folder recurses identically (ADR-0008): it stays only because its
+		// `webkitdirectory` input is the one keyboard- and touch-accessible route to
+		// a preserved hierarchy, so the input keeps its label and focusability and
+		// only its emphasis drops. The phrasing reads as an inline "or" alternative
+		// to the button it sits beside.
+		$folder_label = esc_html__( 'or select a folder', 'kntnt-photo-drop' );
 		$browse_label = esc_html__( 'Add photos', 'kntnt-photo-drop' );
 
 		// Compose the wrapper as the layout container and the native drop surface:
 		// the placeholder-replaced inner blocks are its direct children (core's
 		// layout CSS centres and gaps them), followed by the upload chrome as
-		// further layout children. The summary line is the single live region (the
-		// per-file list would be far too chatty for a screen reader at batch scale);
-		// it and the status list keep `data-wp-ignore` so the view module owns their
-		// DOM, while the inner blocks no longer carry an ignore boundary (the surface
-		// div that held it is gone). A `data-wp-init` hook hands the wrapper to the
-		// view module.
+		// further layout children. The "Add photos" button carries the emphasis; the
+		// folder picker is a `<label>` styled as a quiet inline link, wrapping the
+		// real `webkitdirectory` input — the input keeps its native focusability and
+		// keyboard operation (the stylesheet only hides its default file-button
+		// chrome and renders the label text as the visible affordance), so the
+		// keyboard- and touch-accessible route to a preserved hierarchy survives the
+		// demotion. The summary line is the single live region (the per-file list
+		// would be far too chatty for a screen reader at batch scale); it and the
+		// status list keep `data-wp-ignore` so the view module owns their DOM, while
+		// the inner blocks no longer carry an ignore boundary (the surface div that
+		// held it is gone). A `data-wp-init` hook hands the wrapper to the view
+		// module.
 		return sprintf(
 			'<div %1$s'
 				. ' data-wp-interactive=\'{"namespace":"kntnt-photo-drop/drop-zone"}\''
@@ -244,9 +257,9 @@ final class Render_Drop_Zone {
 				. '<p class="kntnt-photo-drop-drop-zone__controls">'
 				. '<button type="button" class="kntnt-photo-drop-drop-zone__browse">%4$s</button>'
 				. '<label class="kntnt-photo-drop-drop-zone__folder-label">'
-				. '<span>%5$s</span>'
 				// phpcs:ignore Generic.Files.LineLength.TooLong -- The webkitdirectory attribute set is a single coherent input declaration.
 				. '<input type="file" class="kntnt-photo-drop-drop-zone__folder-input" multiple accept="image/*" webkitdirectory directory />'
+				. '<span class="kntnt-photo-drop-drop-zone__folder-text">%5$s</span>'
 				. '</label>'
 				. '</p>'
 				. '<p class="kntnt-photo-drop-drop-zone__summary" data-wp-ignore aria-live="polite"></p>'

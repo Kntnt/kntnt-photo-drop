@@ -8,7 +8,7 @@
  * interactive child or the upload chrome opens the hidden loose-file input, a drop
  * of loose files queues them, and a dropped *folder* is walked recursively so
  * every image at every level uploads with its source-relative path preserved —
- * the same on-disk placement as picking that folder via "Select folder"
+ * the same on-disk placement as picking that folder via the folder picker
  * (ADR-0008), with no warning or consent step. The keyboard/AT browse path is a
  * real "Add photos" button (the wrapper carries no `role`/`tabindex`). There is no
  * FilePond; the intake, queue, and progress UI are this module's own, built on
@@ -183,8 +183,8 @@ const DRAGOVER_CLASS = 'kntnt-photo-drop-drop-zone--dragover';
  *
  * The whole wrapper is the click-to-browse surface, but a click that lands on an
  * interactive child (a link, button, input, label, select, or textarea — which
- * covers the "Add photos" button and the "Select folder" control), or on the live
- * summary or the per-file status list, must keep its own behaviour rather than
+ * covers the "Add photos" button and the demoted folder-picker control), or on the
+ * live summary or the per-file status list, must keep its own behaviour rather than
  * opening the loose-file picker. A click anywhere else on the wrapper opens it.
  *
  * @since 0.5.0
@@ -727,7 +727,7 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 		 * Reads the per-block context, wires the whole wrapper as a native
 		 * drag-drop + click-to-browse zone, hooks the hidden loose-file input,
 		 * the "Add photos" button (the keyboard/AT browse path), and the
-		 * "Select folder" input, walks dropped folders recursively (every image
+		 * demoted link-style folder-picker input, walks dropped folders recursively (every image
 		 * at every level, paths preserved), and arms the `beforeunload` guard.
 		 * Idempotent via `mountedZones` so a re-run never double-wires.
 		 *
@@ -812,8 +812,8 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			// click that does not land on an interactive child or the upload chrome
 			// opens the hidden loose-file input. A click on a link, button, or input
 			// inside the builder's markup — or on the "Add photos" button, the
-			// "Select folder" control, the summary, or the status list — is left to do
-			// its own thing. The keyboard/AT browse path is the real button below, so
+			// demoted folder-picker control, the summary, or the status list — is left
+			// to do its own thing. The keyboard/AT browse path is the real button below, so
 			// the wrapper carries no role or tabindex and answers no keys.
 			ref.addEventListener( 'click', ( event: MouseEvent ) => {
 				const target = event.target;
@@ -890,7 +890,7 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			// Handle the drop: loose files queue straight away; a dropped folder
 			// is walked recursively so every image at every level uploads with
 			// its source-relative path preserved — the same on-disk placement
-			// as the "Select folder" picker (ADR-0008), with no warning step.
+			// as the folder picker (ADR-0008), with no warning step.
 			// Entries that cannot be read get an honest failed row instead of
 			// vanishing.
 			ref.addEventListener( 'drop', ( event: DragEvent ): void => {

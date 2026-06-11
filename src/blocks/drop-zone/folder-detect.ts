@@ -3,7 +3,7 @@
  *
  * A flat drag-and-drop of loose files is the Drop Zone's fast path, but a
  * visitor can also drag a whole *folder* onto the zone. The design contract
- * (design.md, ADR-0008) is explicit: a drop and the "Select folder" picker have
+ * (design.md, ADR-0008) is explicit: a drop and the folder picker have
  * one semantics — a dropped folder is traversed recursively and every file at
  * every level is recreated under the collection with its source-relative path
  * intact, byte-for-byte where the same folder picked via `webkitdirectory`
