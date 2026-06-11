@@ -24,6 +24,8 @@ The ubiquitous language for this project. Terms only — no implementation detai
 
 **Index** — A per-folder record of the images present in that folder and their metadata, used to present the gallery without inspecting each image file. A regenerable cache, not the source of truth; stored hidden alongside the thumbnails.
 
+**Uploader folder** — A top-level folder within a collection that groups everything an individual uploader contributes through the Drop Zone, named after that uploader. Whether a collection uses uploader folders is a property of the collection.
+
 **Drop Zone** — The block that presents a front-end uploader bound to one existing collection. A consumer of collections: it selects one, and never creates or reconfigures one.
 
 **Gallery** — The block that renders a public, browsable view of a collection, including a lightbox.
