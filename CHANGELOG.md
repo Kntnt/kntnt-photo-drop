@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-11
+
+### Changed
+
+- The **Photo Drop Zone**'s visible upload controls — the "Add photos" button and the folder picker — are now ordinary, fully editable blocks you author inside the block rather than fixed chrome. Each is a normal core button (or any link) wired to the uploader by an anchor-token link target (`#kntnt-drop-zone-files` opens the file picker, `#kntnt-drop-zone-folder` the folder picker). A freshly inserted block seeds both as styled buttons under the centred heading, and you can relabel, restyle, reposition, or remove either — or turn the folder one into a plain text link — like any other block. A Drop Zone saved before this change has no controls until you re-insert it or add a tokened button. (ADR-0010)
+
+### Fixed
+
+- The **Photo Drop Gallery**'s per-image **Shadow** setting now actually shows. A custom shadow value was silently dropped (WordPress's style engine returns a raw `box-shadow` only under `declarations`, never folded into its `css` string, so reading `css` alone lost it), and a preset shadow reached the image but was clipped by the tile's `overflow: hidden`; both are fixed, so a shadow chosen in the inspector paints around the image.
+
 ## [0.5.0] - 2026-06-11
 
 ### Added
@@ -135,7 +145,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.3.0

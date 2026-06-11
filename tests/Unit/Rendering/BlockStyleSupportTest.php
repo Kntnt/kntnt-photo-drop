@@ -329,3 +329,54 @@ test( 'image with no border or shadow yields empty style and class', function ()
 	expect( $result['class'] )->toBe( '' );
 
 } );
+
+test( 'a custom box-shadow the engine omits from css is recovered from declarations', function (): void {
+
+	// The real style engine returns a custom (non-preset) box-shadow only under
+	// `declarations`, never folded into its `css` string (a preset shadow does reach
+	// `css`). Reproduce that exact shape and prove the helper recovers the box-shadow
+	// so the per-image Shadow support actually paints (the gallery-shadow regression).
+	Functions\when( 'wp_style_engine_get_styles' )->justReturn(
+		[
+			'css'          => 'border-width:2px;',
+			'declarations' => [
+				'border-width' => '2px',
+				'box-shadow'   => '6px 6px 12px rgba(0,0,0,0.6)',
+			],
+			'classnames'   => '',
+		]
+	);
+
+	$result = Block_Style_Support::image(
+		[
+			'style' => [
+				'border' => [ 'width' => '2px' ],
+				'shadow' => '6px 6px 12px rgba(0,0,0,0.6)',
+			],
+		],
+	);
+
+	expect( $result['style'] )->toContain( 'border-width:2px;' );
+	expect( $result['style'] )->toContain( 'box-shadow:6px 6px 12px rgba(0,0,0,0.6);' );
+
+} );
+
+test( 'a box-shadow already serialised into css is not duplicated by the recovery', function (): void {
+
+	// When the engine does fold the box-shadow into `css` (a preset shadow), the
+	// recovery must not append a second copy.
+	Functions\when( 'wp_style_engine_get_styles' )->justReturn(
+		[
+			'css'          => 'box-shadow:var(--wp--preset--shadow--deep);',
+			'declarations' => [ 'box-shadow' => 'var(--wp--preset--shadow--deep)' ],
+			'classnames'   => '',
+		]
+	);
+
+	$result = Block_Style_Support::image(
+		[ 'style' => [ 'shadow' => 'var:preset|shadow|deep' ] ],
+	);
+
+	expect( substr_count( $result['style'], 'box-shadow' ) )->toBe( 1 );
+
+} );

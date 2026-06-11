@@ -288,9 +288,13 @@ final class Block_Style_Support {
 	 * `color => []` that would still cost a call; an entirely empty input short-
 	 * circuits to the empty result. The engine returns the declarations as one CSS
 	 * string and the preset classnames as a space-joined string, which the renderer
-	 * emits on the sub-element's `style` and `class`.
+	 * emits on the sub-element's `style` and `class`. One quirk is patched here: the
+	 * engine omits a *custom* box-shadow from its `css` string (only a preset shadow
+	 * reaches `css`), so a raw box-shadow value is recovered from `declarations` —
+	 * otherwise the per-image Shadow support would silently never paint.
 	 *
 	 * @since 0.4.0
+	 * @since 0.6.0 Recovers a custom box-shadow the style engine omits from `css`.
 	 *
 	 * @param array<string,mixed> $block_styles The block-styles subtree for one element.
 	 * @return array{style:string,class:string} The inline style and classnames.
@@ -315,9 +319,20 @@ final class Block_Style_Support {
 		// Hand the subtree to the core style engine, which returns the inline CSS and
 		// the standard preset classnames for the values it recognises.
 		$styles = wp_style_engine_get_styles( $block_styles );
+		$style  = is_string( $styles['css'] ?? null ) ? $styles['css'] : '';
+
+		// Recover a custom box-shadow the engine omits from its `css` string: a preset
+		// shadow reaches `css`, but a raw custom box-shadow value is returned only under
+		// `declarations`, so reading `css` alone silently drops it and the per-image
+		// Shadow support never paints. Append it when present and not already serialised.
+		$declarations = $styles['declarations'] ?? null;
+		$box_shadow   = is_array( $declarations ) ? ( $declarations['box-shadow'] ?? null ) : null;
+		if ( is_string( $box_shadow ) && ! str_contains( $style, 'box-shadow' ) ) {
+			$style .= 'box-shadow:' . $box_shadow . ';';
+		}
 
 		return [
-			'style' => is_string( $styles['css'] ?? null ) ? $styles['css'] : '',
+			'style' => $style,
 			'class' => is_string( $styles['classnames'] ?? null ) ? $styles['classnames'] : '',
 		];
 

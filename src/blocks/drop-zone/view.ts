@@ -5,14 +5,15 @@
  * `init` callback against the capability-gated markup `Render_Drop_Zone` emits.
  * The block's wrapper is itself the layout container and a native drag-drop +
  * click-to-browse zone: a pointer click anywhere on it that is not on an
- * interactive child or the upload chrome opens the hidden loose-file input, a drop
- * of loose files queues them, and a dropped *folder* is walked recursively so
- * every image at every level uploads with its source-relative path preserved —
- * the same on-disk placement as picking that folder via the folder picker
- * (ADR-0008), with no warning or consent step. The keyboard/AT browse path is a
- * real "Add photos" button (the wrapper carries no `role`/`tabindex`). There is no
- * FilePond; the intake, queue, and progress UI are this module's own, built on
- * plain DOM and `XMLHttpRequest`.
+ * interactive child opens the hidden loose-file input, a drop of loose files queues
+ * them, and a dropped *folder* is walked recursively so every image at every level
+ * uploads with its source-relative path preserved — the same on-disk placement as
+ * picking that folder via the folder picker (ADR-0008), with no warning or consent
+ * step. The visible upload controls are builder-authored links wired by an
+ * anchor-token href (ADR-0010): a link to `#kntnt-drop-zone-files` opens the
+ * loose-file picker, one to `#kntnt-drop-zone-folder` the folder picker; the wrapper
+ * carries no `role`/`tabindex`. There is no FilePond; the intake, queue, and
+ * progress UI are this module's own, built on plain DOM and `XMLHttpRequest`.
  *
  * The heavy lifting lives in pure, separately-tested helpers — the Canvas→WebP
  * encode (`canvas-webp.ts`), the safe-canvas-area cap (`canvas-limit.ts`), the
@@ -183,9 +184,9 @@ const DRAGOVER_CLASS = 'kntnt-photo-drop-drop-zone--dragover';
  *
  * The whole wrapper is the click-to-browse surface, but a click that lands on an
  * interactive child (a link, button, input, label, select, or textarea — which
- * covers the "Add photos" button and the demoted folder-picker control), or on the
- * live summary or the per-file status list, must keep its own behaviour rather than
- * opening the loose-file picker. A click anywhere else on the wrapper opens it.
+ * covers the builder's tokened upload-control links), or on the live summary or the
+ * per-file status list, must keep its own behaviour rather than opening the
+ * loose-file picker. A click anywhere else on the wrapper opens it.
  *
  * @since 0.5.0
  */
@@ -193,6 +194,28 @@ const NON_BROWSE_SELECTOR =
 	'a, button, input, label, select, textarea,' +
 	' .kntnt-photo-drop-drop-zone__summary,' +
 	' .kntnt-photo-drop-drop-zone__status';
+
+/**
+ * The anchor-token href that wires a link to the loose-file picker.
+ *
+ * Any link inside the wrapper whose href is this fragment is an "Add photos"
+ * trigger: its click opens the hidden loose-file input (ADR-0010). A `#fragment`
+ * (not a `{…}` token) because the editor's link control and `esc_url()` strip the
+ * braces a brace token would need. Kept in sync with `edit.tsx`'s `FILES_TOKEN`.
+ *
+ * @since 0.6.0
+ */
+const FILES_TOKEN = '#kntnt-drop-zone-files';
+
+/**
+ * The anchor-token href that wires a link to the `webkitdirectory` folder picker.
+ *
+ * The folder counterpart of {@link FILES_TOKEN}: a matching link's click opens the
+ * hidden folder input (ADR-0010). Kept in sync with `edit.tsx`'s `FOLDER_TOKEN`.
+ *
+ * @since 0.6.0
+ */
+const FOLDER_TOKEN = '#kntnt-drop-zone-folder';
 
 /**
  * Tracks which block elements already have the surface wired.
@@ -725,11 +748,11 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 		 * Initialise one Drop Zone block.
 		 *
 		 * Reads the per-block context, wires the whole wrapper as a native
-		 * drag-drop + click-to-browse zone, hooks the hidden loose-file input,
-		 * the "Add photos" button (the keyboard/AT browse path), and the
-		 * demoted link-style folder-picker input, walks dropped folders recursively (every image
-		 * at every level, paths preserved), and arms the `beforeunload` guard.
-		 * Idempotent via `mountedZones` so a re-run never double-wires.
+		 * drag-drop + click-to-browse zone, hooks the two hidden file inputs to the
+		 * builder's tokened upload-control links (ADR-0010), walks dropped folders
+		 * recursively (every image at every level, paths preserved), and arms the
+		 * `beforeunload` guard. Idempotent via `mountedZones` so a re-run never
+		 * double-wires.
 		 *
 		 * @since 0.4.0
 		 */
@@ -761,12 +784,10 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 
 			mountedZones.add( ref );
 
-			// The "Add photos" button and the folder picker are optional chrome —
-			// the render emits both, but a builder could remove them; locate them
-			// after the required-element guard.
-			const browseButton = ref.querySelector< HTMLButtonElement >(
-				'.kntnt-photo-drop-drop-zone__browse'
-			);
+			// The hidden folder input the folder-token link triggers; render emits it
+			// hidden alongside the loose-file input (ADR-0010). It is located after the
+			// required-element guard because, unlike the loose-file input, a missing
+			// folder input only means the folder control is unavailable.
 			const folderInput = ref.querySelector< HTMLInputElement >(
 				'.kntnt-photo-drop-drop-zone__folder-input'
 			);
@@ -809,12 +830,12 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			};
 
 			// The whole wrapper is a click-to-browse trigger for pointer users: a
-			// click that does not land on an interactive child or the upload chrome
-			// opens the hidden loose-file input. A click on a link, button, or input
-			// inside the builder's markup — or on the "Add photos" button, the
-			// demoted folder-picker control, the summary, or the status list — is left
-			// to do its own thing. The keyboard/AT browse path is the real button below, so
-			// the wrapper carries no role or tabindex and answers no keys.
+			// click that does not land on an interactive child opens the hidden
+			// loose-file input. A click on a link, button, or input inside the
+			// builder's markup — including the tokened upload-control links — or on the
+			// summary or the status list is left to do its own thing. The keyboard/AT
+			// browse path is the tokened links themselves, so the wrapper carries no
+			// role or tabindex and answers no keys.
 			ref.addEventListener( 'click', ( event: MouseEvent ) => {
 				const target = event.target;
 				if (
@@ -826,16 +847,29 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 				fileInput.click();
 			} );
 
-			// The "Add photos" button is the accessible browse trigger — a real
-			// <button>, so a keyboard or AT user reaches it by Tab and activates it
-			// with Enter or Space natively; its click opens the same loose-file input.
-			browseButton?.addEventListener(
-				'click',
-				() => {
-					fileInput.click();
-				},
-				{ passive: true }
-			);
+			// The visible upload controls are builder-authored links wired by their
+			// anchor-token href (ADR-0010): a link to FILES_TOKEN opens the loose-file
+			// picker, one to FOLDER_TOKEN the folder picker. Bind every matching link's
+			// click to its input and preventDefault the fragment navigation; a keyboard
+			// or AT user reaches the link by Tab and activates it with Enter natively.
+			const wireTokenLinks = (
+				token: string,
+				input: HTMLInputElement | null
+			): void => {
+				if ( ! input ) {
+					return;
+				}
+				ref.querySelectorAll< HTMLAnchorElement >(
+					`a[href="${ token }"]`
+				).forEach( ( link ) => {
+					link.addEventListener( 'click', ( event: MouseEvent ) => {
+						event.preventDefault();
+						input.click();
+					} );
+				} );
+			};
+			wireTokenLinks( FILES_TOKEN, fileInput );
+			wireTokenLinks( FOLDER_TOKEN, folderInput );
 
 			// Wire the hidden loose-file input: each picked file lands at the
 			// collection root keyed by its own name.

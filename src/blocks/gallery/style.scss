@@ -97,14 +97,17 @@
 	}
 
 	&__item {
-		// The sizing box and the positioning context for the overlay caption. It
-		// clips the cover-fit image to its own bounds; the caption is inside, so it
-		// is never clipped away. `min-width: 0` lets a justified flex item shrink
-		// below its image's intrinsic width instead of forcing the row too wide.
+		// The sizing box and the positioning context for the overlay caption and
+		// the download badge. It deliberately does NOT clip its content: object-fit
+		// already crops the cover image to the box and a rounded image clips its
+		// own corners, so the only thing an `overflow: hidden` here would add is
+		// clipping the image's own box-shadow — the per-image Shadow block support
+		// (issue #33) — which a builder who turns the shadow on expects to see
+		// around the tile. `min-width: 0` lets a justified flex item shrink below
+		// its image's intrinsic width instead of forcing the row too wide.
 		position: relative;
 		min-width: 0;
 		margin: 0;
-		overflow: hidden;
 	}
 
 	&__item--grid {
@@ -127,8 +130,11 @@
 	&__image {
 		// The image fills the item and is cropped to it; the grid honours the
 		// block's fit setting, the justified rows always cover so the row height is
-		// exact.
+		// exact. `box-sizing: border-box` keeps a Border block-support border inside
+		// the tile — the item no longer clips overflow (so the Shadow support can
+		// show), so a content-box border would otherwise spill past the tile edge.
 		display: block;
+		box-sizing: border-box;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;

@@ -8,13 +8,16 @@
  * target, and the drag-over highlight are all the **one** wrapper element; there
  * is no inner `core/group`. The default template seeds the wrapper directly with a
  * level-4 heading, a paragraph naming the target collection through the
- * `{kntnt-drop-zone-collection}` placeholder, and a smaller note, and the
+ * `{kntnt-drop-zone-collection}` placeholder, a smaller note, and a `core/buttons`
+ * whose two buttons are the visible upload controls — each wired to the uploader by
+ * an anchor-token href the view module recognises (`#kntnt-drop-zone-files` opens the
+ * loose-file picker, `#kntnt-drop-zone-folder` the folder picker; ADR-0010). The
  * wrapper's seeded `style` (dashed `#808080` border, `#fafaff` background, `2rem`
  * padding) reproduces today's default look. The template is **not** locked, so a
- * site builder can rewrite the surface freely; render.php replaces the placeholder
- * with the collection's display name at frontend render and turns the whole
- * wrapper into the native drop-and-browse uploader for a capable visitor
- * (ADR-0006).
+ * site builder can relabel, restyle, reposition, or remove the controls (or any of
+ * the surface); render.php replaces the placeholder with the collection's display
+ * name at frontend render and turns the whole wrapper into the native drop-and-browse
+ * uploader for a capable visitor (ADR-0006).
  *
  * The Drop Zone remains a *select-only consumer* of collections: its only
  * inspector controls are a collection selector and a strictly read-only display
@@ -115,20 +118,61 @@ const LIST_PATH = '/kntnt-photo-drop/v1/collections';
 const COLLECTION_PLACEHOLDER = '{kntnt-drop-zone-collection}';
 
 /**
+ * The anchor-token href that wires a link to the loose-file picker.
+ *
+ * Any link inside the Drop Zone whose target is this fragment becomes the
+ * "Add photos" trigger — the view module finds it by href and opens the hidden
+ * loose-file input on click (ADR-0010). A `#fragment` (not a `{…}` token) because
+ * the editor's link control and `esc_url()` strip the braces a brace token would
+ * need; a fragment is a valid URL that survives the round-trip and does nothing
+ * without JavaScript. Kept in sync with `view.ts`'s `FILES_TOKEN`.
+ *
+ * @since 0.6.0
+ */
+const FILES_TOKEN = '#kntnt-drop-zone-files';
+
+/**
+ * The anchor-token href that wires a link to the `webkitdirectory` folder picker.
+ *
+ * The folder counterpart of {@link FILES_TOKEN}; a link targeting this fragment
+ * opens the hidden folder input on click (ADR-0010). Kept in sync with `view.ts`'s
+ * `FOLDER_TOKEN`.
+ *
+ * @since 0.6.0
+ */
+const FOLDER_TOKEN = '#kntnt-drop-zone-folder';
+
+/**
+ * A WordPress inner-block template entry: name, optional attributes, optional children.
+ *
+ * The recursive tuple `register_block_type`/`useInnerBlocksProps` accept for a
+ * seeded template, declared locally so the seeded `core/buttons` can carry its two
+ * `core/button` children.
+ *
+ * @since 0.6.0
+ */
+type BlockTemplate = [ string, Record< string, unknown >?, BlockTemplate[]? ];
+
+/**
  * The default inner-block template seeded into a freshly inserted Drop Zone.
  *
  * A level-4 heading, a paragraph naming the target collection through the
- * placeholder render.php substitutes, and a smaller note explaining that the live
- * uploader appears on the published page — seeded **directly** into the block's
- * wrapper, with no inner `core/group`, because the wrapper is itself the layout
- * container (its dashed-box look comes from the block's seeded `style` attribute
- * and its centring from the `constrained` layout support). The template is
- * intentionally not locked, so a builder can edit any of it; the placeholder is
- * just a default, not a contract.
+ * placeholder render.php substitutes, a smaller note explaining that the live
+ * uploader appears on the published page, and a `core/buttons` holding the two
+ * visible upload controls — an "Add photos" button and a quieter "Select a folder"
+ * button — each wired to the uploader by an anchor-token href ({@link FILES_TOKEN},
+ * {@link FOLDER_TOKEN}; ADR-0010). Seeded **directly** into the block's wrapper,
+ * with no inner `core/group`, because the wrapper is itself the layout container
+ * (its dashed-box look comes from the block's seeded `style` attribute and its
+ * centring from the `constrained` layout support). The template is intentionally
+ * not locked, so a builder can relabel, restyle, reposition, or remove any of it —
+ * including turning the folder button back into a plain text link; the placeholder
+ * and the tokens are defaults and conventions, not a contract.
  *
  * @since 0.5.0
+ * @since 0.6.0 Seeds the two upload controls as tokened buttons (ADR-0010).
  */
-const DEFAULT_TEMPLATE: readonly [ string, Record< string, unknown > ][] = [
+const DEFAULT_TEMPLATE: readonly BlockTemplate[] = [
 	[
 		'core/heading',
 		{
@@ -161,6 +205,27 @@ const DEFAULT_TEMPLATE: readonly [ string, Record< string, unknown > ][] = [
 				'kntnt-photo-drop'
 			),
 		},
+	],
+	[
+		'core/buttons',
+		{ layout: { type: 'flex', justifyContent: 'center' } },
+		[
+			[
+				'core/button',
+				{
+					url: FILES_TOKEN,
+					text: __( 'Add photos', 'kntnt-photo-drop' ),
+				},
+			],
+			[
+				'core/button',
+				{
+					url: FOLDER_TOKEN,
+					text: __( 'Select a folder', 'kntnt-photo-drop' ),
+					className: 'is-style-outline',
+				},
+			],
+		],
 	],
 ];
 
@@ -266,8 +331,8 @@ function ContractDisplay( {
  * Renders the inner-block region (seeded with the default template on insertion)
  * and drives the inspector's collection selector and read-only contract display.
  * The inner blocks are the block's editable appearance and the wrapper is itself
- * their layout container — the Group-equivalent — so the seeded heading and
- * paragraphs are its direct children and the Group-equivalent block supports
+ * their layout container — the Group-equivalent — so the seeded heading,
+ * paragraphs, and upload-control buttons are its direct children and the supports
  * (layout, colour, typography, border, spacing, min-height, shadow, align) style
  * that same wrapper. An empty or dangling `collection` surfaces an inline notice
  * inside the inspector (the slug is no longer among the discovered collections,

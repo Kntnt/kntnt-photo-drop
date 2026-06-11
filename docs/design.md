@@ -117,6 +117,7 @@ CSS Grid, native `loading="lazy"`, and `srcset` (thumbnail width(s) + main; the 
 10. **Recursive-flatten gallery; no in-gallery folder navigation; compose with multiple blocks** (ADR-0005).
 11. **Server re-enforces the contract; REST upload gated by `upload_files` + nonce** (ADR-0006).
 12. **Lightbox via the Interactivity API**, superseding CSS `:target` (ADR-0007).
+13. **Drop Zone upload controls are builder-authored links wired by an anchor-token href** (`#kntnt-drop-zone-files`/`#kntnt-drop-zone-folder`), not bespoke control chrome (ADR-0010).
 
 ## Structure and conventions
 

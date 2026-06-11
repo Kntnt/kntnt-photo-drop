@@ -178,8 +178,8 @@ test( 'a capable user gets the drop-surface markup and a nonce', function (): vo
 
 	// The user holds the capability and the collection resolves: the wrapper is
 	// itself the drop surface, so the inner-block markup is a direct child (no
-	// surface div), alongside the hidden loose-file input, the folder picker, the
-	// Interactivity directive, and the nonce.
+	// surface div), alongside the two hidden file inputs, the Interactivity
+	// directive, and the nonce.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
 	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
@@ -196,45 +196,62 @@ test( 'a capable user gets the drop-surface markup and a nonce', function (): vo
 	render_remove_tree( $basedir );
 } );
 
-test( 'the wrapper carries no role or tabindex; an "Add photos" button is the keyboard path', function (): void {
+test( 'the wrapper carries no role or tabindex and emits no built-in upload button', function (): void {
 
 	// The wrapper is the layout container and the pointer click-to-browse surface,
-	// but the keyboard/AT browse path is a real <button> rendered beside the demoted
-	// link-style folder picker; the wrapper itself carries neither role="button" nor
-	// tabindex (issue #35 accessibility).
+	// but it carries neither role="button" nor tabindex (issue #35). The visible
+	// upload controls are now the builder's own tokened links in the inner blocks
+	// (ADR-0010), so this handler emits no <button> chrome of its own.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
 	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
 
-	expect( $html )->toMatch( '/<button type="button" class="kntnt-photo-drop-drop-zone__browse">[^<]+<\/button>/' );
 	expect( $html )->not->toContain( 'role="button"' );
 	expect( $html )->not->toContain( 'tabindex' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-drop-zone__browse' );
+	expect( $html )->not->toContain( '<button' );
 
 	render_remove_tree( $basedir );
 } );
 
-test( 'the folder picker is a quiet link-style affordance with the input kept accessible', function (): void {
+test( 'the two hidden file inputs are emitted; the old folder-picker chrome is gone', function (): void {
 
-	// The folder picker is demoted to a low-emphasis inline affordance (issue #40):
-	// a <label> wrapping the real webkitdirectory input followed by a link-style
-	// text span. The input stays a focusable, labelled file control — never a
-	// button — so keyboard- and touch-accessible folder selection survives the
-	// visual demotion.
+	// The two file inputs the tokened links trigger are emitted as hidden chrome:
+	// the loose-file input and the webkitdirectory folder input (ADR-0010). The old
+	// visible folder-picker label/text affordance is gone — the folder control is
+	// now a builder-authored tokened link in the inner blocks.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
 	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
 
-	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__folder-label' );
-	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__folder-text' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__file-input' );
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__folder-input' );
 	expect( $html )->toContain( 'webkitdirectory' );
-	expect( $html )->toContain( 'or select a folder' );
-	// The picker is never promoted to a second prominent button.
-	expect( $html )->not->toMatch( '/<button[^>]*folder/' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-drop-zone__folder-label' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-drop-zone__folder-text' );
+	expect( $html )->not->toContain( 'or select a folder' );
+
+	render_remove_tree( $basedir );
+} );
+
+test( 'a tokened upload-control link in the inner markup passes through unchanged', function (): void {
+
+	// The builder wires the upload controls with anchor-token hrefs (ADR-0010); the
+	// render handler must pass them through untouched (only the collection
+	// placeholder is substituted), so the view module can find them by href.
+	$basedir = fresh_render_basedir();
+	wire_render_stubs( $basedir, cap_ok: true );
+	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+
+	$content = '<div class="wp-block-button">'
+		. '<a class="wp-block-button__link" href="#kntnt-drop-zone-files">Add photos</a></div>';
+	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], $content, render_block_stub() );
+
+	expect( $html )->toContain( 'href="#kntnt-drop-zone-files"' );
 
 	render_remove_tree( $basedir );
 } );

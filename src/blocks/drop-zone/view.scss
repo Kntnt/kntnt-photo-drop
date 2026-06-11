@@ -1,10 +1,11 @@
 // Photo Drop Zone — frontend drop-surface styles.
-// Imported by view.ts so @wordpress/scripts bundles it into the view-side asset
-// (view.css) declared as viewStyle in block.json. The block's wrapper is itself
-// the layout container and the native drag-drop + click-to-browse zone, so this
-// covers the click affordance and the drag-over highlight on the wrapper, the
-// upload controls (the "Add photos" button and the folder picker), and the
-// per-file status list. There is no FilePond.
+// Imported by view.ts so @wordpress/scripts bundles it into the view-side
+// asset (view.css), declared as viewStyle in block.json. The block's wrapper
+// is itself the layout container and the native drag-drop + click-to-browse
+// zone, so this covers the click affordance and the drag-over highlight on the
+// wrapper plus the live summary and per-file status list. The visible upload
+// controls are the builder's own tokened links (ADR-0010), styled by core, not
+// here. There is no FilePond.
 
 .kntnt-photo-drop-drop-zone {
 
@@ -17,60 +18,6 @@
 	&--dragover {
 		outline: 2px dashed currentcolor;
 		outline-offset: 4px;
-	}
-
-	// The interactive controls sit on the cursor's default arrow — they are not
-	// part of the click-anywhere surface — and lay out as a wrapping inline row.
-	&__controls {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.75rem;
-		margin: 0.75rem 0 0;
-		cursor: auto;
-	}
-
-	// The folder picker is demoted to a quiet, link-style afterthought beside the
-	// emphasised "Add photos" button (issue #40). The label is the inline wrapper;
-	// its visible text reads as a link, while the real webkitdirectory input is
-	// hidden from view but kept focusable and keyboard-operable so the
-	// hierarchy-preserving route stays fully accessible.
-	&__folder-label {
-		display: inline-flex;
-		align-items: center;
-		font-size: 0.85em;
-		cursor: pointer;
-	}
-
-	// Reduce the native file input to a focusable point: it takes no layout space
-	// and shows no default file-button chrome, but it is never `display: none` or
-	// `hidden`, so it stays in the tab order and answers Enter/Space to open the
-	// folder picker. A click on the label text triggers it through native label
-	// association.
-	&__folder-input {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		border: 0;
-		clip: rect(0 0 0 0);
-		clip-path: inset(50%);
-		overflow: hidden;
-		white-space: nowrap;
-	}
-
-	// The visible affordance reads as a low-emphasis inline link. Keyboard focus
-	// lands on the hidden input, so mirror that focus onto the text the user sees
-	// with a focus ring the input would otherwise have shown.
-	&__folder-text {
-		color: var(--wp--preset--color--link, currentcolor);
-		text-decoration: underline;
-		text-underline-offset: 0.15em;
-	}
-
-	&__folder-input:focus-visible + &__folder-text {
-		outline: 2px solid currentcolor;
-		outline-offset: 2px;
 	}
 
 	&__summary {

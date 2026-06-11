@@ -88,8 +88,9 @@ test.describe( 'Editor', () => {
 		await admin.createNewPost();
 		await editor.insertBlock( { name: 'kntnt-photo-drop/drop-zone' } );
 
-		// The default inner-block template seeds a heading and the placeholder
-		// paragraph, both editable inside the InnerBlocks wrapper.
+		// The default inner-block template seeds a heading, the placeholder
+		// paragraph, and a core/buttons holding the two upload controls, all
+		// editable inside the InnerBlocks wrapper.
 		const wrapper = editor.canvas.locator( '.kntnt-photo-drop-drop-zone' );
 		await expect( wrapper ).toBeVisible();
 		await expect( wrapper ).toContainText( 'Photo Drop Zone' );
@@ -100,6 +101,19 @@ test.describe( 'Editor', () => {
 		await expect(
 			wrapper.locator( 'h4:has-text("Photo Drop Zone")' )
 		).toHaveClass( /has-text-align-center/ );
+
+		// The two upload controls are seeded as ordinary core buttons (ADR-0010),
+		// so they are editable, stylable blocks rather than bespoke chrome.
+		await expect( wrapper.locator( '.wp-block-button' ) ).toHaveCount( 2 );
+		await expect( wrapper ).toContainText( 'Add photos' );
+		await expect( wrapper ).toContainText( 'Select a folder' );
+
+		// The seeded buttons serialise with the anchor-token hrefs the view module
+		// wires against on the frontend (ADR-0010), so the seed-to-frontend path
+		// survives the editor's link handling.
+		const content = await editor.getEditedPostContent();
+		expect( content ).toContain( 'href="#kntnt-drop-zone-files"' );
+		expect( content ).toContain( 'href="#kntnt-drop-zone-folder"' );
 
 		// No block error boundary anywhere in the canvas.
 		await expect(

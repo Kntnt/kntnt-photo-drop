@@ -156,21 +156,22 @@ final class Render_Drop_Zone {
 	 * as an escaped JSON island on the wrapper. The **wrapper itself** is the layout
 	 * container and the native drop-and-browse surface: the placeholder-replaced
 	 * inner blocks are its direct children (so core's layout CSS — `constrained`
-	 * centring and `blockGap` — applies to them), and the upload chrome are
-	 * further layout children inside the same styled box — a hidden loose-file
-	 * input the surface click triggers, a real "Add photos" button for the
-	 * keyboard/AT path, a quiet link-style folder picker (demoted to a low-emphasis
-	 * inline affordance, but kept fully focusable, labelled, and keyboard-operable
-	 * because its `webkitdirectory` input is the only accessible route to a
-	 * preserved hierarchy), and the per-file status list and live summary the module
-	 * writes to. The wrapper carries no `role`/`tabindex`; the click-anywhere
-	 * convenience excludes interactive children, and the button is the accessible
-	 * browse trigger. Everything is
-	 * escaped at the point of output and every visible string is translatable; the
-	 * inner-block markup is already sanitised by `the_content`-equivalent block
-	 * serialisation and is passed through unescaped here by design.
+	 * centring and `blockGap` — applies to them), and those inner blocks carry the
+	 * builder's visible upload controls — ordinary links wired to the uploader by
+	 * their anchor-token href (ADR-0010). This handler emits only the
+	 * non-presentational parts inside the same styled box: the two hidden file inputs
+	 * the tokened links (and the click-anywhere surface) trigger — a loose-file input
+	 * and the `webkitdirectory` folder input — and the per-file status list and live
+	 * summary the module writes to. The wrapper carries no `role`/`tabindex`; the
+	 * click-anywhere convenience excludes interactive children, and the tokened links
+	 * are the accessible browse triggers. Everything is escaped at the point of
+	 * output and every visible string is translatable; the inner-block markup is
+	 * already sanitised by `the_content`-equivalent block serialisation and is passed
+	 * through unescaped here by design.
 	 *
 	 * @since 0.5.0
+	 * @since 0.6.0 Upload controls moved to builder-authored tokened links; this
+	 *              handler emits only the hidden inputs, summary, and status (ADR-0010).
 	 *
 	 * @param string     $slug       The resolved collection slug.
 	 * @param Descriptor $descriptor The collection's contract and display name.
@@ -218,32 +219,17 @@ final class Render_Drop_Zone {
 		// stylesheet targets.
 		$wrapper = get_block_wrapper_attributes( [ 'class' => 'kntnt-photo-drop-drop-zone' ] );
 
-		// Translate the two visible upload-chrome labels. The "Add photos" button is
-		// the prominent keyboard/AT browse trigger that replaces the old surface
-		// role (the click-anywhere convenience is pointer-only chrome). The folder
-		// picker is demoted to a quiet, link-style afterthought now that a dropped
-		// folder recurses identically (ADR-0008): it stays only because its
-		// `webkitdirectory` input is the one keyboard- and touch-accessible route to
-		// a preserved hierarchy, so the input keeps its label and focusability and
-		// only its emphasis drops. The phrasing reads as an inline "or" alternative
-		// to the button it sits beside.
-		$folder_label = esc_html__( 'or select a folder', 'kntnt-photo-drop' );
-		$browse_label = esc_html__( 'Add photos', 'kntnt-photo-drop' );
-
 		// Compose the wrapper as the layout container and the native drop surface:
 		// the placeholder-replaced inner blocks are its direct children (core's
-		// layout CSS centres and gaps them), followed by the upload chrome as
-		// further layout children. The "Add photos" button carries the emphasis; the
-		// folder picker is a `<label>` styled as a quiet inline link, wrapping the
-		// real `webkitdirectory` input — the input keeps its native focusability and
-		// keyboard operation (the stylesheet only hides its default file-button
-		// chrome and renders the label text as the visible affordance), so the
-		// keyboard- and touch-accessible route to a preserved hierarchy survives the
-		// demotion. The summary line is the single live region (the per-file list
-		// would be far too chatty for a screen reader at batch scale); it and the
-		// status list keep `data-wp-ignore` so the view module owns their DOM, while
-		// the inner blocks no longer carry an ignore boundary (the surface div that
-		// held it is gone). A `data-wp-init` hook hands the wrapper to the view
+		// layout CSS centres and gaps them), and they carry the builder's visible
+		// upload controls — ordinary links wired by their anchor-token href
+		// (ADR-0010). Only the non-presentational parts are emitted here: the two
+		// hidden file inputs those tokened links (and the click-anywhere surface)
+		// trigger — the loose-file input and the `webkitdirectory` folder input — and
+		// the live summary plus the per-file status list. The summary is the single
+		// live region (the per-file list would be far too chatty for a screen reader
+		// at batch scale); it and the status list keep `data-wp-ignore` so the view
+		// module owns their DOM. A `data-wp-init` hook hands the wrapper to the view
 		// module.
 		return sprintf(
 			'<div %1$s'
@@ -254,22 +240,14 @@ final class Render_Drop_Zone {
 				. '%3$s'
 				// phpcs:ignore Generic.Files.LineLength.TooLong -- The loose-file input is a single coherent input declaration.
 				. '<input type="file" class="kntnt-photo-drop-drop-zone__file-input" multiple accept="image/*" hidden />'
-				. '<p class="kntnt-photo-drop-drop-zone__controls">'
-				. '<button type="button" class="kntnt-photo-drop-drop-zone__browse">%4$s</button>'
-				. '<label class="kntnt-photo-drop-drop-zone__folder-label">'
-				// phpcs:ignore Generic.Files.LineLength.TooLong -- The webkitdirectory attribute set is a single coherent input declaration.
-				. '<input type="file" class="kntnt-photo-drop-drop-zone__folder-input" multiple accept="image/*" webkitdirectory directory />'
-				. '<span class="kntnt-photo-drop-drop-zone__folder-text">%5$s</span>'
-				. '</label>'
-				. '</p>'
+				// phpcs:ignore Generic.Files.LineLength.TooLong -- The webkitdirectory folder input is a single coherent input declaration.
+				. '<input type="file" class="kntnt-photo-drop-drop-zone__folder-input" multiple accept="image/*" webkitdirectory directory hidden />'
 				. '<p class="kntnt-photo-drop-drop-zone__summary" data-wp-ignore aria-live="polite"></p>'
 				. '<ul class="kntnt-photo-drop-drop-zone__status" data-wp-ignore></ul>'
 				. '</div>',
 			$wrapper,
 			esc_attr( $context_json ),
 			$inner,
-			$browse_label,
-			$folder_label,
 		);
 
 	}

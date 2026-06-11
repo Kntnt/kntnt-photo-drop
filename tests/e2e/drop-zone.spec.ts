@@ -3,9 +3,10 @@
  *
  * An authenticated admin visits a published page carrying the Photo Drop
  * Zone block, confirms the new DOM shape (the wrapper is itself the layout
- * container and drop surface — no inner surface div, no role/tabindex, a real
- * "Add photos" button), hands a JPEG to the native hidden loose-file input, and
- * the browser pipeline (createImageBitmap → canvas → WebP) uploads it to the
+ * container and drop surface — no inner surface div, no role/tabindex, the
+ * builder's tokened "Add photos" link), clicks that link to open the native file
+ * chooser, and the browser pipeline (createImageBitmap → canvas → WebP) uploads it
+ * to the
  * REST endpoint. The spec asserts the client-visible truth (the per-file status
  * row and the live summary) and the server truth (the stored
  * `<name>.jpg.webp` is served from the collection directory as
@@ -39,7 +40,14 @@ test.describe( 'Drop Zone upload', () => {
 		createCollection( slug );
 		const created = await requestUtils.createPage( {
 			title: `E2E Drop Zone ${ slug }`,
-			content: `<!-- wp:kntnt-photo-drop/drop-zone {"collection":"${ slug }"} /-->`,
+			content:
+				`<!-- wp:kntnt-photo-drop/drop-zone {"collection":"${ slug }"} -->\n` +
+				`<!-- wp:buttons -->\n` +
+				`<div class="wp-block-buttons"><!-- wp:button -->\n` +
+				`<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="#kntnt-drop-zone-files">Add photos</a></div>\n` +
+				`<!-- /wp:button --></div>\n` +
+				`<!-- /wp:buttons -->\n` +
+				`<!-- /wp:kntnt-photo-drop/drop-zone -->`,
 			status: 'publish',
 		} );
 		pageId = created.id;
@@ -67,11 +75,10 @@ test.describe( 'Drop Zone upload', () => {
 		await page.goto( `/?page_id=${ pageId }` );
 
 		// The wrapper is itself the layout container and the drop surface: it
-		// carries the Interactivity directive, no role/tabindex (the keyboard
-		// browse path is a real "Add photos" button instead), and there is no
-		// inner surface div. The editor spec covers the seeded inner-block
-		// template; this page binds a self-closing block, so it has no inner
-		// blocks to assert here.
+		// carries the Interactivity directive, no role/tabindex (the browse path is
+		// the builder's tokened links instead), and there is no inner surface div.
+		// The two hidden file inputs the tokened links trigger are emitted regardless
+		// of the inner blocks.
 		const wrapper = page.locator( '.kntnt-photo-drop-drop-zone' );
 		await expect( wrapper ).toHaveCount( 1 );
 		await expect( wrapper ).toHaveAttribute( 'data-wp-interactive', /.+/ );
@@ -81,29 +88,19 @@ test.describe( 'Drop Zone upload', () => {
 			page.locator( '.kntnt-photo-drop-drop-zone__surface' )
 		).toHaveCount( 0 );
 		await expect(
-			page.locator( '.kntnt-photo-drop-drop-zone__browse' )
-		).toBeVisible();
+			page.locator( '.kntnt-photo-drop-drop-zone__folder-input' )
+		).toHaveAttribute( 'webkitdirectory', '' );
 
-		// The folder picker is demoted to a quiet, link-style affordance (issue
-		// #40): the visible text reads as a link, but the real webkitdirectory
-		// input stays focusable and keyboard-operable — never removed from the
-		// tab order — so the accessible hierarchy-preserving route survives.
-		await expect(
-			page.locator( '.kntnt-photo-drop-drop-zone__folder-text' )
-		).toBeVisible();
-		const folderInput = page.locator(
-			'.kntnt-photo-drop-drop-zone__folder-input'
-		);
-		await expect( folderInput ).toHaveAttribute( 'webkitdirectory', '' );
-		await folderInput.focus();
-		await expect( folderInput ).toBeFocused();
-
-		// Hand the fixture to the hidden loose-file input the wrapper click or
-		// the "Add photos" button would open; the view module converts it to
-		// WebP and POSTs it.
-		await page
-			.locator( '.kntnt-photo-drop-drop-zone__file-input' )
-			.setInputFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
+		// The "Add photos" control is the builder's own link, wired to the hidden
+		// loose-file input by its anchor-token href (ADR-0010). Clicking it must open
+		// the native file chooser; handing the fixture to that chooser drives the same
+		// pipeline a real user would, proving the token wiring end-to-end.
+		const browseLink = page.locator( 'a[href="#kntnt-drop-zone-files"]' );
+		await expect( browseLink ).toBeVisible();
+		const fileChooserPromise = page.waitForEvent( 'filechooser' );
+		await browseLink.click();
+		const fileChooser = await fileChooserPromise;
+		await fileChooser.setFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
 
 		// The file's status row settles on the uploaded state, and the
 		// summary counts exactly this one upload.
