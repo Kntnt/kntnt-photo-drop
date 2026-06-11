@@ -39,11 +39,38 @@ A capability-gated front-end uploader bound to one existing collection. It selec
 		"anchor": true,
 		"html": false,
 		"align": true,
-		"color": { "background": true, "text": true, "gradients": true, "link": true },
-		"typography": { "fontSize": true, "lineHeight": true, "__experimentalFontFamily": true },
-		"__experimentalBorder": { "color": true, "radius": true, "style": true, "width": true },
+		"color": {
+			"background": true,
+			"text": true,
+			"gradients": true,
+			"link": true,
+			"__experimentalDefaultControls": { "background": true, "text": true }
+		},
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true,
+			"__experimentalFontFamily": true,
+			"__experimentalTextDecoration": true,
+			"__experimentalFontStyle": true,
+			"__experimentalFontWeight": true,
+			"__experimentalLetterSpacing": true,
+			"__experimentalTextTransform": true,
+			"__experimentalDefaultControls": { "fontSize": true }
+		},
+		"__experimentalBorder": {
+			"color": true,
+			"radius": true,
+			"style": true,
+			"width": true,
+			"__experimentalDefaultControls": { "color": true, "radius": true, "style": true, "width": true }
+		},
 		"shadow": true,
-		"spacing": { "margin": true, "padding": true, "blockGap": true },
+		"spacing": {
+			"margin": true,
+			"padding": true,
+			"blockGap": true,
+			"__experimentalDefaultControls": { "padding": true, "blockGap": true }
+		},
 		"dimensions": { "minHeight": true },
 		"layout": { "allowSizingOnChildren": true, "default": { "type": "constrained" } }
 	},
@@ -103,13 +130,12 @@ A public, server-rendered gallery of one collection — all images under a start
 	"title": "Photo Drop Gallery",
 	"category": "kntnt",
 	"icon": "format-gallery",
-	"description": "A public, server-rendered gallery of a collection, with a lightbox.",
+	"description": "A public, server-rendered gallery of a chosen collection, with a lightbox.",
 	"keywords": [ "photo", "gallery", "images", "lightbox", "collection" ],
 	"textdomain": "kntnt-photo-drop",
 	"editorScript": "file:./index.tsx",
 	"viewScriptModule": "file:./view.ts",
 	"style": "file:./style-index.css",
-	"editorStyle": "file:./index.css",
 	"viewStyle": "file:./view.css",
 	"render": "file:./render.php",
 	"supports": {

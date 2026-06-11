@@ -46,7 +46,8 @@ The automated gates cannot judge whether the result *looks and feels right*. The
 
 - **Visual layout** of the Gallery — uniform-grid (mode A) and justified-rows (mode B), caption positions and overlays, behaviour at narrow and wide viewports, zero layout shift on load.
 - **Lightbox feel** — open/close animation, prev/next, keyboard, swipe on touch, neighbour preload, focus trap, and that the no-JS fallback degrades gracefully.
-- **Drop Zone UX** — drag-and-drop of loose files, the "Select folder" control, the dragged-folder warning, progress feedback across a large batch, and that browser-side optimisation visibly reduces upload size.
+- **Slideshow feel** — starting from the built-in button and a custom trigger, the dissolve pacing, the reduced-motion hard cut, and the exit paths (Escape, native fullscreen exit, the close button).
+- **Drop Zone UX** — drag-and-drop of loose files and whole folders (hierarchy preserved), the "Select a folder" control, progress feedback across a large batch, and that browser-side optimisation visibly reduces upload size.
 - **Admin page UX** — the create/update/delete flow, the irreversibility warning on the contract fields, and the read-only contract display in the Drop Zone inspector.
 
 A PR states plainly which automated gates were run and their result, which could not be run in the current environment (and why), and which items above still need a human's visual check.

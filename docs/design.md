@@ -2,17 +2,17 @@
 
 ## Status
 
-This plan is written before the code. Its open questions were resolved in a `grill-with-docs` session; the decisions with real trade-offs are recorded as ADRs under `docs/adr/` and the domain language is in `CONTEXT.md`. Sections below reflect the settled design and link the ADR that owns each load-bearing decision.
+This plan was written before the code and the plugin has since been built from it; the document is kept current as the settled design. Its open questions were resolved in a `grill-with-docs` session; the decisions with real trade-offs are recorded as ADRs under `docs/adr/` and the domain language is in `CONTEXT.md`. Sections below reflect the settled design and link the ADR that owns each load-bearing decision.
 
 ## Purpose
 
-A WordPress plugin with two Gutenberg blocks. A field photographer logs in to a page carrying the **Photo Drop Zone** block and drags in one image, many images, or a folder of images; each is downscaled, converted, and compressed in the browser before upload. Anyone can later visit a page carrying the **Photo Gallery** block and browse the result, with a lightbox. Built block-first and server-rendered, in the spirit of kntnt-gpx-blocks.
+A WordPress plugin with two Gutenberg blocks. A field photographer logs in to a page carrying the **Photo Drop Zone** block and drags in one image, many images, or a folder of images; each is downscaled, converted, and compressed in the browser before upload. Anyone can later visit a page carrying the **Photo Drop Gallery** block and browse the result, with a lightbox. Built block-first and server-rendered, in the spirit of kntnt-gpx-blocks.
 
 ## The two blocks
 
 **Photo Drop Zone** — a capability-gated front-end uploader bound to one collection. It is a *consumer*: it selects an existing collection from a dropdown and uploads into it. It cannot create or reconfigure collections. Its inspector is just the collection selector plus a read-only display of that collection's contract (max width, quality, WebP, thumbnail width) — nothing to edit, so nothing can conflict.
 
-**Photo Gallery** — a public, server-rendered gallery of a chosen collection, with a lightbox.
+**Photo Drop Gallery** — a public, server-rendered gallery of a chosen collection, with a lightbox.
 
 ## Storage — see ADR-0001, ADR-0003
 
@@ -84,7 +84,7 @@ wp kntnt-photo-drop image      import <slug> <source…> [--overwrite]
 wp kntnt-photo-drop image      delete <slug> <path> [--yes]
 ```
 
-`create` takes `slug` positionally; `--name` is optional (defaults to a humanised slug); `--max-width` and `--quality` are **required flags** (the contract is irreversible); `--uploader-folders` is optional and defaults to on, fixed at establishment alongside the contract (pass `--no-uploader-folders` to land Drop Zone uploads at the collection root; [ADR-0008](adr/0008-ingestion-placement-hierarchy-and-uploader-folders.md)). `update` mutates only `--name` and rejects `--max-width`, `--quality`, and `--uploader-folders` alike, since all three are fixed at establishment. `import` requires an existing collection, carries no contract flags, and is idempotent (skip-if-exists, `--overwrite` to force). Both deletes prompt unless `--yes`. Read output uses `format_items()` (`table`, `csv`, `json`, `yaml`, `ids`, `count`). Deliberately **not** included: `verify` (subsumed by doctor), `list`/`mv` (the filesystem plus `find` and self-healing indexes cover them), and a standalone in-place `process`.
+`create` takes `slug` positionally; `--name` is optional (defaults to a humanised slug); `--max-width` and `--quality` are **required flags** (the contract is irreversible); `--uploader-folders` is optional and defaults to on, fixed at establishment alongside the contract (pass `--no-uploader-folders` to land Drop Zone uploads at the collection root; [ADR-0008](adr/0008-ingestion-placement-hierarchy-and-uploader-folders.md)). `update` mutates only `--name` and rejects `--max-width`, `--quality`, and `--uploader-folders` alike, since all three are fixed at establishment. `import` requires an existing collection, carries no contract flags, and is idempotent (skip-if-exists, `--overwrite` to force). Both deletes prompt unless `--yes`. `doctor` and `import` present their per-file results as `format_items()` tables. Deliberately **not** included: `verify` (subsumed by doctor), `list`/`mv` (the filesystem plus `find` and self-healing indexes cover them), and a standalone in-place `process`.
 
 ## Gallery rendering — see ADR-0005, ADR-0007
 
@@ -94,6 +94,7 @@ The Gallery block targets a collection (slug) plus an optional **start path** (d
 - **Captions** are a presentation block setting and are **always an overlay inside the image** (issue #33; there is no under/above position): content = none / filename / path-breadcrumb (humanise toggle; "include collection name" toggle, default off; separator free-text, default `›`); plus a nine-point anchor. The caption's colour and font come from the **Colour** and **Typography** block-support panels, and each image's border and shadow from the **Border** and **Shadow** panels — all declared with `__experimentalSkipSerialization` and projected server-side onto the right sub-element (figcaption / img) through the style engine (`wp_style_engine_get_styles`), the core Image-block pattern, rather than onto the block wrapper. Note: re-encoding strips all EXIF/IPTC, and the server strips `EXIF`/`XMP` chunks losslessly from pass-through WebP, so there is no embedded caption or capture date to draw on — caption *content* is filename/path only.
 - **Layout** delegates to core block supports where possible. Mode toggle **A (uniform grid)** vs **B (justified rows)**. A uses core's Grid layout (`minimumColumnWidth` default 320px) + bespoke aspect-ratio and fit; stored dimensions set `aspect-ratio` → zero layout shift. B is bespoke justified rows (per-image `flex-grow`/`flex-basis` from stored dimensions, target row height default 240px, last row left-aligned). The inter-item gap is the **Block spacing** support (`blockGap`, default 12px), read server-side into both layout containers. Each figure is the sizing box and the overlay caption's positioning context, with the link and image filling it absolutely so neither the caption nor the image is clipped to nothing. Gallery width and alignment use core width/alignment supports; the Colour and Typography supports are claimed by the caption via skip-serialisation (see the Captions bullet), projected onto the figcaption rather than the block wrapper.
 - **Lightbox** is built with the WordPress **Interactivity API** in TypeScript (open/close, prev/next, keyboard, swipe, neighbour preload, focus trap, `aria`), with a no-JS `<a href="full.webp">` fallback. This supersedes a CSS `:target` lightbox (a11y).
+- **Slideshow** ([ADR-0009](adr/0009-slideshow-passive-surface-pluggable-trigger.md)) is a third, optional surface beside the grid and the lightbox: a visitor-started, endlessly looping fullscreen playback of exactly the gallery's view, passive except for exiting (Escape, native fullscreen exit, a close button). Each slide stands for a configurable number of seconds, then dissolves (~1 s; a hard cut under `prefers-reduced-motion`); the next image preloads during display and the playback never advances to an unloaded image. The trigger is a three-state block attribute: off, a quiet built-in button above the gallery, or any designer-placed element carrying `data-kntnt-photo-drop-slideshow` (its value targets a gallery by its HTML anchor; valueless targets the page's first slideshow-enabled gallery).
 
 CSS Grid, native `loading="lazy"`, and `srcset` (thumbnail width(s) + main; the browser picks by rendered size and DPR, and never shows a thumbnail upscaled because the main is always a candidate). No jQuery. Virtualisation is only considered at thousands-of-images scale.
 
@@ -118,7 +119,8 @@ CSS Grid, native `loading="lazy"`, and `srcset` (thumbnail width(s) + main; the 
 11. **Server re-enforces the contract; REST upload gated by `upload_files` + nonce** (ADR-0006).
 12. **Lightbox via the Interactivity API**, superseding CSS `:target` (ADR-0007).
 13. **Drop Zone upload controls are builder-authored links wired by an anchor-token href** (`#kntnt-drop-zone-files`/`#kntnt-drop-zone-folder`), not bespoke control chrome (ADR-0010).
+14. **The slideshow is a passive fullscreen surface with a pluggable trigger** — off / built-in button / any custom element carrying `data-kntnt-photo-drop-slideshow` (ADR-0009).
 
 ## Structure and conventions
 
-Mirror kntnt-gpx-blocks: `build/`, `classes/` (PSR-4), `docs/` (`design.md`, `architecture.md`, `blocks.md`, `security.md`, `adr/`), `src/blocks/`, `tests/`; main file `kntnt-photo-drop.php`; plus `autoloader.php`, `composer.json`, `package.json`, `phpcs.xml.dist`, `phpstan.neon.dist`, `tsconfig.json`, `install.php`, `uninstall.php`, `CLAUDE.md`, `AGENTS.md`, `README.md`. Follow the coder skill. Markdown prose is not hard-wrapped; code comments wrap at 80 columns.
+Mirror kntnt-gpx-blocks: `build/`, `classes/` (PSR-4), `docs/` (`design.md`, `blocks.md`, `testing.md`, `definition-of-done.md`, `updater.md`, `coding-standards.md`, `adr/`), `src/blocks/`, `tests/`; main file `kntnt-photo-drop.php`; plus `autoloader.php`, `composer.json`, `package.json`, `phpcs.xml.dist`, `phpstan.neon.dist`, `tsconfig.json`, `install.php`, `uninstall.php`, `CLAUDE.md`, `AGENTS.md`, `README.md`. Follow the coder skill. Markdown prose is not hard-wrapped; code comments wrap at 80 columns.

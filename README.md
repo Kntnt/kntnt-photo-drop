@@ -5,22 +5,22 @@
 [![PHP](https://img.shields.io/badge/PHP-8.4%2B-777bb4.svg)](https://www.php.net/)
 [![Release](https://img.shields.io/github/v/release/Kntnt/kntnt-photo-drop?sort=semver)](https://github.com/Kntnt/kntnt-photo-drop/releases/latest)
 
-A WordPress plugin with two Gutenberg blocks: a front-end **Photo Drop Zone** that optimises images in the browser and uploads them in bulk, and a public **Photo Gallery** that renders those images with a lightbox. It lets a field photographer drag in hundreds of images at once, and lets anyone browse them later.
+A WordPress plugin with two Gutenberg blocks: a front-end **Photo Drop Zone** that optimises images in the browser and uploads them in bulk, and a public **Photo Drop Gallery** that renders those images with a lightbox. It lets a field photographer drag in hundreds of images at once, and lets anyone browse them later.
 
 ## Description
 
-`kntnt-photo-drop` solves one job end to end: getting a large set of photos onto a WordPress site quickly, in a sensible web format, and presenting them well. The Photo Drop Zone block is a capability-gated uploader you place on a page; a logged-in user with upload rights drags in single images, many images, or a whole folder, and each is downscaled, converted to WebP, and compressed in the browser before it ever leaves the machine. The Photo Gallery block renders a chosen set of those images as a server-rendered grid or justified-rows layout, with an accessible lightbox.
+`kntnt-photo-drop` solves one job end to end: getting a large set of photos onto a WordPress site quickly, in a sensible web format, and presenting them well. The Photo Drop Zone block is a capability-gated uploader you place on a page; a logged-in user with upload rights drags in single images, many images, or a whole folder, and each is downscaled, converted to WebP, and compressed in the browser before it ever leaves the machine. The Photo Drop Gallery block renders a chosen set of those images as a server-rendered grid or justified-rows layout, with an accessible lightbox.
 
 The plugin does not use the WordPress Media Library. Images live as files on disk, in **collections** under the site's uploads directory, and the filesystem is the single source of truth: there are no database rows for collection images. A collection carries a fixed set of output rules, so everything inside it is conforming by construction. Because the images are plain files, they are served directly by URL, which is what makes the gallery, responsive `srcset`, and native lazy-loading work without a PHP proxy.
 
 ### Key Features
 
-- **Two blocks.** Photo Drop Zone (front-end bulk uploader) and Photo Gallery (public gallery with a lightbox), both server-rendered and registered under the *Kntnt* block category.
+- **Two blocks.** Photo Drop Zone (front-end bulk uploader) and Photo Drop Gallery (public gallery with a lightbox), both server-rendered and registered under the *Kntnt* block category.
 - **In-browser optimisation.** Images are downscaled and re-encoded to WebP in the browser (via the Canvas API) before upload, so a several-hundred-image batch transfers a fraction of the original bytes.
 - **Collections on disk.** Each collection is a directory under the uploads root; discovery is a directory scan, so a collection copied in from another site appears automatically and a deleted directory disappears, with no registry to keep in sync.
 - **An immutable output contract.** A collection fixes its maximum width and compression quality once, at creation. The stored format is always WebP. The contract cannot be changed afterwards, because the original is never kept.
 - **Re-derivable thumbnails.** Thumbnail width is a filter-driven setting, not part of the contract, and can be changed and regenerated at any time.
-- **Folder-aware uploads.** A *Select folder* control preserves sub-directory structure; loose drag-and-drop flattens, with a warning when a folder is dropped.
+- **Folder-aware uploads.** Dropping a folder and choosing one through the *Select a folder* control behave identically: the folder is walked recursively and its sub-directory structure is preserved on the server. A collection can also namespace every Drop Zone upload under a per-uploader folder, fixed at creation.
 - **Two gallery layouts.** A uniform grid (core Grid layout) or bespoke justified rows, with filename or path-breadcrumb captions and an Interactivity-API lightbox that degrades to a plain link without JavaScript.
 - **Fullscreen slideshow.** An optional, endlessly looping fullscreen playback of the gallery with a configurable per-image time and a dissolve transition, started from a built-in button or any custom element on the page, and ended with Escape or a close button.
 - **A complete WP-CLI surface.** Create, update, delete, and `doctor` collections, and import or delete images, from the command line.
@@ -61,7 +61,7 @@ Once installed, the plugin keeps itself up to date. It checks `https://api.githu
 
 ## Usage
 
-The plugin has three surfaces: an admin page where collections are created and managed, the Photo Drop Zone block for uploading, and the Photo Gallery block for displaying.
+The plugin has three surfaces: an admin page where collections are created and managed, the Photo Drop Zone block for uploading, and the Photo Drop Gallery block for displaying.
 
 ### Create a collection
 
@@ -72,30 +72,33 @@ To create a collection, open the page and choose **Create collection**. You prov
 - a **slug** (required) – lowercase, URL-safe, and unique; it becomes the directory name and the durable identity a block stores to point at the collection;
 - a **display name** (optional; defaults to a humanised slug);
 - a **maximum width** in pixels (required; pre-filled at 1920, with an explicit *No limit* option);
-- a **compression quality** (required; pre-filled at 80).
+- a **compression quality** (required; pre-filled at 80);
+- an **uploader folders** checkbox (checked by default) – when on, every Drop Zone upload lands under a folder named for the uploader; when off, uploads land at the collection root. Like the contract, this choice is fixed at creation and cannot be changed afterwards.
 
 There is no format field – the format is always WebP – and no thumbnail-width field, because thumbnail width is re-derivable and filter-driven (see [Extending](#extending)).
 
 > [!WARNING]
 > Maximum width and quality fix the collection's **output contract**, and the contract **cannot be changed afterwards**. Every image is downscaled and re-encoded to WebP as it enters the collection, and the original is never kept, so raising the maximum later cannot recover detail that was already discarded. Choose these two values deliberately. Only the display name remains editable after creation.
 
-The list view shows every discovered collection – name, slug, maximum width, quality, format, thumbnail width, and image count – with row actions to edit the display name or delete the collection. Deleting a collection removes its directory and everything under it; blocks that referenced its slug then render nothing for visitors and an editor-only notice for logged-in users.
+The list view shows every discovered collection – name, slug, maximum width, quality, format, thumbnail width, and image count – with always-visible **Edit** (display name only) and **Delete** buttons on each row. Deleting a collection removes its directory and everything under it; blocks that referenced its slug then render nothing for visitors and an editor-only notice for logged-in users.
 
 ### Place a Photo Drop Zone
 
 Add the **Photo Drop Zone** block to a page or post. In the block inspector, pick the collection to upload into; the inspector also shows that collection's contract (maximum width, quality, WebP, thumbnail width) read-only, so there is nothing on the block that could conflict with the contract.
 
+The block's visible surface – a heading, an explanatory text and the two upload controls, an **Add photos** button and a quieter **Select a folder** link-style button – is ordinary editable inner blocks, so a site builder can relabel, restyle, or rearrange it freely; the controls stay wired to the uploader through their anchor-token hrefs (`#kntnt-drop-zone-files`, `#kntnt-drop-zone-folder`).
+
 On the front end, the block renders its uploader **only** for users who hold the `upload_files` capability – for anyone else it renders nothing, and no upload nonce is emitted. A capable user can:
 
-- drag in single images or many images at once;
-- use the **Select folder** control to upload a folder while preserving its sub-directory structure;
-- drag a whole folder onto the zone – the block detects this and warns, offering to continue with the files flattened (recursive drag traversal is not supported).
+- drag in single images or many images at once, or click the zone to browse;
+- drag a whole folder onto the zone – it is walked recursively and every image uploads with its sub-directory structure preserved;
+- use the **Select a folder** control to pick a folder through the browser's folder picker – the result is identical to dropping it.
 
-Each image is downscaled and encoded to WebP in the browser, then uploaded one file per request. The browser-side step is a bandwidth optimisation only: the server re-applies the collection's contract to every file on arrival, so nothing non-conforming can enter, even a file posted directly to the endpoint.
+If the collection uses **uploader folders**, the server places everything under a folder named for the uploader, ahead of the upload's own relative path. Each image is downscaled and encoded to WebP in the browser, then uploaded one file per request. The browser-side step is a bandwidth optimisation only: the server re-applies the collection's contract to every file on arrival, so nothing non-conforming can enter, even a file posted directly to the endpoint.
 
-### Place a Photo Gallery
+### Place a Photo Drop Gallery
 
-Add the **Photo Gallery** block where you want the images shown, and select a collection in the inspector. The block renders all images under a start path as one flattened gallery (or, with *This folder only*, just that folder). Key settings:
+Add the **Photo Drop Gallery** block where you want the images shown, and select a collection in the inspector. The block renders all images under a start path as one flattened gallery (or, with *This folder only*, just that folder). Key settings:
 
 - **Layout** – a uniform **grid** (mode A, built on core's Grid layout, with a minimum column width and per-image aspect ratio for zero layout shift) or bespoke **justified rows** (mode B, with a target row height).
 - **Ordering** – ascending or descending, by natural sort of the full relative path, so each folder's images stay together.
@@ -144,14 +147,14 @@ The plugin registers two WP-CLI command groups for headless and automated use. T
 ### `collection`
 
 ```
-wp kntnt-photo-drop collection create <slug> --max-width=<pixels> --quality=<0-100> [--name=<name>]
+wp kntnt-photo-drop collection create <slug> --max-width=<pixels> --quality=<0-100> [--name=<name>] [--uploader-folders=<bool>]
 wp kntnt-photo-drop collection update <slug> --name=<name>
 wp kntnt-photo-drop collection delete <slug> [--yes]
 wp kntnt-photo-drop collection doctor <slug> [--repair] [--force] [--ignore=<glob>] [--show-ignored]
 ```
 
-- **`create`** establishes a collection and fixes its contract. `--max-width` (a positive integer, or `none` for no limit) and `--quality` (0–100) are **required**, because the contract is irreversible; `--name` is optional and defaults to a humanised slug. There is no thumbnail-width flag – that is filter-driven.
-- **`update`** changes the display name only. Any attempt to change the contract is rejected.
+- **`create`** establishes a collection and fixes its contract. `--max-width` (a positive integer, or `none` for no limit) and `--quality` (0–100) are **required**, because the contract is irreversible; `--name` is optional and defaults to a humanised slug; `--uploader-folders` is optional and defaults to on (pass `--no-uploader-folders` to land Drop Zone uploads at the collection root) and is, like the contract, fixed at creation. There is no thumbnail-width flag – that is filter-driven.
+- **`update`** changes the display name only. Any attempt to change the contract or the uploader-folders choice is rejected.
 - **`delete`** removes the collection directory and everything under it. It prompts unless `--yes` is given.
 - **`doctor`** inspects a collection and reconciles its derived artifacts to the main images. It is **report-only by default** (the report is the dry run). `--repair` acts: it creates missing thumbnails, refreshes the index, and removes orphaned thumbnails. `--repair --force` re-derives everything – use it after a thumbnail-width change. The doctor never alters a main image and never deletes a foreign file. Foreign files are reported, except a built-in ignore list of OS junk (`.DS_Store`, `._*`, `.Spotlight-V100`, `.Trashes`, `.fseventsd`, `Thumbs.db`, `desktop.ini`); `--ignore=<glob>` extends that list and `--show-ignored` reveals what was skipped.
 
@@ -165,7 +168,7 @@ wp kntnt-photo-drop image delete <slug> <path> [--yes]
 - **`import`** brings external files into an existing collection, optimising each to that collection's contract. It carries no contract flags (it is a pure consumer of the collection) and is idempotent – an existing target is skipped unless `--overwrite` is given.
 - **`delete`** removes one main image and its thumbnails. `<path>` is the image's path relative to the collection root, given as either its stored name or its original name, and is confined to the collection root. It prompts unless `--yes` is given.
 
-Read commands present their output through WP-CLI's standard `--format` (`table`, `csv`, `json`, `yaml`, `ids`, `count`).
+`doctor` and `import` present their per-file results as standard WP-CLI tables.
 
 ## Extending
 

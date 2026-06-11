@@ -8,7 +8,7 @@ Guidance for AI coding agents (Claude Code, Copilot, Cursor, Codex, …) working
 
 ## What this plugin is
 
-`kntnt-photo-drop` is a WordPress plugin that registers two Gutenberg blocks: **Photo Drop Zone** (a capability-gated front-end bulk uploader that downscales, converts to WebP, and compresses images in the browser before upload) and **Photo Gallery** (a public, server-rendered gallery of a chosen collection, with an Interactivity-API lightbox). A field photographer drags hundreds of images into the Drop Zone at once; anyone can later browse them in a Gallery. The plugin stores images as files on disk under `wp_upload_dir()['basedir']/kntnt-photo-drop/<slug>/`, **outside the Media Library, with no database rows** — the filesystem is the source of truth.
+`kntnt-photo-drop` is a WordPress plugin that registers two Gutenberg blocks: **Photo Drop Zone** (a capability-gated front-end bulk uploader that downscales, converts to WebP, and compresses images in the browser before upload) and **Photo Drop Gallery** (a public, server-rendered gallery of a chosen collection, with an Interactivity-API lightbox). A field photographer drags hundreds of images into the Drop Zone at once; anyone can later browse them in a Gallery. The plugin stores images as files on disk under `wp_upload_dir()['basedir']/kntnt-photo-drop/<slug>/`, **outside the Media Library, with no database rows** — the filesystem is the source of truth.
 
 The ubiquitous language is in [`CONTEXT.md`](CONTEXT.md); use those terms (collection, output contract, descriptor, slug, main image, thumbnail, derived artifact, index, conforming, foreign file, doctor) exactly. Do not invent synonyms.
 
@@ -40,9 +40,10 @@ The plugin is built from a settled design. Load only what the task needs.
 | Block attributes + admin-page CRUD UX | [`docs/blocks.md`](docs/blocks.md) |
 | What to test, with what tooling | [`docs/testing.md`](docs/testing.md) |
 | The bar a change must clear before it ships | [`docs/definition-of-done.md`](docs/definition-of-done.md) |
+| The release mechanics and the auto-updater | [`docs/updater.md`](docs/updater.md) |
 | Language/style rules | [`docs/coding-standards.md`](docs/coding-standards.md) |
 
-The seven ADRs (`docs/adr/0001`–`0007`) own the decisions with real trade-offs: filesystem collections with no Media Library (0001), the immutable WebP output contract (0002), the on-disk layout and mtime-validated index (0003), the grouped CLI with consumer `import` (0004), the recursive-flatten gallery (0005), the server-enforced contract behind a nonce + `upload_files` REST upload (0006), and the Interactivity-API lightbox (0007). **Never contradict design.md or an ADR. Never redesign.** If a task seems to require contradicting a decision, stop and surface it — change is an ADR, not a silent edit.
+The ten ADRs (`docs/adr/0001`–`0010`) own the decisions with real trade-offs: filesystem collections with no Media Library (0001), the immutable WebP output contract (0002), the on-disk layout and mtime-validated index (0003), the grouped CLI with consumer `import` (0004), the recursive-flatten gallery (0005), the server-enforced contract behind a nonce + `upload_files` REST upload (0006), the Interactivity-API lightbox (0007), hierarchy-preserving folder drop and immutable per-uploader folders (0008), the passive fullscreen slideshow with a pluggable trigger (0009), and the token-wired Drop Zone upload controls (0010). **Never contradict design.md or an ADR. Never redesign.** If a task seems to require contradicting a decision, stop and surface it — change is an ADR, not a silent edit.
 
 ## Load-bearing invariants (do not violate without an ADR)
 

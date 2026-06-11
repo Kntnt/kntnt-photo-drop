@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- The README has been trued up against the shipped plugin: a dropped folder is no longer described as warned-about-and-flattened (it has uploaded recursively with its hierarchy preserved since 0.5.0), the uploader-folders choice now appears in the admin create form walkthrough and the `collection create` CLI synopsis, the editable token-wired upload controls and the admin list's always-visible Edit/Delete buttons are described as they actually behave, the gallery block is called by its real name — **Photo Drop Gallery** — throughout, and a `--format` flag the CLI never had is no longer documented (`doctor` and `import` print plain WP-CLI tables).
+- The contributor and agent documentation caught up with the same drift: `AGENTS.md` counts all ten ADRs (0008–0010 were missing) and points at `docs/updater.md`, `docs/design.md` records the slideshow decision and the actual `docs/` layout, `docs/blocks.md` mirrors the real `block.json` files, `docs/testing.md` and `docs/definition-of-done.md` drop the retired dragged-folder warning and cover the slideshow and download surfaces, and `CONTRIBUTING.md` no longer mentions the retired FilePond dependency or the old WordPress 6.5 floor.
+
 ## [0.7.0] - 2026-06-12
 
 ### Added

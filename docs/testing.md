@@ -8,8 +8,8 @@ What is tested, with what tooling, and what is deliberately not. Read this when 
 |---|---|---|---|
 | PHP unit | Pest + Brain Monkey + Mockery | `tests/Unit/` | Pure-ish domain logic: path sanitisation + `realpath` confinement, the `<original>.webp` naming rule, contract conformance checks, the doctor's reconciliation algorithm, descriptor/index read-write, natural-sort ordering, caption formatting, `srcset` assembly. No real WordPress, no real filesystem where a temp dir + Brain Monkey stub will do. |
 | PHP integration | WordPress (via `@wordpress/env`, or `@wp-playground/cli` where no browser is needed) + Pest | `tests/Integration/` | The plugin loads, both blocks register, the REST upload endpoint round-trips, the WP-CLI `collection`/`image` commands run, the doctor reconciles a real on-disk collection, the index self-heals on a real directory `mtime` bump. |
-| Block JS unit | Jest via `wp-scripts test-unit-js` | `src/blocks/<slug>/*.test.ts(x)` (co-located) | Pure browser helpers behind the Drop Zone (the Canvas downscale + `canvas.toBlob(…, 'image/webp', q)` encode wrapper, the `webkitRelativePath` → metadata mapping, the dragged-folder detector) and the Gallery (justified-row `flex-grow`/`flex-basis` math, caption-string assembly, lightbox index/keyboard reducers). |
-| Block end-to-end | Playwright + `@wordpress/e2e-test-utils-playwright` | `tests/e2e/` | Insert each block in the editor; the Drop Zone uploads a fixture and the Gallery renders it; the lightbox opens, navigates, traps focus, and closes; the no-JS `<a href>` fallback resolves. Run against a `@wordpress/env` instance. |
+| Block JS unit | Jest via `wp-scripts test-unit-js` | `src/blocks/<slug>/*.test.ts(x)` (co-located) | Pure browser helpers behind the Drop Zone (the Canvas downscale + `canvas.toBlob(…, 'image/webp', q)` encode wrapper, the `webkitRelativePath` → relative-path mapping, the recursive dropped-folder walk) and the Gallery (justified-row `flex-grow`/`flex-basis` math, caption-string assembly, lightbox index/keyboard reducers, the slideshow advance gate and trigger-target resolution). |
+| Block end-to-end | Playwright + `@wordpress/e2e-test-utils-playwright` | `tests/e2e/` | Insert each block in the editor; the Drop Zone uploads fixtures (loose files and a dragged folder) and the Gallery renders them; the lightbox opens, navigates, traps focus, and closes; the download icon saves the image; the slideshow starts from its triggers and advances; the no-JS `<a href>` fallback resolves. Run against a `@wordpress/env` instance. |
 
 ## The boundary that matters most: ingestion is conforming by construction
 
@@ -100,7 +100,7 @@ Integration-test the grouped commands against a real WP-CLI:
 - `collection update <slug> --name=…` changes the display name only and **rejects** any attempt to change the immutable contract.
 - `collection delete` and `image delete` prompt unless `--yes`.
 - `image import <slug> <source…>` requires an existing collection, carries no contract flags, optimises to the target contract, and is idempotent (skip-if-exists, `--overwrite` to force).
-- Read output uses `format_items()` (`table`, `csv`, `json`, `yaml`, `ids`, `count`).
+- `doctor` and `import` present their per-file results as `format_items()` tables.
 
 ## Updater
 

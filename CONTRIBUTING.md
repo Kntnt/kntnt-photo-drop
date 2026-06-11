@@ -16,10 +16,10 @@ For anything larger than a small fix, open an issue or a discussion first so the
 git clone https://github.com/Kntnt/kntnt-photo-drop.git
 cd kntnt-photo-drop
 composer install   # PHP toolchain: Pest, PHPStan, PHPCS, WordPress stubs
-npm install        # block toolchain: @wordpress/scripts, @wordpress/interactivity, FilePond
+npm install        # block toolchain: @wordpress/scripts, @wordpress/interactivity
 ```
 
-The plugin requires **PHP 8.4+** and **WordPress 6.5+**. The blocks are built with `@wordpress/scripts`; `npm run build` compiles the TypeScript and SCSS under `src/blocks/` into the committed `build/` directory. For interactive testing against a real WordPress, use [`@wordpress/env`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/) — `npx wp-env start` boots WordPress with the plugin mounted (see [`AGENTS.md`](AGENTS.md) and [`docs/testing.md`](docs/testing.md)).
+The plugin requires **PHP 8.4+** and **WordPress 6.6+**. The blocks are built with `@wordpress/scripts`; `npm run build` compiles the TypeScript and SCSS under `src/blocks/` into the committed `build/` directory. For interactive testing against a real WordPress, use [`@wordpress/env`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/) — `npx wp-env start` boots WordPress with the plugin mounted (see [`AGENTS.md`](AGENTS.md) and [`docs/testing.md`](docs/testing.md)).
 
 ## Quality gates
 
@@ -52,7 +52,7 @@ While the major version is `0`, the project makes **no backwards-compatibility c
 
 1. Branch from `main` and keep each pull request focused on a single concern.
 2. Make sure the quality gates above pass locally.
-3. Open the pull request against `main`. CI runs PHPStan, PHPCS, Pest, the block build, and the JS lint/unit gates; all must be green.
+3. Open the pull request against `main`. CI runs PHPStan, PHPCS, Pest, the block build, the JS lint/unit gates, and the integration and end-to-end suites against `@wordpress/env`; all must be green.
 4. Describe what changed and why, and link any related issue.
 
 ## Licence
