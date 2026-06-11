@@ -4,14 +4,25 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-11
+
 ### Added
 
+- Dropping a folder onto the **Photo Drop Zone** now uploads every image at every nesting level with its source-relative path preserved on disk — identical placement to choosing the same folder through the "Select folder" picker. Previously a dropped folder was warned about and, on consent, contributed only its top-level files, flat. (#37)
+- **Uploader folders:** a collection can namespace every Drop Zone upload under a first folder named after the contributor, derived server-side from the authenticated WordPress user's nicename. This records who uploaded each image — the only place such provenance can live now that the filesystem is the source of truth — and stops two photographers' identically named files from overwriting each other. The choice is made once at establishment — a checkbox, checked by default, on the admin **Create collection** form, and a `--uploader-folders` flag (default on) on `wp kntnt-photo-drop collection create` — and is immutable afterwards; with it off, uploads land at the collection root as before. (#36, #38, #39)
+- The **Photo Drop Zone** block's inspector gains the full layout-container control set — layout (constrained by default) with block spacing, background and text colour, typography, border, margin and padding, minimum height, shadow, and alignment — applied to the block's own wrapper. (#35)
 - End-to-end coverage of both download-on cells of the click matrix (a thumbnail/enlarged-image click does nothing; an icon click saves the file without navigating or opening a tab), a Jest suite for the programmatic download helper, and a regression assertion that a freshly inserted Drop Zone seeds its heading centred.
 
 ### Changed
 
+- The **Photo Drop Zone** block's outermost wrapper is now itself the visible, stylable layout container, instead of delegating its appearance to a seeded inner `core/group`. One DOM level disappears, and the styled box, the drag-drop target, and the drag-over highlight become the same element. A freshly inserted block keeps the familiar centred dashed box; a pointer click anywhere on it (outside interactive children) opens the file picker, while keyboard and assistive-technology users reach a real, visible "Add photos" button. (#35)
+- The Drop Zone's prominent "Select folder" button is demoted to a quiet inline "or select a folder" link, while staying fully focusable, labelled, and keyboard-operable — it remains the route to a preserved hierarchy for keyboard and touch users now that plain drag-and-drop preserves one too. (#40)
 - The **Photo Drop Gallery**'s download trigger is now the download icon alone: a click on the icon saves the full main image, and a click on the image outside the icon never downloads — it does nothing with the lightbox off, and in the lightbox the enlarged image is no longer a download anchor. The icon itself is now an `<a download>` anchor with a translated accessible label and a visible keyboard-focus ring.
 - The download is performed programmatically (the image is fetched into a Blob and saved through a temporary same-document object-URL anchor), so the save can no longer be turned into navigation or a new browser tab by a link-rewriting theme/plugin or a cross-origin media host; the icon anchor's own `download` attribute remains the no-JS fallback, and a failed fetch falls back to a plain same-tab navigation.
+
+### Removed
+
+- The dragged-folder warning is gone. The Drop Zone no longer detects a dropped folder and warns that it will be flattened (offering to continue flat); a dropped folder now keeps its hierarchy, so the consent dialog and its messages are removed. (#37)
 
 ### Security
 
@@ -124,7 +135,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.2.0
