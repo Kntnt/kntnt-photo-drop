@@ -1,14 +1,20 @@
 /**
  * Photo Drop Zone edit component.
  *
- * The Drop Zone's *editable appearance* is its inner blocks: the editor renders
- * an `InnerBlocks` region seeded, on insertion, with a default template — a
- * centred dashed group holding a heading, a paragraph naming the target
- * collection through the `{kntnt-drop-zone-collection}` placeholder, and a
- * smaller note. The template is **not** locked, so a site builder can rewrite the
- * surface freely; render.php replaces the placeholder with the collection's
- * display name at frontend render and wraps the whole surface in the native
- * drop-and-browse uploader for a capable visitor (ADR-0006).
+ * The Drop Zone's *editable appearance* is its inner blocks, and the block's own
+ * wrapper is the layout container that holds them — a Group-equivalent. The block
+ * carries the Group-equivalent supports (layout, colour, typography, border,
+ * spacing, min-height, shadow, align), so the dashed box a builder sees, the drop
+ * target, and the drag-over highlight are all the **one** wrapper element; there
+ * is no inner `core/group`. The default template seeds the wrapper directly with a
+ * level-4 heading, a paragraph naming the target collection through the
+ * `{kntnt-drop-zone-collection}` placeholder, and a smaller note, and the
+ * wrapper's seeded `style` (dashed `#808080` border, `#fafaff` background, `2rem`
+ * padding) reproduces today's default look. The template is **not** locked, so a
+ * site builder can rewrite the surface freely; render.php replaces the placeholder
+ * with the collection's display name at frontend render and turns the whole
+ * wrapper into the native drop-and-browse uploader for a capable visitor
+ * (ADR-0006).
  *
  * The Drop Zone remains a *select-only consumer* of collections: its only
  * inspector controls are a collection selector and a strictly read-only display
@@ -111,66 +117,50 @@ const COLLECTION_PLACEHOLDER = '{kntnt-drop-zone-collection}';
 /**
  * The default inner-block template seeded into a freshly inserted Drop Zone.
  *
- * A centred dashed group (border `#808080`, background `#fafaff`) holding a
- * level-4 heading, a paragraph naming the target collection through the
+ * A level-4 heading, a paragraph naming the target collection through the
  * placeholder render.php substitutes, and a smaller note explaining that the live
- * uploader appears on the published page. The template is intentionally not
- * locked, so a builder can edit any of it; the placeholder is just a default, not
- * a contract.
+ * uploader appears on the published page — seeded **directly** into the block's
+ * wrapper, with no inner `core/group`, because the wrapper is itself the layout
+ * container (its dashed-box look comes from the block's seeded `style` attribute
+ * and its centring from the `constrained` layout support). The template is
+ * intentionally not locked, so a builder can edit any of it; the placeholder is
+ * just a default, not a contract.
  *
- * @since 0.4.0
+ * @since 0.5.0
  */
 const DEFAULT_TEMPLATE: readonly [ string, Record< string, unknown > ][] = [
 	[
-		'core/group',
+		'core/heading',
 		{
-			layout: { type: 'constrained' },
-			style: {
-				border: {
-					color: '#808080',
-					style: 'dashed',
-					width: '2px',
-					radius: '4px',
-				},
-				color: { background: '#fafaff' },
-				spacing: { padding: '2rem' },
-			},
+			level: 4,
+			textAlign: 'center',
+			content: __( 'Photo Drop Zone', 'kntnt-photo-drop' ),
 		},
-		[
-			[
-				'core/heading',
-				{
-					level: 4,
-					textAlign: 'center',
-					content: __( 'Photo Drop Zone', 'kntnt-photo-drop' ),
-				},
-			],
-			[
-				'core/paragraph',
-				{
-					align: 'center',
-					content: sprintf(
-						/* translators: %s: the placeholder replaced at render with the collection's display name. */
-						__(
-							'Uploads go into the “%s” collection.',
-							'kntnt-photo-drop'
-						),
-						COLLECTION_PLACEHOLDER
-					),
-				},
-			],
-			[
-				'core/paragraph',
-				{
-					align: 'center',
-					fontSize: 'small',
-					content: __(
-						'The live uploader appears on the published page for users who can upload files.',
-						'kntnt-photo-drop'
-					),
-				},
-			],
-		],
+	],
+	[
+		'core/paragraph',
+		{
+			align: 'center',
+			content: sprintf(
+				/* translators: %s: the placeholder replaced at render with the collection's display name. */
+				__(
+					'Uploads go into the “%s” collection.',
+					'kntnt-photo-drop'
+				),
+				COLLECTION_PLACEHOLDER
+			),
+		},
+	],
+	[
+		'core/paragraph',
+		{
+			align: 'center',
+			fontSize: 'small',
+			content: __(
+				'The live uploader appears on the published page for users who can upload files.',
+				'kntnt-photo-drop'
+			),
+		},
 	],
 ];
 
@@ -275,10 +265,13 @@ function ContractDisplay( {
  *
  * Renders the inner-block region (seeded with the default template on insertion)
  * and drives the inspector's collection selector and read-only contract display.
- * The inner blocks are the block's editable appearance, so the block wrapper is
- * the `InnerBlocks` container; an empty or dangling `collection` surfaces an
- * inline notice inside the inspector (the slug is no longer among the discovered
- * collections, e.g. after an `mv` rename).
+ * The inner blocks are the block's editable appearance and the wrapper is itself
+ * their layout container — the Group-equivalent — so the seeded heading and
+ * paragraphs are its direct children and the Group-equivalent block supports
+ * (layout, colour, typography, border, spacing, min-height, shadow, align) style
+ * that same wrapper. An empty or dangling `collection` surfaces an inline notice
+ * inside the inspector (the slug is no longer among the discovered collections,
+ * e.g. after an `mv` rename).
  *
  * @since 0.5.0
  *
@@ -296,8 +289,11 @@ export function DropZoneEdit( {
 		className: 'kntnt-photo-drop-drop-zone',
 	} );
 
-	// The inner blocks are the editable drop surface; seed the default template
-	// on insertion but leave it unlocked so a builder can rewrite it freely.
+	// The wrapper is itself the inner blocks' layout container, so the inner-block
+	// props are derived from the block props: the layout/colour/border/spacing
+	// supports land on the same element the inner blocks render directly into. Seed
+	// the default template on insertion but leave it unlocked so a builder can
+	// rewrite the surface freely.
 	const innerBlocksProps = useInnerBlocksProps( blockProps, {
 		template: DEFAULT_TEMPLATE,
 		templateLock: false,

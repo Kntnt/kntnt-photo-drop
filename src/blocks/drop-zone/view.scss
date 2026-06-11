@@ -1,33 +1,33 @@
 // Photo Drop Zone — frontend drop-surface styles.
 // Imported by view.ts so @wordpress/scripts bundles it into the view-side asset
-// (view.css) declared as viewStyle in block.json. The whole inner-block surface
-// is the native drag-drop + click-to-browse zone; these styles cover the
-// click affordance, the drag-over highlight, the folder picker, and the
+// (view.css) declared as viewStyle in block.json. The block's wrapper is itself
+// the layout container and the native drag-drop + click-to-browse zone, so this
+// covers the click affordance and the drag-over highlight on the wrapper, the
+// upload controls (the "Add photos" button and the folder picker), and the
 // per-file status list. There is no FilePond.
 
 .kntnt-photo-drop-drop-zone {
 
-	// The inner-block surface is the click-to-browse target; the cursor and a
-	// gentle hover hint signal that the whole area is clickable.
-	&__surface {
-		cursor: pointer;
-		transition: opacity 0.15s ease;
+	// The wrapper is the click-to-browse target; the cursor signals that the
+	// whole styled box is clickable for a pointer user.
+	cursor: pointer;
 
-		&:hover {
-			opacity: 0.92;
-		}
-	}
-
-	// While a drag hovers the wrapper, lift the whole surface so the drop
-	// target is unmistakable. The view module toggles the modifier class.
-	&--dragover &__surface {
-		opacity: 0.75;
+	// While a drag hovers the wrapper, outline the same box the builder styled so
+	// the drop target is unmistakable. The view module toggles the modifier class.
+	&--dragover {
 		outline: 2px dashed currentcolor;
 		outline-offset: 4px;
 	}
 
-	&__folder {
+	// The interactive controls sit on the cursor's default arrow — they are not
+	// part of the click-anywhere surface — and lay out as a wrapping inline row.
+	&__controls {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem;
 		margin: 0.75rem 0 0;
+		cursor: auto;
 	}
 
 	&__folder-label {
@@ -41,12 +41,14 @@
 		margin: 0.75rem 0 0;
 		font-size: 0.9em;
 		font-weight: 600;
+		cursor: auto;
 	}
 
 	&__status {
 		margin: 0.25rem 0 0;
 		padding: 0;
 		list-style: none;
+		cursor: auto;
 	}
 
 	&__status-item {

@@ -2,9 +2,11 @@
  * Drop Zone end-to-end spec — the upload round-trip.
  *
  * An authenticated admin visits a published page carrying the Photo Drop
- * Zone block, hands a JPEG to the native hidden loose-file input, and the
- * browser pipeline (createImageBitmap → canvas → WebP) uploads it to the REST
- * endpoint. The spec asserts the client-visible truth (the per-file status
+ * Zone block, confirms the new DOM shape (the wrapper is itself the layout
+ * container and drop surface — no inner surface div, no role/tabindex, a real
+ * "Add photos" button), hands a JPEG to the native hidden loose-file input, and
+ * the browser pipeline (createImageBitmap → canvas → WebP) uploads it to the
+ * REST endpoint. The spec asserts the client-visible truth (the per-file status
  * row and the live summary) and the server truth (the stored
  * `<name>.jpg.webp` is served from the collection directory as
  * `image/webp`). A second pass re-uploads the same file and must be skipped
@@ -64,8 +66,27 @@ test.describe( 'Drop Zone upload', () => {
 		// capability-gated uploader renders only for users who can upload.
 		await page.goto( `/?page_id=${ pageId }` );
 
-		// Hand the fixture to the hidden loose-file input the surface click
-		// would open; the view module converts it to WebP and POSTs it.
+		// The wrapper is itself the layout container and the drop surface: it
+		// carries the Interactivity directive, no role/tabindex (the keyboard
+		// browse path is a real "Add photos" button instead), and there is no
+		// inner surface div. The editor spec covers the seeded inner-block
+		// template; this page binds a self-closing block, so it has no inner
+		// blocks to assert here.
+		const wrapper = page.locator( '.kntnt-photo-drop-drop-zone' );
+		await expect( wrapper ).toHaveCount( 1 );
+		await expect( wrapper ).toHaveAttribute( 'data-wp-interactive', /.+/ );
+		expect( await wrapper.getAttribute( 'role' ) ).toBeNull();
+		expect( await wrapper.getAttribute( 'tabindex' ) ).toBeNull();
+		await expect(
+			page.locator( '.kntnt-photo-drop-drop-zone__surface' )
+		).toHaveCount( 0 );
+		await expect(
+			page.locator( '.kntnt-photo-drop-drop-zone__browse' )
+		).toBeVisible();
+
+		// Hand the fixture to the hidden loose-file input the wrapper click or
+		// the "Add photos" button would open; the view module converts it to
+		// WebP and POSTs it.
 		await page
 			.locator( '.kntnt-photo-drop-drop-zone__file-input' )
 			.setInputFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );

@@ -3,11 +3,14 @@
  *
  * Registered as the block's viewScriptModule and mounted by the Interactivity API
  * `init` callback against the capability-gated markup `Render_Drop_Zone` emits.
- * The whole inner-block surface is a native drag-drop + click-to-browse zone: a
- * click opens the hidden loose-file input, a drop of loose files queues them, and
- * a dropped *folder* is detected, warned about, and — on consent — contributes
- * only its top-level images, flat. There is no FilePond; the intake, queue, and
- * progress UI are this module's own, built on plain DOM and `XMLHttpRequest`.
+ * The block's wrapper is itself the layout container and a native drag-drop +
+ * click-to-browse zone: a pointer click anywhere on it that is not on an
+ * interactive child or the upload chrome opens the hidden loose-file input, a drop
+ * of loose files queues them, and a dropped *folder* is detected, warned about,
+ * and — on consent — contributes only its top-level images, flat. The
+ * keyboard/AT browse path is a real "Add photos" button (the wrapper carries no
+ * `role`/`tabindex`). There is no FilePond; the intake, queue, and progress UI are
+ * this module's own, built on plain DOM and `XMLHttpRequest`.
  *
  * The heavy lifting lives in pure, separately-tested helpers — the Canvas→WebP
  * encode (`canvas-webp.ts`), the safe-canvas-area cap (`canvas-limit.ts`), the
@@ -173,6 +176,22 @@ const NONCE_PATTERN = /^[a-f0-9]{10}$/;
  * @since 0.4.0
  */
 const DRAGOVER_CLASS = 'kntnt-photo-drop-drop-zone--dragover';
+
+/**
+ * The selector for elements a click-to-browse pointer click must ignore.
+ *
+ * The whole wrapper is the click-to-browse surface, but a click that lands on an
+ * interactive child (a link, button, input, label, select, or textarea — which
+ * covers the "Add photos" button and the "Select folder" control), or on the live
+ * summary or the per-file status list, must keep its own behaviour rather than
+ * opening the loose-file picker. A click anywhere else on the wrapper opens it.
+ *
+ * @since 0.5.0
+ */
+const NON_BROWSE_SELECTOR =
+	'a, button, input, label, select, textarea,' +
+	' .kntnt-photo-drop-drop-zone__summary,' +
+	' .kntnt-photo-drop-drop-zone__status';
 
 /**
  * Tracks which block elements already have the surface wired.
@@ -688,11 +707,12 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 		/**
 		 * Initialise one Drop Zone block.
 		 *
-		 * Reads the per-block context, wires the whole inner-block surface as a
-		 * native drag-drop + click-to-browse zone, hooks the hidden loose-file
-		 * input and the "Select folder" input, intercepts dragged folders (warn,
-		 * then add only top-level images flat), and arms the `beforeunload`
-		 * guard. Idempotent via `mountedZones` so a re-run never double-wires.
+		 * Reads the per-block context, wires the whole wrapper as a native
+		 * drag-drop + click-to-browse zone, hooks the hidden loose-file input,
+		 * the "Add photos" button (the keyboard/AT browse path), and the
+		 * "Select folder" input, intercepts dragged folders (warn, then add only
+		 * top-level images flat), and arms the `beforeunload` guard. Idempotent
+		 * via `mountedZones` so a re-run never double-wires.
 		 *
 		 * @since 0.4.0
 		 */
@@ -707,10 +727,8 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 
 			// Locate the elements the render handler emitted; without them
 			// there is nothing to wire, so bail before reading any further
-			// context rather than half-initialise.
-			const surfaceEl = ref.querySelector< HTMLElement >(
-				'.kntnt-photo-drop-drop-zone__surface'
-			);
+			// context rather than half-initialise. The wrapper itself (`ref`) is
+			// the drop surface, so there is no separate surface element to find.
 			const fileInput = ref.querySelector< HTMLInputElement >(
 				'.kntnt-photo-drop-drop-zone__file-input'
 			);
@@ -720,14 +738,18 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			const summaryEl = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-drop-zone__summary'
 			);
-			if ( ! surfaceEl || ! fileInput || ! statusListEl || ! summaryEl ) {
+			if ( ! fileInput || ! statusListEl || ! summaryEl ) {
 				return;
 			}
 
 			mountedZones.add( ref );
 
-			// The folder picker is optional chrome — the render emits it, but a
-			// builder could remove it; locate it after the required-element guard.
+			// The "Add photos" button and the folder picker are optional chrome —
+			// the render emits both, but a builder could remove them; locate them
+			// after the required-element guard.
+			const browseButton = ref.querySelector< HTMLButtonElement >(
+				'.kntnt-photo-drop-drop-zone__browse'
+			);
 			const folderInput = ref.querySelector< HTMLInputElement >(
 				'.kntnt-photo-drop-drop-zone__folder-input'
 			);
@@ -768,38 +790,34 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 				);
 			};
 
-			// The surface is a click-to-browse trigger: a click anywhere on it
-			// that is not on an interactive child opens the hidden loose-file
-			// input. A click on a link or button inside the inner blocks is left
-			// to do its own thing.
-			surfaceEl.addEventListener( 'click', ( event: MouseEvent ) => {
+			// The whole wrapper is a click-to-browse trigger for pointer users: a
+			// click that does not land on an interactive child or the upload chrome
+			// opens the hidden loose-file input. A click on a link, button, or input
+			// inside the builder's markup — or on the "Add photos" button, the
+			// "Select folder" control, the summary, or the status list — is left to do
+			// its own thing. The keyboard/AT browse path is the real button below, so
+			// the wrapper carries no role or tabindex and answers no keys.
+			ref.addEventListener( 'click', ( event: MouseEvent ) => {
 				const target = event.target;
 				if (
 					target instanceof Element &&
-					target.closest(
-						'a, button, input, label, select, textarea'
-					)
+					target.closest( NON_BROWSE_SELECTOR )
 				) {
 					return;
 				}
 				fileInput.click();
 			} );
 
-			// The surface carries role="button" + tabindex="0", so it must answer the
-			// keyboard too: Enter or Space opens the picker. Space's preventDefault
-			// stops the page from scrolling, and the handler only fires when the
-			// surface element itself holds focus, so a focused interactive child keeps
-			// its own key behaviour.
-			surfaceEl.addEventListener( 'keydown', ( event: KeyboardEvent ) => {
-				if (
-					event.target !== surfaceEl ||
-					( event.key !== 'Enter' && event.key !== ' ' )
-				) {
-					return;
-				}
-				event.preventDefault();
-				fileInput.click();
-			} );
+			// The "Add photos" button is the accessible browse trigger — a real
+			// <button>, so a keyboard or AT user reaches it by Tab and activates it
+			// with Enter or Space natively; its click opens the same loose-file input.
+			browseButton?.addEventListener(
+				'click',
+				() => {
+					fileInput.click();
+				},
+				{ passive: true }
+			);
 
 			// Wire the hidden loose-file input: each picked file lands at the
 			// collection root keyed by its own name.

@@ -11,11 +11,13 @@
  * (`Upload_Controller`) re-checks the same capability and the nonce on every
  * file, so this gate is a defence in depth, not the only one.
  *
- * The block's editable appearance is its inner blocks. WordPress hands this
- * handler the serialised inner-block markup as `$content`; for a capable user the
- * handler replaces the `{kntnt-drop-zone-collection}` placeholder with the
- * selected collection's display name, then wraps the result in the native
- * drag-drop + click-to-browse drop surface. It hands the view module everything
+ * The block's editable appearance is its inner blocks, and the block's own
+ * wrapper is the Group-equivalent layout container that holds them. WordPress
+ * hands this handler the serialised inner-block markup as `$content`; for a
+ * capable user the handler replaces the `{kntnt-drop-zone-collection}` placeholder
+ * with the selected collection's display name and emits that markup as the direct
+ * children of the wrapper, which is itself the native drag-drop + click-to-browse
+ * drop surface and the styled box. It hands the view module everything
  * it needs as a JSON `data-wp-context` island: the slug, the contract (max width
  * and quality) that configures the client-side Canvas downscale and the
  * `canvas.toBlob(…, 'image/webp', quality)` encode, the REST URL to POST to, the
@@ -151,10 +153,16 @@ final class Render_Drop_Zone {
 	 * absolute REST `uploadUrl`, the `wp_rest` `nonce`, the admin-ajax URL the
 	 * nonce-refresh action lives behind, and the pre-translated `i18n` strings the
 	 * module surfaces (it cannot import `@wordpress/i18n`). The context is emitted
-	 * as an escaped JSON island on the wrapper; the whole wrapper is the native
-	 * drop-and-browse surface — the placeholder-replaced inner blocks, a hidden
-	 * file input the surface click triggers, a native "Select folder" picker, and
-	 * the per-file status list and live summary the module writes to. Everything is
+	 * as an escaped JSON island on the wrapper. The **wrapper itself** is the layout
+	 * container and the native drop-and-browse surface: the placeholder-replaced
+	 * inner blocks are its direct children (so core's layout CSS — `constrained`
+	 * centring and `blockGap` — applies to them), and the upload chrome are
+	 * further layout children inside the same styled box — a hidden loose-file
+	 * input the surface click triggers, a real "Add photos" button for the
+	 * keyboard/AT path, a native "Select folder" picker, and the per-file status
+	 * list and live summary the module writes to. The wrapper carries no
+	 * `role`/`tabindex`; the click-anywhere convenience excludes interactive
+	 * children, and the button is the accessible browse trigger. Everything is
 	 * escaped at the point of output and every visible string is translatable; the
 	 * inner-block markup is already sanitised by `the_content`-equivalent block
 	 * serialisation and is passed through unescaped here by design.
@@ -172,7 +180,7 @@ final class Render_Drop_Zone {
 		// removed or edited the token leaves no placeholder to replace, which is
 		// the documented behaviour; the name is escaped because it lands in the
 		// visible inner-block markup.
-		$surface = str_replace(
+		$inner = str_replace(
 			self::COLLECTION_PLACEHOLDER,
 			esc_html( $descriptor->name ),
 			$content
@@ -200,36 +208,43 @@ final class Render_Drop_Zone {
 			return '';
 		}
 
-		// Build the wrapper through core's helper so editor affordances (anchor,
-		// extra classes, spacing block supports) reach the front end, adding the
-		// project class the stylesheet targets.
+		// Build the wrapper through core's helper so the Group-equivalent block
+		// supports (layout, colour, typography, border, spacing, min-height,
+		// shadow, align) and the editor affordances (anchor, extra classes) reach
+		// the front end on the same element, adding the project class the
+		// stylesheet targets.
 		$wrapper = get_block_wrapper_attributes( [ 'class' => 'kntnt-photo-drop-drop-zone' ] );
 
-		// Compose the native drop surface: the whole wrapper is the drop zone and a
-		// click-to-browse trigger (the view module wires the hidden loose-file
-		// input and the drag handlers). The inner-block surface carries the visible
-		// appearance and is itself the keyboard-operable browse trigger — it takes
-		// `tabindex="0"`, `role="button"`, and an `aria-label` so a keyboard user can
-		// Tab to it and Enter/Space to open the picker, not only a pointer user. The
-		// folder input carries `webkitdirectory` so a directory selection preserves
-		// each file's `webkitRelativePath`; the summary line is the single live region
-		// (the per-file list would be far too chatty for a screen reader at batch
-		// scale). A `data-wp-init` hook hands the element to the view module.
-		$folder_label  = esc_html__( 'Select folder', 'kntnt-photo-drop' );
-		$surface_label = esc_attr__( 'Add photos — drop them here or activate to browse', 'kntnt-photo-drop' );
+		// Translate the two visible upload-chrome labels. The folder picker's
+		// `webkitdirectory` preserves each file's `webkitRelativePath` so a
+		// directory selection recreates its sub-directories server-side; the "Add
+		// photos" button is the keyboard/AT browse trigger that replaces the old
+		// surface role (the click-anywhere convenience is pointer-only chrome).
+		$folder_label = esc_html__( 'Select folder', 'kntnt-photo-drop' );
+		$browse_label = esc_html__( 'Add photos', 'kntnt-photo-drop' );
 
+		// Compose the wrapper as the layout container and the native drop surface:
+		// the placeholder-replaced inner blocks are its direct children (core's
+		// layout CSS centres and gaps them), followed by the upload chrome as
+		// further layout children. The summary line is the single live region (the
+		// per-file list would be far too chatty for a screen reader at batch scale);
+		// it and the status list keep `data-wp-ignore` so the view module owns their
+		// DOM, while the inner blocks no longer carry an ignore boundary (the surface
+		// div that held it is gone). A `data-wp-init` hook hands the wrapper to the
+		// view module.
 		return sprintf(
 			'<div %1$s'
 				. ' data-wp-interactive=\'{"namespace":"kntnt-photo-drop/drop-zone"}\''
 				. ' data-wp-context=\'%2$s\''
 				. ' data-wp-init="callbacks.init">'
+				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $inner is serialised inner-block HTML, already sanitised by the block serializer; the substituted name is escaped above.
+				. '%3$s'
 				// phpcs:ignore Generic.Files.LineLength.TooLong -- The loose-file input is a single coherent input declaration.
 				. '<input type="file" class="kntnt-photo-drop-drop-zone__file-input" multiple accept="image/*" hidden />'
-				// phpcs:ignore Generic.Files.LineLength.TooLong -- The keyboard-operable browse surface is a single coherent element declaration.
-				. '<div class="kntnt-photo-drop-drop-zone__surface" data-wp-ignore tabindex="0" role="button" aria-label="%5$s">%3$s</div>'
-				. '<p class="kntnt-photo-drop-drop-zone__folder">'
+				. '<p class="kntnt-photo-drop-drop-zone__controls">'
+				. '<button type="button" class="kntnt-photo-drop-drop-zone__browse">%4$s</button>'
 				. '<label class="kntnt-photo-drop-drop-zone__folder-label">'
-				. '<span>%4$s</span>'
+				. '<span>%5$s</span>'
 				// phpcs:ignore Generic.Files.LineLength.TooLong -- The webkitdirectory attribute set is a single coherent input declaration.
 				. '<input type="file" class="kntnt-photo-drop-drop-zone__folder-input" multiple accept="image/*" webkitdirectory directory />'
 				. '</label>'
@@ -239,10 +254,9 @@ final class Render_Drop_Zone {
 				. '</div>',
 			$wrapper,
 			esc_attr( $context_json ),
-			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $surface is serialised inner-block HTML, already sanitised by the block serializer; the substituted name is escaped above.
-			$surface,
+			$inner,
+			$browse_label,
 			$folder_label,
-			$surface_label,
 		);
 
 	}

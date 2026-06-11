@@ -14,7 +14,7 @@ Both blocks are **dynamic** (server-rendered via `render.php` → an autoloaded 
 
 ## Photo Drop Zone — `kntnt-photo-drop/drop-zone`
 
-A capability-gated front-end uploader bound to one existing collection. It selects a collection and uploads into it; it never establishes or reconfigures one, so its inspector has nothing that could conflict with the contract. The block is an **`InnerBlocks` wrapper**: its *editable appearance* is its inner blocks (a centred dashed group by default), and the whole inner-block surface becomes a **native drag-drop + click-to-browse** zone at render. There is no FilePond.
+A capability-gated front-end uploader bound to one existing collection. It selects a collection and uploads into it; it never establishes or reconfigures one, so its inspector has nothing that could conflict with the contract. The block is an **`InnerBlocks` wrapper that is itself the layout container** — a Group-equivalent: it carries the Group's block supports (layout, colour, typography, border, spacing incl. `blockGap`, min-height, shadow, align), and its *editable appearance* is its inner blocks seeded **directly** into that styled wrapper (a centred dashed box by default, from the block's seeded `style`). The **one** wrapper element is the styled box, the drag-drop target, and the drag-over highlight, and at render it becomes the **native drag-drop + click-to-browse** zone. There is no inner `core/group` and no FilePond.
 
 ### `block.json`
 
@@ -38,16 +38,30 @@ A capability-gated front-end uploader bound to one existing collection. It selec
 	"supports": {
 		"anchor": true,
 		"html": false,
-		"spacing": { "margin": true, "padding": true }
+		"align": true,
+		"color": { "background": true, "text": true, "gradients": true, "link": true },
+		"typography": { "fontSize": true, "lineHeight": true, "__experimentalFontFamily": true },
+		"__experimentalBorder": { "color": true, "radius": true, "style": true, "width": true },
+		"shadow": true,
+		"spacing": { "margin": true, "padding": true, "blockGap": true },
+		"dimensions": { "minHeight": true },
+		"layout": { "allowSizingOnChildren": true, "default": { "type": "constrained" } }
 	},
 	"attributes": {
-		"collection": {
-			"type": "string",
-			"default": ""
+		"collection": { "type": "string", "default": "" },
+		"style": {
+			"type": "object",
+			"default": {
+				"border": { "color": "#808080", "style": "dashed", "width": "2px", "radius": "4px" },
+				"color": { "background": "#fafaff" },
+				"spacing": { "padding": "2rem" }
+			}
 		}
 	}
 }
 ```
+
+Unlike the Gallery — which projects its colour/typography/border/shadow supports onto sub-elements via `__experimentalSkipSerialization` — the Drop Zone is a true Group-equivalent: its supports are **serialised onto the wrapper itself**, because the wrapper is the styled box the builder sees. The `layout` support's `default` makes `constrained` the default layout (its `layout` attribute is auto-managed by the layout support, not declared here), and the seeded `style` attribute reproduces today's default look (dashed `#808080` border, `#fafaff` background, `2rem` padding) on a freshly inserted block. `collection` remains the only persisted block-specific attribute; everything about the contract is still read live from the descriptor, never stored on the block.
 
 ### Attributes
 
@@ -57,18 +71,19 @@ A capability-gated front-end uploader bound to one existing collection. It selec
 
 The collection's output contract (max width, quality, WebP, thumbnail width) is **not** a block attribute — it is read from `collection.json` at edit time (for the read-only inspector display) and at render time (to configure the client-side Canvas optimisation). This is what keeps the Drop Zone unable to conflict with the contract.
 
-This is a **dynamic block with inner blocks**: `save` returns `<InnerBlocks.Content />` (the inner-block markup is serialised into `post_content`), and `render.php` consumes that markup as `$content` — gating it by capability, replacing the collection placeholder, and wrapping it in the native drop surface. The block carries the `cloud-upload` icon in the inserter and list view.
+This is a **dynamic block with inner blocks**: `save` returns `<InnerBlocks.Content />` (the inner-block markup is serialised into `post_content`), and `render.php` consumes that markup as `$content` — gating it by capability, replacing the collection placeholder, and emitting it as the **direct children of the styled wrapper**, which is itself the native drop surface. The block carries the `cloud-upload` icon in the inserter and list view.
 
 ### Editor UI (`edit.tsx`)
 
-- **Inner blocks (canvas)** — the block's editable appearance is an `InnerBlocks` region. On insertion it is seeded with a default (unlocked) template: a centred, constrained `core/group` with a dashed border (`#808080`) and background `#fafaff`, holding a level-4 `core/heading` "Photo Drop Zone", a `core/paragraph` `Uploads go into the "{kntnt-drop-zone-collection}" collection.`, and a smaller `core/paragraph` "The live uploader appears on the published page for users who can upload files." The template is **not locked**, so a site builder can rewrite the surface freely; the literal token `{kntnt-drop-zone-collection}` is a default placeholder, not a contract.
+- **Inner blocks (canvas)** — the block's editable appearance is an `InnerBlocks` region, and the block's **wrapper is itself the layout container** (a Group-equivalent), so the inner blocks are its direct children and the Group block supports style that same wrapper. On insertion it is seeded with a default (unlocked) template — **flattened, with no inner `core/group`**: a level-4 `core/heading` "Photo Drop Zone", a `core/paragraph` `Uploads go into the "{kntnt-drop-zone-collection}" collection.`, and a smaller `core/paragraph` "The live uploader appears on the published page for users who can upload files." The wrapper's centred dashed-box look comes from the block's seeded `style` attribute and its `constrained` layout support, not from an inner group. The template is **not locked**, so a site builder can rewrite the surface freely; the literal token `{kntnt-drop-zone-collection}` is a default placeholder, not a contract. The inspector exposes the full Group-equivalent control set (layout incl. `blockGap`, background/text colour, typography, border, margin/padding, min-height, shadow, and the block-toolbar alignment).
 - **Inspector → Collection** — a `SelectControl` listing discovered collections by display name (value = slug). Choosing one sets `collection`. An empty or dangling `collection` shows an inline notice in the panel (prompting selection or noting the collection is gone).
 - **Inspector → Output contract (read-only)** — a static display of the selected collection's `maxWidth` (or "No limit"), `quality`, format (always **WebP**), and `thumbnailWidths`. No fields to edit; a hint links to the admin page for lifecycle changes, set off by vertical space below the contract list.
 
 ### Render output (`render.php` → `Render_Drop_Zone`)
 
 - Renders **only** for users who hold the upload capability (`upload_files`, filter `kntnt_photo_drop_upload_capability`). For anyone else, the block renders nothing — and crucially **no `wp_rest` nonce** is emitted (defence in depth; see [ADR-0006](adr/0006-server-enforced-contract-rest-upload.md)).
-- For a capable user, it replaces the literal `{kntnt-drop-zone-collection}` token in the inner-block markup with the collection's display name (a removed or edited token is simply not replaced), then wraps the result so the **whole inner-block surface** is a native drag-drop + click-to-browse zone, alongside a **"Select folder"** control (`webkitdirectory`), wired through the Interactivity API view module. The descriptor's contract is read server-side and passed to the client so the Canvas downscale + the `canvas.toBlob(…, 'image/webp', quality)` encode are configured from it.
+- For a capable user, it replaces the literal `{kntnt-drop-zone-collection}` token in the inner-block markup with the collection's display name (a removed or edited token is simply not replaced), then emits that markup as the **direct children of the block wrapper**, which is itself the native drag-drop + click-to-browse zone. The upload chrome are further layout children inside the same styled box: a hidden loose-file input, a real **"Add photos"** `<button>`, and a **"Select folder"** control (`webkitdirectory`), plus the live summary and per-file status list. The DOM shape is one wrapper `<div>` (carrying the block supports and the Interactivity `data-wp-context`/`data-wp-init`) → the placeholder-replaced inner blocks, the hidden input, a `__controls` row (the button + folder picker), the `__summary` live region, and the `__status` list. **There is no `__surface` div** (the level that wrapped the inner blocks before this slice is gone), so the styled box, the drop target, and the drag-over highlight are the one wrapper element. The descriptor's contract is read server-side and passed to the client so the Canvas downscale + the `canvas.toBlob(…, 'image/webp', quality)` encode are configured from it.
+- **Interaction model.** A pointer click anywhere on the wrapper that does not land on an interactive child — a link, button, input, label, select, or textarea in the builder's markup (which covers the "Add photos" button and the "Select folder" control), or the `__summary`/`__status` regions — opens the loose-file picker. The keyboard/AT browse path is the real **"Add photos"** button, so the wrapper carries **no `role="button"` and no `tabindex`**. The `__summary` and `__status` keep their `data-wp-ignore` boundary (the view module owns their DOM); the inner blocks no longer carry one, since the surface div that held it is gone.
 - Each file is uploaded one-per-request to `POST /wp-json/kntnt-photo-drop/v1/collections/<slug>/images` (multipart: the file + its `relativePath`), carrying the nonce. `webkitRelativePath` is preserved per file so the server can recreate sub-directories (path hard-sanitised and `realpath`-confined). A folder dragged onto the zone is detected (`webkitGetAsEntry().isDirectory`) and **warned** about, offering to continue flat. The view module keeps the per-file status list, the live summary, real XHR upload progress, and the one-shot nonce refresh on expiry.
 - The client optimisation is a bandwidth optimisation only; the server re-enforces the contract on every file.
 
