@@ -241,14 +241,14 @@ Collection **create / update / delete** lives on a dedicated admin page (and the
 
 ### Create
 
-- Fields: **Slug** (required; becomes the directory name and the durable identity), **Display name** (optional; defaults to a humanised slug), **Maximum width** (required; pre-filled from `kntnt_photo_drop_default_max_width`, default 1920; an explicit "No limit" choice maps to `null`), **Quality** (required; pre-filled from `kntnt_photo_drop_default_quality`, default 80).
+- Fields: **Slug** (required; becomes the directory name and the durable identity), **Display name** (optional; defaults to a humanised slug), **Maximum width** (required; pre-filled from `kntnt_photo_drop_default_max_width`, default 1920; an explicit "No limit" choice maps to `null`), **Quality** (required; pre-filled from `kntnt_photo_drop_default_quality`, default 80), **Uploader folders** (a checkbox, **checked by default**; when on, every Drop Zone upload lands under a folder named for the uploader, when off at the collection root; fixed at establishment like the contract, [ADR-0008](adr/0008-ingestion-placement-hierarchy-and-uploader-folders.md)).
 - **No format field** (always WebP) and **no thumbnail-width field** (it is filter-driven via `kntnt_photo_drop_thumbnail_width` and re-derivable, so it is never frozen here; [ADR-0002](adr/0002-immutable-webp-output-contract.md)).
 - A prominent, unmissable **irreversibility warning** on max width + quality: these fix the output contract at establishment and **cannot be changed afterwards**, because images are downscaled and re-encoded at ingestion and the original is never kept. Submitting establishes the collection: it creates the directory and writes `collection.json`.
 - Slug validation: lowercase, URL-safe, unique among existing directories.
 
 ### Update (Edit)
 
-- Only the **display name** is editable. Max width, quality, format, and thumbnail width(s) are shown **read-only / disabled**, with a note that the contract is immutable and thumbnail width is changed via the filter + `wp kntnt-photo-drop collection doctor <slug> --repair --force`. Submitting rewrites only `name` in `collection.json`; any attempt to change the contract is rejected server-side.
+- Only the **display name** is editable. Max width, quality, format, and thumbnail width(s) are shown **read-only / disabled**, with a note that the contract is immutable and thumbnail width is changed via the filter + `wp kntnt-photo-drop collection doctor <slug> --repair --force`. The **uploader-folders** rule is likewise fixed at establishment and is not an editable field here ([ADR-0008](adr/0008-ingestion-placement-hierarchy-and-uploader-folders.md)). Submitting rewrites only `name` in `collection.json`; any attempt to change the contract is rejected server-side.
 
 ### Delete
 

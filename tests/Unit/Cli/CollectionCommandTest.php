@@ -241,6 +241,69 @@ test( 'create rejects an invalid slug before creating anything', function (): vo
 	command_remove_tree( $basedir );
 } );
 
+test( 'create defaults uploader-folders to on when the flag is absent', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	$command->create( [ 'namespaced' ], [
+		'max-width' => '1920',
+		'quality'   => '80',
+	] );
+
+	// Without the flag the placement rule defaults to on (ADR-0008).
+	expect( Descriptor::read( $root . 'namespaced' )->uploader_folders )->toBeTrue();
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'create records the uploader-folders choice', function ( string|bool $value, bool $expected ): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// WP-CLI surfaces an explicit value as a string and --no-uploader-folders as a
+	// boolean false; both spellings of "off" must reach the descriptor as false.
+	$command->create( [ 'chosen' ], [
+		'max-width'        => '1920',
+		'quality'          => '80',
+		'uploader-folders' => $value,
+	] );
+
+	expect( Descriptor::read( $root . 'chosen' )->uploader_folders )->toBe( $expected );
+
+	command_remove_tree( $basedir );
+} )->with( [
+	'explicit false'  => [ 'false', false ],
+	'negated boolean' => [ false, false ],
+	'explicit true'   => [ 'true', true ],
+	'bare flag (1)'   => [ '1', true ],
+] );
+
+test( 'create rejects an undecidable uploader-folders value and writes nothing', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A value the parser cannot decide must halt before any directory is made, so
+	// a typo never freezes the placement rule.
+	$threw = false;
+	try {
+		$command->create( [ 'typo' ], [
+			'max-width'        => '1920',
+			'quality'          => '80',
+			'uploader-folders' => 'maybe',
+		] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( is_dir( $root . 'typo' ) )->toBeFalse();
+
+	command_remove_tree( $basedir );
+} );
+
 // ---------------------------------------------------------------------------
 // update — rewrites only the name, rejects contract changes
 // ---------------------------------------------------------------------------
@@ -272,7 +335,7 @@ test( 'update rewrites only the name and preserves the contract', function (): v
 	command_remove_tree( $basedir );
 } );
 
-test( 'update rejects an attempt to change the contract', function ( array $args ): void {
+test( 'update rejects an attempt to change an immutable flag', function ( array $args ): void {
 	$basedir = fresh_command_basedir();
 	$root    = wire_command_stubs( $basedir );
 	$command = make_command();
@@ -292,26 +355,38 @@ test( 'update rejects an attempt to change the contract', function ( array $args
 		$threw = true;
 	}
 
-	// The contract flag is refused and the descriptor is left byte-identical.
+	// The immutable flag is refused and the descriptor is left byte-identical.
 	expect( $threw )->toBeTrue();
 	expect( WP_CLI::$errors )->toHaveCount( 1 );
 	expect( file_get_contents( $root . 'frozen/' . Descriptor::FILENAME ) )->toBe( $before );
 
 	command_remove_tree( $basedir );
 } )->with( [
-	'max-width'        => [
+	'max-width'         => [
 		[
 			'name'      => 'X',
 			'max-width' => '800',
 		],
 	],
-	'quality'          => [
+	'quality'           => [
 		[
 			'name'    => 'X',
 			'quality' => '50',
 		],
 	],
-	'contract no name' => [ [ 'max-width' => '800' ] ],
+	'uploader-folders'  => [
+		[
+			'name'             => 'X',
+			'uploader-folders' => 'false',
+		],
+	],
+	'negated folders'   => [
+		[
+			'name'             => 'X',
+			'uploader-folders' => false,
+		],
+	],
+	'immutable no name' => [ [ 'max-width' => '800' ] ],
 ] );
 
 test( 'update requires a non-empty name', function ( array $args ): void {

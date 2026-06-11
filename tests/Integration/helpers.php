@@ -382,19 +382,30 @@ function unique_slug(): string {
  * Creates a collection through the CLI, failing loudly on error.
  *
  * Seeding is setup, not subject-under-test, so a failure here throws with the
- * CLI's own words instead of letting later assertions fail confusingly.
+ * CLI's own words instead of letting later assertions fail confusingly. The
+ * uploader-folders placement rule is left at its default (on) unless the caller
+ * passes `false`, which adds `--no-uploader-folders` so the collection lands
+ * Drop Zone uploads at its root (ADR-0008).
  *
  * @since 0.3.0
  *
- * @param string      $slug      The collection slug.
- * @param string      $max_width The contract ceiling in pixels, or "none".
- * @param int         $quality   The WebP quality (0–100).
- * @param string|null $name      Optional display name; null humanises the slug.
+ * @param string      $slug             The collection slug.
+ * @param string      $max_width        The contract ceiling in pixels, or "none".
+ * @param int         $quality          The WebP quality (0–100).
+ * @param string|null $name             Optional display name; null humanises the slug.
+ * @param bool        $uploader_folders Whether Drop Zone uploads namespace per uploader.
  * @throws \RuntimeException When the CLI refuses to create the collection.
  */
-function create_collection( string $slug, string $max_width = '1200', int $quality = 70, ?string $name = null ): void {
+function create_collection(
+	string $slug,
+	string $max_width = '1200',
+	int $quality = 70,
+	?string $name = null,
+	bool $uploader_folders = true,
+): void {
 
-	// Assemble the create command, adding --name only when the caller set one.
+	// Assemble the create command, adding --name only when the caller set one and
+	// the negation flag only when the placement rule is explicitly turned off.
 	$arguments = [
 		'kntnt-photo-drop',
 		'collection',
@@ -406,11 +417,69 @@ function create_collection( string $slug, string $max_width = '1200', int $quali
 	if ( $name !== null ) {
 		$arguments[] = "--name={$name}";
 	}
+	if ( ! $uploader_folders ) {
+		$arguments[] = '--no-uploader-folders';
+	}
 
 	// Run it and surface any failure as a hard setup error.
 	$result = run_cli( $arguments );
 	if ( $result['exit_code'] !== 0 ) {
 		throw new \RuntimeException( "Cannot seed collection '{$slug}': {$result['output']}" );
+	}
+
+}
+
+/**
+ * Creates a collection through the admin create form over HTTP.
+ *
+ * Drives the real `admin-post.php` create handler exactly as a browser would:
+ * a logged-in admin session POSTs the nonce-protected create form, so the
+ * uploader-folders checkbox travels the same superglobal path the page reads in
+ * production. The checkbox is present only when ticked; omitting it models an
+ * unchecked box, which the handler reads as "off" (ADR-0008). Returns nothing —
+ * the caller asserts the resulting `collection.json` on disk.
+ *
+ * @since 0.5.0
+ *
+ * @param string $slug             The collection slug.
+ * @param string $max_width        The contract ceiling in pixels, or "none".
+ * @param int    $quality          The WebP quality (0–100).
+ * @param bool   $uploader_folders Whether to tick the uploader-folders checkbox.
+ * @throws \RuntimeException When the admin POST does not establish the collection.
+ */
+function create_collection_via_admin(
+	string $slug,
+	string $max_width = '1200',
+	int $quality = 70,
+	bool $uploader_folders = true,
+): void {
+
+	// Mint a session and a matching admin-post nonce for the create action, the
+	// same nonce the create form embeds via wp_nonce_field().
+	$session = admin_session();
+	$nonce   = admin_post_nonce( $session['jar'], 'kntnt_photo_drop_create_collection' );
+
+	// Build the form fields. "none" selects the no-limit radio; any other width is
+	// the limit mode. The checkbox field is included only when it should be ticked,
+	// mirroring how an HTML checkbox submits nothing when unchecked.
+	$fields = [
+		'action'         => 'kntnt_photo_drop_create_collection',
+		'_wpnonce'       => $nonce,
+		'slug'           => $slug,
+		'name'           => '',
+		'max_width_mode' => $max_width === 'none' ? 'none' : 'limit',
+		'max_width'      => $max_width === 'none' ? '' : $max_width,
+		'quality'        => (string) $quality,
+	];
+	if ( $uploader_folders ) {
+		$fields['uploader_folders'] = '1';
+	}
+
+	// POST to admin-post.php with the session cookie; the handler redirects on
+	// completion, so the descriptor on disk — not the HTTP body — is the proof.
+	admin_post( $fields, $session['jar'] );
+	if ( read_descriptor( $slug ) === null ) {
+		throw new \RuntimeException( "The admin create form did not establish collection '{$slug}'." );
 	}
 
 }
@@ -802,6 +871,90 @@ function rest_upload( string $slug, string $file_path, string $relative_path, ?s
 	return [
 		'status' => $status,
 		'body'   => is_array( $body ) ? $body : null,
+	];
+
+}
+
+/**
+ * Scrapes the admin create form for its `_wpnonce` field, for a given session.
+ *
+ * The admin page protects every form with a per-action nonce that
+ * `check_admin_referer()` later verifies, so a faithful POST must carry the
+ * very nonce the rendered form embeds. This GETs the create view with the
+ * session cookie and reads the hidden `_wpnonce` input out of the markup —
+ * exactly what a browser submits. The nonce action is fixed by the form, so the
+ * argument exists only to document which form's nonce is being read.
+ *
+ * @since 0.5.0
+ *
+ * @param string $jar    The cookie-jar path of a logged-in admin session.
+ * @param string $action The nonce action the target form is signed with (documentary).
+ * @return string The ten-character nonce embedded in the create form.
+ * @throws \RuntimeException When the form cannot be fetched or carries no nonce.
+ */
+function admin_post_nonce( string $jar, string $action ): string {
+
+	// Fetch the create view as the logged-in admin; its form embeds the nonce.
+	$url    = SITE_URL . '/wp-admin/upload.php?page=kntnt-photo-drop&action=create';
+	$handle = curl_init( $url );
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_COOKIEFILE     => $jar,
+			CURLOPT_TIMEOUT        => 15,
+		],
+	);
+	$body = curl_exec( $handle );
+	unset( $handle );
+
+	// Read the hidden _wpnonce input the rendered wp_nonce_field() emitted; its
+	// absence means the page did not render the form (a session or routing fault).
+	if ( ! is_string( $body )
+		|| preg_match( '/name="_wpnonce"\s+value="([a-f0-9]{10})"/', $body, $matches ) !== 1 ) {
+		throw new \RuntimeException( "Cannot read the {$action} nonce from the admin create form." );
+	}
+
+	return $matches[1];
+
+}
+
+/**
+ * POSTs an admin form to `admin-post.php` with a session cookie.
+ *
+ * Drives the plugin's `admin_post_*` handlers exactly as the browser does: a
+ * urlencoded form body with the session cookie attached. The handler ends in a
+ * redirect, which is followed so the call settles on the list view; the effect
+ * the caller asserts is the on-disk descriptor, not the returned page.
+ *
+ * @since 0.5.0
+ *
+ * @param array<string,string> $fields The form fields, including `action` and `_wpnonce`.
+ * @param string               $jar    The cookie-jar path of a logged-in admin session.
+ * @return array{status:int,body:string} The final HTTP status and body after redirects.
+ */
+function admin_post( array $fields, string $jar ): array {
+
+	// POST urlencoded to admin-post.php, following the handler's redirect to the
+	// list view so the request fully settles.
+	$handle = curl_init( SITE_URL . '/wp-admin/admin-post.php' );
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_POST           => true,
+			CURLOPT_POSTFIELDS     => http_build_query( $fields ),
+			CURLOPT_COOKIEFILE     => $jar,
+			CURLOPT_FOLLOWLOCATION => true,
+			CURLOPT_TIMEOUT        => 30,
+		],
+	);
+	$response = curl_exec( $handle );
+	$status   = (int) curl_getinfo( $handle, CURLINFO_RESPONSE_CODE );
+
+	return [
+		'status' => $status,
+		'body'   => is_string( $response ) ? $response : '',
 	];
 
 }

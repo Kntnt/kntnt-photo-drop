@@ -88,14 +88,52 @@ test( 'humanise_slug turns hyphens into capitalised words', function (): void {
 } );
 
 // ---------------------------------------------------------------------------
-// find_contract_flag — the reject-contract-change-on-update rule
+// parse_uploader_folders — the `none`-of-the-contract placement-rule boolean
 // ---------------------------------------------------------------------------
 
-test( 'find_contract_flag spots an immutable-contract flag', function ( array $args, ?string $expected ): void {
-	expect( ( new Collection_Input() )->find_contract_flag( $args ) )->toBe( $expected );
+test( 'parse_uploader_folders defaults an absent flag to on', function (): void {
+	expect( ( new Collection_Input() )->parse_uploader_folders( null ) )->toBeTrue();
+} );
+
+test( 'parse_uploader_folders reads the common truthy spellings as true', function ( string $value ): void {
+	expect( ( new Collection_Input() )->parse_uploader_folders( $value ) )->toBeTrue();
+} )->with( [
+	'one'         => [ '1' ],
+	'true'        => [ 'true' ],
+	'capitalTrUe' => [ 'TrUe' ],
+	'yes'         => [ 'yes' ],
+	'on'          => [ 'on' ],
+] );
+
+test( 'parse_uploader_folders reads the common falsy spellings as false', function ( string $value ): void {
+	expect( ( new Collection_Input() )->parse_uploader_folders( $value ) )->toBeFalse();
+} )->with( [
+	'zero'  => [ '0' ],
+	'false' => [ 'false' ],
+	'no'    => [ 'no' ],
+	'off'   => [ 'off' ],
+	'empty' => [ '' ],
+] );
+
+test( 'parse_uploader_folders returns null for an undecidable value', function ( string $value ): void {
+	expect( ( new Collection_Input() )->parse_uploader_folders( $value ) )->toBeNull();
+} )->with( [
+	'word'    => [ 'maybe' ],
+	'numeric' => [ '2' ],
+	'noise'   => [ 'truthy' ],
+] );
+
+// ---------------------------------------------------------------------------
+// find_immutable_flag — the reject-immutable-change-on-update rule
+// ---------------------------------------------------------------------------
+
+test( 'find_immutable_flag spots an establishment-fixed flag', function ( array $args, ?string $expected ): void {
+	expect( ( new Collection_Input() )->find_immutable_flag( $args ) )->toBe( $expected );
 } )->with( [
 	'max-width'        => [ [ 'max-width' => '1920' ], 'max-width' ],
 	'quality'          => [ [ 'quality' => '80' ], 'quality' ],
+	'uploader-folders' => [ [ 'uploader-folders' => 'false' ], 'uploader-folders' ],
+	'negated folders'  => [ [ 'uploader-folders' => false ], 'uploader-folders' ],
 	'both prefers max' => [
 		[
 			'quality'   => '80',

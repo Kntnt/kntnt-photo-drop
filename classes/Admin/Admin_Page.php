@@ -250,16 +250,19 @@ final class Admin_Page {
 		// user or a forged request never reaches the filesystem.
 		$this->guard_request( self::ACTION_CREATE );
 
-		// Read and sanitise the four create fields from the request. The slug and
-		// name are text; the max-width choice and value and the quality are read
-		// as raw strings and parsed by the shared Collection_Input below. The nonce
-		// is verified in guard_request() above, before any field is read.
+		// Read and sanitise the create fields from the request. The slug and name
+		// are text; the max-width choice and value and the quality are read as raw
+		// strings and parsed by the shared Collection_Input below; the
+		// uploader-folders checkbox is present only when ticked (an unchecked box
+		// submits nothing), so its mere presence is the boolean. The nonce is
+		// verified in guard_request() above, before any field is read.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified in guard_request().
-		$slug           = $this->read_string( $_POST, 'slug' );
-		$name           = $this->read_string( $_POST, 'name' );
-		$max_width_mode = $this->read_string( $_POST, 'max_width_mode' );
-		$max_width_raw  = $this->read_string( $_POST, 'max_width' );
-		$quality_raw    = $this->read_string( $_POST, 'quality' );
+		$slug             = $this->read_string( $_POST, 'slug' );
+		$name             = $this->read_string( $_POST, 'name' );
+		$max_width_mode   = $this->read_string( $_POST, 'max_width_mode' );
+		$max_width_raw    = $this->read_string( $_POST, 'max_width' );
+		$quality_raw      = $this->read_string( $_POST, 'quality' );
+		$uploader_folders = isset( $_POST['uploader_folders'] );
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		// "No limit" is an explicit mode; otherwise the typed width is the value
@@ -268,7 +271,7 @@ final class Admin_Page {
 		$max_width_value = $max_width_mode === self::NO_LIMIT_VALUE ? self::NO_LIMIT_VALUE : $max_width_raw;
 
 		// Run the decision logic and redirect back to the list with its notice.
-		$this->create_collection( $slug, $name, $max_width_value, $quality_raw );
+		$this->create_collection( $slug, $name, $max_width_value, $quality_raw, $uploader_folders );
 		$this->redirect_to_list();
 
 	}
@@ -345,10 +348,11 @@ final class Admin_Page {
 	 *
 	 * @since 0.5.0
 	 *
-	 * @param string $slug            The collection identity to create.
-	 * @param string $name            The optional display name; humanised from the slug when empty.
-	 * @param string $max_width_value The raw max-width value ("none" or a positive integer).
-	 * @param string $quality_value   The raw quality value (0–100).
+	 * @param string $slug             The collection identity to create.
+	 * @param string $name             The optional display name; humanised from the slug when empty.
+	 * @param string $max_width_value  The raw max-width value ("none" or a positive integer).
+	 * @param string $quality_value    The raw quality value (0–100).
+	 * @param bool   $uploader_folders Whether Drop Zone uploads are namespaced per uploader (fixed at establishment).
 	 * @return bool True when the collection was established.
 	 */
 	public function create_collection(
@@ -356,6 +360,7 @@ final class Admin_Page {
 		string $name,
 		string $max_width_value,
 		string $quality_value,
+		bool $uploader_folders = true,
 	): bool {
 
 		// Reject a malformed slug up front so the user gets the same lexical
@@ -400,8 +405,9 @@ final class Admin_Page {
 		}
 
 		// Write the descriptor that turns the bare directory into a collection;
-		// the thumbnail width(s) are filter-derived inside from_filter().
-		$descriptor = Descriptor::from_filter( $display_name, $max_width, $quality );
+		// the thumbnail width(s) are filter-derived inside from_filter(), the
+		// uploader-folders placement rule is fixed here once (ADR-0008).
+		$descriptor = Descriptor::from_filter( $display_name, $max_width, $quality, $uploader_folders );
 		if ( ! $descriptor->write( $path ) ) {
 			$this->add_error(
 				__( 'Created the directory but failed to write the collection descriptor.', 'kntnt-photo-drop' ),
@@ -771,6 +777,21 @@ final class Admin_Page {
 		echo '<input name="quality" id="kntnt-photo-drop-quality" type="number" min="0" max="100" ';
 		echo 'step="1" value="' . esc_attr( (string) $default_quality ) . '" class="small-text" required />';
 		echo '<p class="description">' . esc_html( $quality_help ) . '</p>';
+		echo '</td></tr>';
+
+		// Uploader folders — checked by default; fixed at establishment like the
+		// contract above. When on, every Drop Zone upload lands under a folder
+		// named for the uploader; when off, uploads land at the collection root.
+		$folders_label = __( 'Uploader folders', 'kntnt-photo-drop' );
+		$folders_text  = __( 'Namespace Drop Zone uploads under a per-uploader folder', 'kntnt-photo-drop' );
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$folders_help = __( 'When on, each Drop Zone upload is placed under a folder named for the uploader; when off, uploads land at the collection root. Fixed when the collection is established and cannot be changed afterwards.', 'kntnt-photo-drop' );
+		echo '<tr><th scope="row">' . esc_html( $folders_label ) . '</th><td>';
+		echo '<label for="kntnt-photo-drop-uploader-folders">';
+		echo '<input name="uploader_folders" id="kntnt-photo-drop-uploader-folders" ';
+		echo 'type="checkbox" value="1" checked /> ';
+		echo esc_html( $folders_text ) . '</label>';
+		echo '<p class="description">' . esc_html( $folders_help ) . '</p>';
 		echo '</td></tr>';
 
 		echo '</tbody></table>';

@@ -76,15 +76,15 @@ Per-folder `index.json` (hidden inside `.kntnt-thumbnails/`) gives locality and 
 WP-CLI, grouped by object with verb subcommands:
 
 ```
-wp kntnt-photo-drop collection create <slug> --name="…" --max-width=1920 --quality=80
-wp kntnt-photo-drop collection update <slug> --name="…"      # mutable name only; rejects contract changes
+wp kntnt-photo-drop collection create <slug> --name="…" --max-width=1920 --quality=80 [--no-uploader-folders]
+wp kntnt-photo-drop collection update <slug> --name="…"      # mutable name only; rejects contract + uploader-folders changes
 wp kntnt-photo-drop collection delete <slug> [--yes]
 wp kntnt-photo-drop collection doctor <slug> [--repair] [--force] [--ignore=<glob>] [--show-ignored]
 wp kntnt-photo-drop image      import <slug> <source…> [--overwrite]
 wp kntnt-photo-drop image      delete <slug> <path> [--yes]
 ```
 
-`create` takes `slug` positionally; `--name` is optional (defaults to a humanised slug); `--max-width` and `--quality` are **required flags** (the contract is irreversible). `import` requires an existing collection, carries no contract flags, and is idempotent (skip-if-exists, `--overwrite` to force). Both deletes prompt unless `--yes`. Read output uses `format_items()` (`table`, `csv`, `json`, `yaml`, `ids`, `count`). Deliberately **not** included: `verify` (subsumed by doctor), `list`/`mv` (the filesystem plus `find` and self-healing indexes cover them), and a standalone in-place `process`.
+`create` takes `slug` positionally; `--name` is optional (defaults to a humanised slug); `--max-width` and `--quality` are **required flags** (the contract is irreversible); `--uploader-folders` is optional and defaults to on, fixed at establishment alongside the contract (pass `--no-uploader-folders` to land Drop Zone uploads at the collection root; [ADR-0008](adr/0008-ingestion-placement-hierarchy-and-uploader-folders.md)). `update` mutates only `--name` and rejects `--max-width`, `--quality`, and `--uploader-folders` alike, since all three are fixed at establishment. `import` requires an existing collection, carries no contract flags, and is idempotent (skip-if-exists, `--overwrite` to force). Both deletes prompt unless `--yes`. Read output uses `format_items()` (`table`, `csv`, `json`, `yaml`, `ids`, `count`). Deliberately **not** included: `verify` (subsumed by doctor), `list`/`mv` (the filesystem plus `find` and self-healing indexes cover them), and a standalone in-place `process`.
 
 ## Gallery rendering — see ADR-0005, ADR-0007
 

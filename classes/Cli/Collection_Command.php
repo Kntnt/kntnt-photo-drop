@@ -95,15 +95,21 @@ final class Collection_Command {
 	 * [--name=<name>]
 	 * : The human display name. Defaults to a humanised form of the slug.
 	 *
+	 * [--uploader-folders=<bool>]
+	 * : Whether Drop Zone uploads are namespaced under a per-uploader folder.
+	 * Defaults to true; irreversible once set. Pass --no-uploader-folders (or
+	 * --uploader-folders=false) to land Drop Zone uploads at the collection root.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp kntnt-photo-drop collection create spring-2024 --max-width=1920 --quality=80
 	 *     wp kntnt-photo-drop collection create archive --max-width=none --quality=90 --name="Full Archive"
+	 *     wp kntnt-photo-drop collection create shared --max-width=1920 --quality=80 --no-uploader-folders
 	 *
 	 * @since 0.2.0
 	 *
-	 * @param array<int,string>    $args       Positional arguments: the slug.
-	 * @param array<string,string> $assoc_args Associative arguments: max-width, quality, name.
+	 * @param array<int,string>         $args       Positional arguments: the slug.
+	 * @param array<string,string|bool> $assoc_args Associative arguments: max-width, quality, name, uploader-folders.
 	 */
 	public function create( array $args, array $assoc_args ): void {
 
@@ -127,21 +133,37 @@ final class Collection_Command {
 		}
 
 		// Parse the two lossy contract values, validating each in isolation so the
-		// user learns precisely which one was malformed.
-		$max_width = $this->input->parse_max_width( $assoc_args['max-width'] );
+		// user learns precisely which one was malformed. WP-CLI yields a string for
+		// a normal flag and a boolean for a `--no-` negation; coercing to string
+		// turns a nonsensical `--no-max-width` into an empty value the parser
+		// rejects, rather than letting a boolean reach a string-typed parser.
+		$max_width = $this->input->parse_max_width( (string) $assoc_args['max-width'] );
 		if ( $max_width === false ) {
 			WP_CLI::error( 'The --max-width flag must be a positive integer or "none".' );
 			return;
 		}
-		$quality = $this->input->parse_quality( $assoc_args['quality'] );
+		$quality = $this->input->parse_quality( (string) $assoc_args['quality'] );
 		if ( $quality === false ) {
 			WP_CLI::error( 'The --quality flag must be an integer between 0 and 100.' );
 			return;
 		}
 
+		// Parse the optional, irreversible placement rule. WP-CLI surfaces
+		// --no-uploader-folders as a boolean false; everything else (a bare flag,
+		// an explicit value, or its absence) reaches the parser as a string or
+		// null. A null parse is an undecidable value that must not freeze a rule.
+		$uploader_folders = $this->input->parse_uploader_folders( $this->read_uploader_folders_flag( $assoc_args ) );
+		if ( $uploader_folders === null ) {
+			WP_CLI::error( 'The --uploader-folders flag must be a boolean (true/false, yes/no, on/off, 1/0).' );
+			return;
+		}
+
 		// Resolve the display name (caller-supplied, or a humanised slug) before
 		// any filesystem effect, so a successful create writes a complete record.
-		$name = $this->input->resolve_name( $assoc_args['name'] ?? null, $slug );
+		// A `--name` always arrives as a string; a `--no-name` boolean coerces to
+		// the empty string, which resolve_name treats as "no name supplied".
+		$name_arg = isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : null;
+		$name     = $this->input->resolve_name( $name_arg, $slug );
 
 		// Create the directory; a null return means the slug already exists or the
 		// root is unavailable — either way nothing was written.
@@ -152,8 +174,9 @@ final class Collection_Command {
 		}
 
 		// Write the descriptor that turns the bare directory into a collection;
-		// the thumbnail width(s) are filter-derived inside from_filter().
-		$descriptor = Descriptor::from_filter( $name, $max_width, $quality );
+		// the thumbnail width(s) are filter-derived inside from_filter(), the
+		// placement rule is fixed here once and never changes (ADR-0008).
+		$descriptor = Descriptor::from_filter( $name, $max_width, $quality, $uploader_folders );
 		if ( ! $descriptor->write( $path ) ) {
 			WP_CLI::error( "Created the directory for '{$slug}' but failed to write its descriptor." );
 			return;
@@ -167,9 +190,10 @@ final class Collection_Command {
 	 * Renames a collection, changing only its mutable display name.
 	 *
 	 * The display name is the single mutable field; the output contract
-	 * (`max-width`, `quality`) is immutable, so any attempt to pass those flags
-	 * is rejected rather than silently ignored — the user must not believe a
-	 * frozen contract was changed (ADR-0002).
+	 * (`max-width`, `quality`) and the placement rule (`uploader-folders`) are all
+	 * fixed at establishment, so any attempt to pass those flags is rejected rather
+	 * than silently ignored — the user must not believe a frozen value was changed
+	 * (ADR-0002, ADR-0008).
 	 *
 	 * ## OPTIONS
 	 *
@@ -185,21 +209,24 @@ final class Collection_Command {
 	 *
 	 * @since 0.2.0
 	 *
-	 * @param array<int,string>    $args       Positional arguments: the slug.
-	 * @param array<string,string> $assoc_args Associative arguments: name (and rejected contract flags).
+	 * @param array<int,string>         $args       Positional arguments: the slug.
+	 * @param array<string,string|bool> $assoc_args Associative arguments: name (and rejected immutable flags).
 	 */
 	public function update( array $args, array $assoc_args ): void {
 
-		// Refuse any immutable-contract flag before doing anything else: the user
-		// must not walk away believing a frozen contract was altered.
-		$offending = $this->input->find_contract_flag( $assoc_args );
+		// Refuse any establishment-fixed flag before doing anything else: the user
+		// must not walk away believing a frozen value (the contract or the
+		// placement rule) was altered.
+		$offending = $this->input->find_immutable_flag( $assoc_args );
 		if ( $offending !== null ) {
 			WP_CLI::error( "The --{$offending} flag is immutable and cannot be changed; only --name is mutable." );
 			return;
 		}
 
-		// The new name is mandatory — update has nothing else to change.
-		if ( ! isset( $assoc_args['name'] ) || $assoc_args['name'] === '' ) {
+		// The new name is mandatory — update has nothing else to change. A `--name`
+		// always arrives as a string; coercing guards the string-typed rewrite below.
+		$name = isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '';
+		if ( $name === '' ) {
 			WP_CLI::error( 'The --name flag is required and must be non-empty.' );
 			return;
 		}
@@ -225,7 +252,7 @@ final class Collection_Command {
 		// the thumbnail widths and the immutable uploader-folders flag carry over
 		// untouched.
 		$updated = new Descriptor(
-			$assoc_args['name'],
+			$name,
 			$current->max_width,
 			$current->quality,
 			$current->thumbnail_widths,
@@ -236,7 +263,7 @@ final class Collection_Command {
 			return;
 		}
 
-		WP_CLI::success( "Renamed collection '{$slug}' to '{$assoc_args['name']}'." );
+		WP_CLI::success( "Renamed collection '{$slug}' to '{$name}'." );
 
 	}
 
@@ -491,6 +518,34 @@ final class Collection_Command {
 		$actionable = count( $this->actionable_findings( $report ) );
 
 		return "Doctored '{$slug}' (report-only): {$actionable} finding(s). Re-run with --repair to act.";
+
+	}
+
+	/**
+	 * Normalises the raw `--uploader-folders` argument to the parser's `?string`.
+	 *
+	 * WP-CLI surfaces the flag in three shapes the pure parser does not handle on
+	 * its own: absent (the key is missing → `null`, the default-on path),
+	 * `--no-uploader-folders` (a boolean `false` → the string `"false"`), and a
+	 * bare or explicit value (already a string, passed through). Folding the
+	 * boolean-negation form to a string here keeps `Collection_Input` free of any
+	 * WP-CLI-specific argument shape.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
+	 * @return string|null The raw flag value as a string, or null when the flag is absent.
+	 */
+	private function read_uploader_folders_flag( array $assoc_args ): ?string {
+
+		// A missing key is the default-on path; WP-CLI's --no- form arrives as a
+		// boolean false, which the parser reads through its "false" spelling.
+		if ( ! array_key_exists( 'uploader-folders', $assoc_args ) ) {
+			return null;
+		}
+		$value = $assoc_args['uploader-folders'];
+
+		return is_bool( $value ) ? ( $value ? 'true' : 'false' ) : $value;
 
 	}
 

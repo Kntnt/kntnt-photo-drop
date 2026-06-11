@@ -344,8 +344,20 @@ test( 'from_filter carries the caller-supplied contract values', function (): vo
 test( 'from_filter defaults the uploader-folders namespace to on', function (): void {
 	wire_descriptor_stubs();
 
-	// A freshly established collection namespaces per uploader by default
-	// (ADR-0008); the create-time choice surface is a later slice.
+	// A caller that does not surface the create-time choice still namespaces per
+	// uploader by default (ADR-0008).
 	expect( Descriptor::from_filter( 'Default', 1920, 80 )->uploader_folders )->toBeTrue();
 
 } );
+
+test( 'from_filter carries the caller-supplied uploader-folders choice', function ( bool $choice ): void {
+	wire_descriptor_stubs();
+
+	// The create-time choice (admin checkbox, CLI flag) is recorded verbatim and
+	// fixed at establishment; both values must survive into the descriptor.
+	expect( Descriptor::from_filter( 'Chosen', 1920, 80, $choice )->uploader_folders )->toBe( $choice );
+
+} )->with( [
+	'on'  => [ true ],
+	'off' => [ false ],
+] );

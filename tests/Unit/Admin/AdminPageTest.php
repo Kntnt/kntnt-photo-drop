@@ -199,6 +199,29 @@ test( 'the create form pre-fills width and quality from the default filters', fu
 	admin_remove_tree( $basedir );
 } );
 
+test( 'the create form offers an uploader-folders checkbox checked by default', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_render_stubs( $basedir );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The placement choice is a checkbox that opens ticked, so a create that
+	// leaves it alone namespaces per uploader (ADR-0008).
+	expect( $html )->toContain( 'name="uploader_folders"' );
+	expect( $html )->toContain( 'type="checkbox"' );
+	expect( $html )->toContain( 'checked' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
 test( 'the create form has no format field and no thumbnail-width field', function (): void {
 	$basedir = fresh_admin_basedir();
 	wire_admin_render_stubs( $basedir );
@@ -466,6 +489,85 @@ test( 'create writes a valid collection.json from the form fields', function ():
 	expect( $descriptor->quality )->toBe( 80 );
 	expect( $descriptor->thumbnail_widths )->toBe( [ 640 ] );
 
+	admin_remove_tree( $basedir );
+} );
+
+test( 'create defaults the uploader-folders placement rule to on', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	$page    = new Admin_Page( new Repository() );
+
+	// The handler passes the checkbox-present boolean; create_collection's default
+	// keeps a caller that omits it namespacing per uploader (ADR-0008).
+	$page->create_collection( 'on-by-default', 'On', '1920', '80' );
+
+	expect( Descriptor::read( $root . 'on-by-default' )->uploader_folders )->toBeTrue();
+
+	admin_remove_tree( $basedir );
+} );
+
+test( 'create persists the chosen uploader-folders placement rule', function ( bool $choice ): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	$page    = new Admin_Page( new Repository() );
+
+	// An unchecked box reaches create_collection as false (no $_POST key), a
+	// checked one as true; both must be written verbatim to the descriptor.
+	$page->create_collection( 'chosen', 'Chosen', '1920', '80', $choice );
+
+	expect( Descriptor::read( $root . 'chosen' )->uploader_folders )->toBe( $choice );
+
+	admin_remove_tree( $basedir );
+} )->with( [
+	'checked'   => [ true ],
+	'unchecked' => [ false ],
+] );
+
+test( 'handle_create persists uploader-folders off when the box is unchecked', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+
+	// The handler needs the request guard, nonce, and redirect stubs; an
+	// unchecked checkbox submits no uploader_folders key, so its absence is "off".
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( 'check_admin_referer' )->justReturn( true );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'set_transient' )->justReturn( true );
+	Functions\when( 'get_settings_errors' )->justReturn( [] );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
+	);
+	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
+	Functions\when( 'wp_safe_redirect' )->justReturn( true );
+
+	// wp_safe_redirect is followed by exit in the handler; stub exit by throwing.
+	Functions\when( 'wp_safe_redirect' )->alias(
+		static function (): void {
+			throw new Admin_Page_Halt();
+		}
+	);
+
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'           => 'bare',
+		'name'           => 'Bare',
+		'max_width_mode' => 'limit',
+		'max_width'      => '1920',
+		'quality'        => '80',
+	];
+
+	try {
+		$page->handle_create();
+	} catch ( Admin_Page_Halt ) {
+		// The redirect-then-exit path is the expected end of the handler.
+		$noop = true;
+	}
+
+	// With no uploader_folders key in $_POST the placement rule is written off.
+	expect( Descriptor::read( $root . 'bare' )->uploader_folders )->toBeFalse();
+
+	$_POST = [];
 	admin_remove_tree( $basedir );
 } );
 

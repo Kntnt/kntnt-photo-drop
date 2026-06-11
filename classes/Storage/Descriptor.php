@@ -109,22 +109,29 @@ final readonly class Descriptor {
 	/**
 	 * Builds a descriptor for a freshly established collection.
 	 *
-	 * The display name and the two immutable contract values come from the
-	 * caller (the admin page or the CLI's `collection create`); the thumbnail
-	 * widths are resolved here from the `kntnt_photo_drop_thumbnail_width`
-	 * filter and normalised, because thumbnail width is a setting derived
-	 * outside the contract (ADR-0002), not something the caller fixes by hand.
-	 * The uploader-folders namespace defaults to on at establishment (ADR-0008);
-	 * the create-time choice surface (admin checkbox, CLI flag) is a later slice.
+	 * The display name, the two immutable contract values, and the create-time
+	 * uploader-folders choice come from the caller (the admin page or the CLI's
+	 * `collection create`); the thumbnail widths are resolved here from the
+	 * `kntnt_photo_drop_thumbnail_width` filter and normalised, because thumbnail
+	 * width is a setting derived outside the contract (ADR-0002), not something
+	 * the caller fixes by hand. The uploader-folders namespace is fixed at this
+	 * moment and never changes afterwards (ADR-0008); it defaults to on so a
+	 * caller that does not surface the choice still namespaces per uploader.
 	 *
 	 * @since 0.1.0
 	 *
-	 * @param string   $name      The human display name.
-	 * @param int|null $max_width The contract ceiling in pixels, or null for no limit.
-	 * @param int      $quality   The WebP compression quality (0–100).
+	 * @param string   $name             The human display name.
+	 * @param int|null $max_width        The contract ceiling in pixels, or null for no limit.
+	 * @param int      $quality          The WebP compression quality (0–100).
+	 * @param bool     $uploader_folders Whether Drop Zone uploads are namespaced per uploader.
 	 * @return self
 	 */
-	public static function from_filter( string $name, ?int $max_width, int $quality ): self {
+	public static function from_filter(
+		string $name,
+		?int $max_width,
+		int $quality,
+		bool $uploader_folders = true,
+	): self {
 
 		// Resolve the thumbnail width(s) from the filter and canonicalise. The
 		// filter may return a single int, a list of ints, or `[]`/`0` for "no
@@ -132,7 +139,7 @@ final readonly class Descriptor {
 		$filtered = apply_filters( self::THUMBNAIL_WIDTH_FILTER, self::DEFAULT_THUMBNAIL_WIDTH );
 		$widths   = self::normalise_widths( $filtered );
 
-		return new self( $name, $max_width, $quality, $widths );
+		return new self( $name, $max_width, $quality, $widths, $uploader_folders );
 
 	}
 

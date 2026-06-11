@@ -44,12 +44,17 @@ final class Collection_Input {
 	public const NO_LIMIT_KEYWORD = 'none';
 
 	/**
-	 * The immutable output-contract flags, rejected on `update`.
+	 * The flags fixed at establishment and rejected on `update`.
+	 *
+	 * The two output-contract flags (`max-width`, `quality`) plus the placement
+	 * rule `uploader-folders` are all set once when the collection is created and
+	 * have no update path (ADR-0002, ADR-0008). Probed in this fixed order so the
+	 * update error names a stable offender.
 	 *
 	 * @since 0.2.0
 	 * @var array<int,string>
 	 */
-	private const CONTRACT_FLAGS = [ 'max-width', 'quality' ];
+	private const IMMUTABLE_FLAGS = [ 'max-width', 'quality', 'uploader-folders' ];
 
 	/**
 	 * Parses the `--max-width` flag into the contract's nullable ceiling.
@@ -112,6 +117,40 @@ final class Collection_Input {
 	}
 
 	/**
+	 * Parses the `--uploader-folders` flag into the placement-rule boolean.
+	 *
+	 * The placement rule is fixed at establishment (ADR-0008) and defaults to on,
+	 * so an absent flag (`null`) resolves to `true`. The command folds WP-CLI's
+	 * argument shapes to a string first: a bare `--uploader-folders` and
+	 * `--no-uploader-folders` reach this as `"true"`/`"false"`, an explicit
+	 * `--uploader-folders=<value>` as that value. This accepts the common truthy
+	 * and falsy spellings and returns the parsed boolean; an unrecognised value
+	 * yields `null`, distinct from a valid `false`, so the caller can report a
+	 * precise error rather than freezing the placement rule from a typo.
+	 *
+	 * @since 0.2.0
+	 *
+	 * @param string|null $value The raw flag value, or null when the flag is absent.
+	 * @return bool|null The placement-rule boolean, or null when a present value is undecidable.
+	 */
+	public function parse_uploader_folders( ?string $value ): ?bool {
+
+		// An absent flag keeps the default-on placement rule (ADR-0008).
+		if ( $value === null ) {
+			return true;
+		}
+
+		// Decide on the common truthy and falsy spellings; an unrecognised value
+		// is undecidable (null), kept distinct from a valid false.
+		return match ( strtolower( $value ) ) {
+			'1', 'true', 'yes', 'on' => true,
+			'0', 'false', 'no', 'off', '' => false,
+			default => null,
+		};
+
+	}
+
+	/**
 	 * Resolves the display name from the optional flag, defaulting from the slug.
 	 *
 	 * A non-empty `--name` wins as given; otherwise the slug is humanised
@@ -151,22 +190,23 @@ final class Collection_Input {
 	}
 
 	/**
-	 * Returns the first immutable-contract flag present in the arguments, if any.
+	 * Returns the first establishment-fixed flag present in the arguments, if any.
 	 *
-	 * The output contract is `max-width` and `quality`; either appearing on
-	 * `update` is an attempt to change a frozen, irreversible value. Returns the
-	 * offending flag name so the caller can name it in the error, or `null` when
-	 * none is present.
+	 * The output contract (`max-width`, `quality`) and the placement rule
+	 * (`uploader-folders`) are all fixed when the collection is created; any of
+	 * them appearing on `update` is an attempt to change a frozen, irreversible
+	 * value (ADR-0002, ADR-0008). Returns the offending flag name so the caller
+	 * can name it in the error, or `null` when none is present.
 	 *
 	 * @since 0.2.0
 	 *
-	 * @param array<string,string> $assoc_args The associative arguments to inspect.
-	 * @return string|null The first contract flag found, or null.
+	 * @param array<string,string|bool> $assoc_args The associative arguments to inspect.
+	 * @return string|null The first immutable flag found, or null.
 	 */
-	public function find_contract_flag( array $assoc_args ): ?string {
+	public function find_immutable_flag( array $assoc_args ): ?string {
 
-		// Probe the two contract flags in a fixed order so the error is stable.
-		foreach ( self::CONTRACT_FLAGS as $flag ) {
+		// Probe the immutable flags in a fixed order so the error is stable.
+		foreach ( self::IMMUTABLE_FLAGS as $flag ) {
 			if ( isset( $assoc_args[ $flag ] ) ) {
 				return $flag;
 			}
