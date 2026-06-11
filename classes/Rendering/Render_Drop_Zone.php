@@ -268,10 +268,9 @@ final class Render_Drop_Zone {
 	 * `@wordpress/i18n`, so every visitor-facing string the module shows at
 	 * runtime is translated here and passed through the context. The map covers
 	 * the module's own status rows and summary (inserted via `textContent`, never
-	 * `innerHTML`, so no output escaping is applied here) and the `window.confirm`
-	 * folder warning. The `summaryTemplate` tokens and the `statusUploadingPercent`
-	 * `%d` token are replaced with live counts and the live upload percentage in the
-	 * browser.
+	 * `innerHTML`, so no output escaping is applied here). The `summaryTemplate`
+	 * tokens and the `statusUploadingPercent` `%d` token are replaced with live
+	 * counts and the live upload percentage in the browser.
 	 *
 	 * @since 0.5.0
 	 *
@@ -279,8 +278,6 @@ final class Render_Drop_Zone {
 	 */
 	private static function translations(): array {
 		return [
-			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-			'folderWarningBody'      => __( 'Dropping a folder uploads only its top-level images, not its sub-folders. Use “Select folder” to include sub-folders. Continue with the top-level images?', 'kntnt-photo-drop' ),
 			'outcomeStored'          => __( 'Uploaded', 'kntnt-photo-drop' ),
 			'outcomeReencoded'       => __( 'Uploaded (re-encoded)', 'kntnt-photo-drop' ),
 			'outcomeSkipped'         => __( 'Skipped — already present', 'kntnt-photo-drop' ),

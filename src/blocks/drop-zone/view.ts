@@ -6,16 +6,18 @@
  * The block's wrapper is itself the layout container and a native drag-drop +
  * click-to-browse zone: a pointer click anywhere on it that is not on an
  * interactive child or the upload chrome opens the hidden loose-file input, a drop
- * of loose files queues them, and a dropped *folder* is detected, warned about,
- * and — on consent — contributes only its top-level images, flat. The
- * keyboard/AT browse path is a real "Add photos" button (the wrapper carries no
- * `role`/`tabindex`). There is no FilePond; the intake, queue, and progress UI are
- * this module's own, built on plain DOM and `XMLHttpRequest`.
+ * of loose files queues them, and a dropped *folder* is walked recursively so
+ * every image at every level uploads with its source-relative path preserved —
+ * the same on-disk placement as picking that folder via "Select folder"
+ * (ADR-0008), with no warning or consent step. The keyboard/AT browse path is a
+ * real "Add photos" button (the wrapper carries no `role`/`tabindex`). There is no
+ * FilePond; the intake, queue, and progress UI are this module's own, built on
+ * plain DOM and `XMLHttpRequest`.
  *
  * The heavy lifting lives in pure, separately-tested helpers — the Canvas→WebP
  * encode (`canvas-webp.ts`), the safe-canvas-area cap (`canvas-limit.ts`), the
- * `webkitRelativePath` mapping (`relative-path.ts`), the dragged-folder rules
- * (`folder-detect.ts`), the type pre-filter (`file-filter.ts`), the
+ * `webkitRelativePath` mapping (`relative-path.ts`), the recursive dragged-folder
+ * walk (`folder-detect.ts`), the type pre-filter (`file-filter.ts`), the
  * response-interpretation rules (`upload-response.ts`), and the keyed status list
  * (`status-list.ts`) — and this module is the thin DOM/upload wiring around them.
  *
@@ -43,9 +45,9 @@ import { encodeCanvasToWebp } from './canvas-webp';
 import { exceedsSafeCanvasArea } from './canvas-limit';
 import { relativePathForFile } from './relative-path';
 import {
-	collectTopLevelFiles,
 	hasDirectoryEntry,
 	snapshotEntries,
+	walkDroppedEntries,
 } from './folder-detect';
 import { shouldUploadFile } from './file-filter';
 import {
@@ -67,7 +69,6 @@ import { formatUploadingLabel } from './uploading-label';
  * @since 0.4.0
  */
 interface DropZoneStrings {
-	readonly folderWarningBody: string;
 	readonly outcomeStored: string;
 	readonly outcomeReencoded: string;
 	readonly outcomeSkipped: string;
@@ -567,9 +568,13 @@ async function processFile(
  * Holds at most `MAX_CONCURRENT_UPLOADS` files in flight, pulling the next file
  * the moment a slot frees, so a several-hundred-file batch keeps the link busy
  * without opening a socket per file. Newly enqueued files (a second drop while
- * the first batch is still running) are picked up by the same drain. The `busy`
- * callback flips true while any file is queued or in flight and false once the
- * queue empties, so the caller can arm and disarm the `beforeunload` guard.
+ * the first batch is still running) are picked up by the same drain. A file is
+ * deduped by its source relative path — the status-row key — so a path already
+ * seen this mount is never queued twice; two files sharing a basename in
+ * different sub-folders carry distinct relative paths and both upload. The
+ * `busy` callback flips true while any file is queued or in flight and false
+ * once the queue empties, so the caller can arm and disarm the `beforeunload`
+ * guard.
  *
  * @since 0.4.0
  *
@@ -586,6 +591,7 @@ function createUploadQueue(
 	onBusy: ( busy: boolean ) => void
 ): ( files: readonly QueuedFile[] ) => void {
 	const pending: QueuedFile[] = [];
+	const seen = new Set< string >();
 	let inFlight = 0;
 	let draining = false;
 
@@ -611,10 +617,21 @@ function createUploadQueue(
 	};
 
 	return ( files: readonly QueuedFile[] ): void => {
-		if ( files.length === 0 ) {
+		// Drop any file whose relative path was already queued this mount; the
+		// path is the status-row key, so a duplicate would otherwise clobber the
+		// in-flight row and double-upload the same bytes.
+		const fresh = files.filter( ( queued ) => {
+			if ( seen.has( queued.relativePath ) ) {
+				return false;
+			}
+			seen.add( queued.relativePath );
+			return true;
+		} );
+		if ( fresh.length === 0 ) {
 			return;
 		}
-		pending.push( ...files );
+
+		pending.push( ...fresh );
 		if ( ! draining ) {
 			draining = true;
 			onBusy( true );
@@ -628,8 +645,8 @@ function createUploadQueue(
  *
  * Applies the type pre-filter before any bytes move — a denied file gets an
  * immediate "skipped" row instead of a doomed multi-hundred-MB upload — then
- * hands the accepted files to the upload queue. Used by both intake paths (the
- * click/folder pickers and the loose-file or consented-folder drop).
+ * hands the accepted files to the upload queue. Used by every intake path (the
+ * click/folder pickers, the loose-file drop, and the recursive folder drop).
  *
  * @since 0.4.0
  *
@@ -710,9 +727,9 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 		 * Reads the per-block context, wires the whole wrapper as a native
 		 * drag-drop + click-to-browse zone, hooks the hidden loose-file input,
 		 * the "Add photos" button (the keyboard/AT browse path), and the
-		 * "Select folder" input, intercepts dragged folders (warn, then add only
-		 * top-level images flat), and arms the `beforeunload` guard. Idempotent
-		 * via `mountedZones` so a re-run never double-wires.
+		 * "Select folder" input, walks dropped folders recursively (every image
+		 * at every level, paths preserved), and arms the `beforeunload` guard.
+		 * Idempotent via `mountedZones` so a re-run never double-wires.
 		 *
 		 * @since 0.4.0
 		 */
@@ -775,9 +792,10 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 
 			// Map a picked/dropped file list to queued files keyed by each file's
 			// own relative path and hand them to the intake. The file-input, the
-			// folder-input, and the loose-file drop all take this path; only the
-			// consented-folder drop differs (it keys by bare name), so it stays
-			// inline below.
+			// folder-input, and the loose-file drop all take this path (the path
+			// rides on the file via `webkitRelativePath`); the recursive folder
+			// drop differs only in that the walk carries each path explicitly, so
+			// it builds its own queued files inline below.
 			const intake = ( list: ArrayLike< File > ): void => {
 				intakeFiles(
 					Array.from( list ).map( ( file ) => ( {
@@ -870,10 +888,11 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			} );
 
 			// Handle the drop: loose files queue straight away; a dropped folder
-			// is detected, warned about, and — on consent — contributes only its
-			// top-level images, flat (folder structure is the "Select folder"
-			// picker's job). Entries that cannot be read get an honest failed
-			// row instead of vanishing.
+			// is walked recursively so every image at every level uploads with
+			// its source-relative path preserved — the same on-disk placement
+			// as the "Select folder" picker (ADR-0008), with no warning step.
+			// Entries that cannot be read get an honest failed row instead of
+			// vanishing.
 			ref.addEventListener( 'drop', ( event: DragEvent ): void => {
 				event.preventDefault();
 				ref.classList.remove( DRAGOVER_CLASS );
@@ -894,31 +913,21 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 					return;
 				}
 
-				// A folder is present: warn, and on consent collect each
-				// folder's top-level files plus any loose files, flat.
-				// eslint-disable-next-line no-alert
-				if ( ! window.confirm( strings.folderWarningBody ) ) {
-					return;
-				}
-				void collectTopLevelFiles( entries ).then(
+				// A folder is present: walk the whole tree, surface any
+				// unreadable file or subtree by its relative path, and intake
+				// the walked files with their paths carried explicitly (a
+				// `File` from `entry.file()` has no `webkitRelativePath`).
+				void walkDroppedEntries( entries ).then(
 					( { files, unreadable } ) => {
-						for ( const name of unreadable ) {
+						for ( const path of unreadable ) {
 							status.update(
-								name,
-								name,
+								path,
+								path,
 								strings.fileUnreadable,
 								'failed'
 							);
 						}
-						intakeFiles(
-							files.map( ( file ) => ( {
-								file,
-								relativePath: file.name,
-							} ) ),
-							enqueue,
-							status,
-							strings
-						);
+						intakeFiles( files, enqueue, status, strings );
 					}
 				);
 			} );

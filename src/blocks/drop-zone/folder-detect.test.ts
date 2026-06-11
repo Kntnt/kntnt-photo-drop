@@ -2,36 +2,45 @@
  * Jest tests for the dragged-folder rules.
  *
  * Covers the synchronous snapshot (file-kind items only, unsupported browsers,
- * null entries), the directory detection the warning is keyed on, the batched
- * `readEntries` drain — including Chromium's 100-entries-per-call quirk — and
- * the flat top-level collection: loose files included, sub-directories never
- * recursed into, unreadable entries reported by name. All without a real drop
- * event, using mock entries and readers.
+ * null entries), the directory detection that splits the loose-file fast path
+ * from the walk, the batched `readEntries` drain — including Chromium's
+ * 100-entries-per-call quirk — and the recursive, hierarchy-preserving walk:
+ * every file at every level included with its `fullPath`-derived relative path,
+ * sub-directories recursed into, basename collisions across sub-folders kept
+ * distinct, >100-entry directories drained, and unreadable files or subtrees
+ * reported by path. All without a real drop event, using mock entries and
+ * readers.
  *
  * @since 0.5.0
  */
 
 import {
-	collectTopLevelFiles,
 	hasDirectoryEntry,
 	readAllEntries,
 	snapshotEntries,
+	walkDroppedEntries,
 	type DataTransferItemLike,
 	type DirectoryReaderLike,
 	type FileSystemEntryLike,
 } from './folder-detect';
 
 /**
- * Builds a file entry resolving to a real `File` of the given name.
+ * Builds a file entry resolving to a real `File` of the given base name.
  *
- * @param name - The file name the entry resolves to.
+ * @param name     - The file base name the entry resolves to.
+ * @param fullPath - The entry's path within the dropped tree; defaults to a
+ *                 root-level `/<name>` so simple cases need not pass it.
  * @return The synthetic file entry.
  */
-function fileEntry( name: string ): FileSystemEntryLike {
+function fileEntry(
+	name: string,
+	fullPath = `/${ name }`
+): FileSystemEntryLike {
 	return {
 		isDirectory: false,
 		isFile: true,
 		name,
+		fullPath,
 		file: ( success ) => success( new File( [ 'x' ], name ) ),
 	};
 }
@@ -39,14 +48,19 @@ function fileEntry( name: string ): FileSystemEntryLike {
 /**
  * Builds a file entry whose `file()` always fails.
  *
- * @param name - The file name reported as unreadable.
+ * @param name     - The file base name reported as unreadable.
+ * @param fullPath - The entry's path within the dropped tree.
  * @return The synthetic broken file entry.
  */
-function brokenFileEntry( name: string ): FileSystemEntryLike {
+function brokenFileEntry(
+	name: string,
+	fullPath = `/${ name }`
+): FileSystemEntryLike {
 	return {
 		isDirectory: false,
 		isFile: true,
 		name,
+		fullPath,
 		file: ( _success, failure ) => failure( new Error( 'gone' ) ),
 	};
 }
@@ -78,13 +92,15 @@ function batchedReader(
 /**
  * Builds a directory entry whose children come from a batched reader.
  *
- * @param name      - The directory name.
+ * @param name      - The directory base name.
+ * @param fullPath  - The directory's path within the dropped tree.
  * @param children  - The child entries the reader hands out.
  * @param batchSize - The maximum batch size per `readEntries` call.
  * @return The synthetic directory entry.
  */
 function directoryEntry(
 	name: string,
+	fullPath: string,
 	children: FileSystemEntryLike[],
 	batchSize = 100
 ): FileSystemEntryLike {
@@ -92,6 +108,7 @@ function directoryEntry(
 		isDirectory: true,
 		isFile: false,
 		name,
+		fullPath,
 		createReader: () => batchedReader( children, batchSize ),
 	};
 }
@@ -135,7 +152,7 @@ describe( 'hasDirectoryEntry', () => {
 		expect(
 			hasDirectoryEntry( [
 				fileEntry( 'a.jpg' ),
-				directoryEntry( '100CANON', [] ),
+				directoryEntry( '100CANON', '/100CANON', [] ),
 			] )
 		).toBe( true );
 	} );
@@ -182,76 +199,140 @@ describe( 'readAllEntries', () => {
 	} );
 } );
 
-describe( 'collectTopLevelFiles', () => {
-	it( 'collects loose files and the top level of each directory, flat', async () => {
+describe( 'walkDroppedEntries', () => {
+	it( 'collects loose files and a directory top level with their paths', async () => {
 		const entries = [
 			fileEntry( 'loose.jpg' ),
-			directoryEntry( '100CANON', [
-				fileEntry( 'IMG_0001.JPG' ),
-				fileEntry( 'IMG_0002.JPG' ),
+			directoryEntry( '100CANON', '/100CANON', [
+				fileEntry( 'IMG_0001.JPG', '/100CANON/IMG_0001.JPG' ),
+				fileEntry( 'IMG_0002.JPG', '/100CANON/IMG_0002.JPG' ),
 			] ),
 		];
 
-		const { files, unreadable } = await collectTopLevelFiles( entries );
+		const { files, unreadable } = await walkDroppedEntries( entries );
 
-		expect( files.map( ( file ) => file.name ) ).toEqual( [
+		// The leading slash of `fullPath` is stripped so the path matches the
+		// shape `webkitRelativePath` carries for the picker.
+		expect( files.map( ( walked ) => walked.relativePath ) ).toEqual( [
 			'loose.jpg',
-			'IMG_0001.JPG',
-			'IMG_0002.JPG',
+			'100CANON/IMG_0001.JPG',
+			'100CANON/IMG_0002.JPG',
 		] );
 		expect( unreadable ).toEqual( [] );
 	} );
 
-	it( 'never recurses into sub-directories', async () => {
+	it( 'recurses into sub-directories, preserving the full hierarchy', async () => {
 		const entries = [
-			directoryEntry( 'trip', [
-				fileEntry( 'cover.jpg' ),
-				directoryEntry( 'day1', [ fileEntry( 'hidden.jpg' ) ] ),
+			directoryEntry( 'trip', '/trip', [
+				fileEntry( 'cover.jpg', '/trip/cover.jpg' ),
+				directoryEntry( 'day1', '/trip/day1', [
+					fileEntry( 'a.jpg', '/trip/day1/a.jpg' ),
+					directoryEntry( 'morning', '/trip/day1/morning', [
+						fileEntry( 'deep.jpg', '/trip/day1/morning/deep.jpg' ),
+					] ),
+				] ),
 			] ),
 		];
 
-		const { files } = await collectTopLevelFiles( entries );
+		const { files } = await walkDroppedEntries( entries );
 
-		expect( files.map( ( file ) => file.name ) ).toEqual( [ 'cover.jpg' ] );
+		// Depth-first, in entry order, so a folder's images stay contiguous;
+		// every level contributes, none is flattened away.
+		expect( files.map( ( walked ) => walked.relativePath ) ).toEqual( [
+			'trip/cover.jpg',
+			'trip/day1/a.jpg',
+			'trip/day1/morning/deep.jpg',
+		] );
 	} );
 
-	it( 'collects past the 100-entry batch boundary', async () => {
+	it( 'keeps basename collisions in different sub-folders distinct', async () => {
+		const entries = [
+			directoryEntry( 'trip', '/trip', [
+				directoryEntry( 'day1', '/trip/day1', [
+					fileEntry( 'IMG_0001.JPG', '/trip/day1/IMG_0001.JPG' ),
+				] ),
+				directoryEntry( 'day2', '/trip/day2', [
+					fileEntry( 'IMG_0001.JPG', '/trip/day2/IMG_0001.JPG' ),
+				] ),
+			] ),
+		];
+
+		const { files } = await walkDroppedEntries( entries );
+
+		// Two files share a base name but ride distinct relative paths, so both
+		// upload rather than one clobbering the other.
+		expect( files.map( ( walked ) => walked.relativePath ) ).toEqual( [
+			'trip/day1/IMG_0001.JPG',
+			'trip/day2/IMG_0001.JPG',
+		] );
+		expect( files.map( ( walked ) => walked.file.name ) ).toEqual( [
+			'IMG_0001.JPG',
+			'IMG_0001.JPG',
+		] );
+	} );
+
+	it( 'collects past the 100-entry batch boundary within one directory', async () => {
 		const children = Array.from( { length: 150 }, ( _unused, index ) =>
-			fileEntry( `img-${ index }.jpg` )
+			fileEntry( `img-${ index }.jpg`, `/big/img-${ index }.jpg` )
 		);
 
-		const { files } = await collectTopLevelFiles( [
-			directoryEntry( 'big', children, 100 ),
+		const { files } = await walkDroppedEntries( [
+			directoryEntry( 'big', '/big', children, 100 ),
 		] );
 
 		expect( files ).toHaveLength( 150 );
+		expect( files[ 0 ]?.relativePath ).toBe( 'big/img-0.jpg' );
+		expect( files[ 149 ]?.relativePath ).toBe( 'big/img-149.jpg' );
 	} );
 
-	it( 'reports an unreadable file entry by name instead of dropping it', async () => {
-		const { files, unreadable } = await collectTopLevelFiles( [
-			fileEntry( 'good.jpg' ),
-			brokenFileEntry( 'bad.jpg' ),
+	it( 'falls back to the base name when fullPath is empty', async () => {
+		const { files } = await walkDroppedEntries( [
+			fileEntry( 'loose.jpg', '' ),
 		] );
 
-		expect( files.map( ( file ) => file.name ) ).toEqual( [ 'good.jpg' ] );
-		expect( unreadable ).toEqual( [ 'bad.jpg' ] );
+		expect( files[ 0 ]?.relativePath ).toBe( 'loose.jpg' );
 	} );
 
-	it( 'reports a directory whose listing fails', async () => {
+	it( 'reports an unreadable file by its path instead of dropping it', async () => {
+		const { files, unreadable } = await walkDroppedEntries( [
+			directoryEntry( 'trip', '/trip', [
+				fileEntry( 'good.jpg', '/trip/good.jpg' ),
+				brokenFileEntry( 'bad.jpg', '/trip/bad.jpg' ),
+			] ),
+		] );
+
+		expect( files.map( ( walked ) => walked.relativePath ) ).toEqual( [
+			'trip/good.jpg',
+		] );
+		expect( unreadable ).toEqual( [ 'trip/bad.jpg' ] );
+	} );
+
+	it( 'reports an unreadable subtree by the directory path', async () => {
 		const failing: FileSystemEntryLike = {
 			isDirectory: true,
 			isFile: false,
 			name: 'locked',
+			fullPath: '/trip/locked',
 			createReader: () => ( {
 				readEntries: ( _success, failure ) =>
 					failure( new Error( 'denied' ) ),
 			} ),
 		};
+		const entries = [
+			directoryEntry( 'trip', '/trip', [
+				fileEntry( 'cover.jpg', '/trip/cover.jpg' ),
+				failing,
+			] ),
+		];
 
-		const { files, unreadable } = await collectTopLevelFiles( [ failing ] );
+		const { files, unreadable } = await walkDroppedEntries( entries );
 
-		expect( files ).toEqual( [] );
-		expect( unreadable ).toEqual( [ 'locked' ] );
+		// The readable sibling still lands; only the failed subtree is surfaced,
+		// by the directory's own path.
+		expect( files.map( ( walked ) => walked.relativePath ) ).toEqual( [
+			'trip/cover.jpg',
+		] );
+		expect( unreadable ).toEqual( [ 'trip/locked' ] );
 	} );
 
 	it( 'reports a directory without createReader as unreadable', async () => {
@@ -259,9 +340,10 @@ describe( 'collectTopLevelFiles', () => {
 			isDirectory: true,
 			isFile: false,
 			name: 'odd',
+			fullPath: '/odd',
 		};
 
-		const { unreadable } = await collectTopLevelFiles( [ bare ] );
+		const { unreadable } = await walkDroppedEntries( [ bare ] );
 
 		expect( unreadable ).toEqual( [ 'odd' ] );
 	} );

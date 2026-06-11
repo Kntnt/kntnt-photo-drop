@@ -1,5 +1,5 @@
 /**
- * The `webkitRelativePath` → upload-metadata mapping.
+ * The `webkitRelativePath` → upload-metadata mapping for picker-sourced files.
  *
  * The Drop Zone preserves folder structure through the "Select folder" control:
  * when a directory is picked, each `File` carries a `webkitRelativePath` such as
@@ -7,11 +7,16 @@
  * collection root (the path is hard-sanitised and `realpath`-confined server-side,
  * ADR-0006), so the client just needs to forward the right relative path per file.
  *
- * This module is the pure rule for deriving that path: prefer the browser-supplied
- * `webkitRelativePath` when present (a folder selection), and fall back to the
- * plain file name for a loose file from a flat drag-and-drop. It holds no DOM
- * state so Jest can cover it in isolation; the view module calls it once per file
- * when building each upload's metadata.
+ * This module is the pure rule for deriving that path from the `File` alone: prefer
+ * the browser-supplied `webkitRelativePath` when present (a folder selection), and
+ * fall back to the plain file name for a loose file (the loose-file picker or a
+ * flat drag-and-drop). It serves the two flows whose path lives *on* the file — a
+ * dropped folder instead carries each file's path explicitly alongside it, because
+ * a `File` resolved from `entry.file()` has an empty `webkitRelativePath`, so the
+ * walk in `folder-detect.ts` derives that path from the entry's `fullPath` and this
+ * mapping is not consulted for it. It holds no DOM state so Jest can cover it in
+ * isolation; the view module calls it once per picker/loose file when building
+ * each upload's metadata.
  *
  * @since 0.5.0
  */

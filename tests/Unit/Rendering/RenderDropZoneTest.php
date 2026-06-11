@@ -302,9 +302,12 @@ test( 'the markup carries the summary line and the translated status strings', f
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
 
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__summary' );
-	expect( $html )->toContain( '"folderWarningBody"' );
 	expect( $html )->toContain( '"statusUploading"' );
 	expect( $html )->toContain( '"summaryTemplate"' );
+
+	// The folder warning/consent flow is gone (ADR-0008): a drop now walks the
+	// tree recursively like the picker, so its i18n string must not be emitted.
+	expect( $html )->not->toContain( '"folderWarningBody"' );
 
 	render_remove_tree( $basedir );
 } );

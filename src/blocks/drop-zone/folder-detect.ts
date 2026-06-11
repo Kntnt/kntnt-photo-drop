@@ -1,15 +1,17 @@
 /**
- * The dragged-folder rules: detection and flat top-level collection.
+ * The dragged-folder rules: detection and recursive, hierarchy-preserving walk.
  *
  * A flat drag-and-drop of loose files is the Drop Zone's fast path, but a
  * visitor can also drag a whole *folder* onto the zone. The design contract
- * (design.md, ADR-0006 surroundings) is explicit: folder structure is preserved
- * only via the "Select folder" picker; a dropped folder is detected, warned
- * about, and — on consent — contributes only its top-level files, flat, with no
- * recursion into sub-directories. A plain `dataTransfer.files` read cannot reach
- * a folder's contents at all, so the view module reads the drop's
- * `webkitGetAsEntry()` entries and runs these rules to collect the top-level
- * files itself.
+ * (design.md, ADR-0008) is explicit: a drop and the "Select folder" picker have
+ * one semantics — a dropped folder is traversed recursively and every file at
+ * every level is recreated under the collection with its source-relative path
+ * intact, byte-for-byte where the same folder picked via `webkitdirectory`
+ * would land. Each file's path is derived from the entry's `fullPath` (leading
+ * slash stripped) so it has the same shape `webkitRelativePath` carries for the
+ * picker. A plain `dataTransfer.files` read cannot reach a folder's contents at
+ * all, so the view module reads the drop's `webkitGetAsEntry()` entries and
+ * runs these rules to walk the tree itself.
  *
  * Detection must be synchronous: `webkitGetAsEntry()` only works while the
  * `drop` event is being dispatched, so the entries are snapshotted first and
@@ -17,14 +19,14 @@
  * `createReader()` with repeated `readEntries()` calls, because Chromium
  * returns at most 100 entries per call and signals completion with an empty
  * batch. All rules are pure over structural shapes so Jest covers them with
- * mock entries and readers — including the >100-entry batching — without a
- * real drop event.
+ * mock entries and readers — including the >100-entry batching and unreadable
+ * subtrees — without a real drop event.
  *
  * @since 0.5.0
  */
 
 /**
- * The minimal directory-reader shape the collection rules read.
+ * The minimal directory-reader shape the walk reads.
  *
  * Mirrors `FileSystemDirectoryReader`: each `readEntries` call hands the next
  * batch to `success` and an empty batch signals completion. A real reader from
@@ -45,8 +47,9 @@ export interface DirectoryReaderLike {
  *
  * Mirrors the parts of `FileSystemEntry` (and its file/directory subtypes)
  * the rules need. `file` and `createReader` are optional in the type because
- * only the matching subtype carries each; a real entry from
- * `webkitGetAsEntry()` satisfies this structurally.
+ * only the matching subtype carries each; `fullPath` is the entry's absolute
+ * path within the dropped tree, from which the source-relative path is derived.
+ * A real entry from `webkitGetAsEntry()` satisfies this structurally.
  *
  * @since 0.5.0
  */
@@ -57,6 +60,8 @@ export interface FileSystemEntryLike {
 	readonly isFile: boolean;
 	/** The entry's base name, used to report unreadable entries. */
 	readonly name: string;
+	/** The entry's path within the dropped tree, e.g. `/trip/day1/IMG_2024.jpg`. */
+	readonly fullPath: string;
 	/** Resolves the entry to its `File`; present on file entries. */
 	readonly file?: (
 		success: ( file: File ) => void,
@@ -84,19 +89,39 @@ export interface DataTransferItemLike {
 }
 
 /**
- * The result of collecting a dropped batch: the readable files plus the names
- * of entries that could not be read.
+ * One file walked out of a drop, paired with its source-relative path.
  *
- * The unreadable names exist so the view can render an honest failed status
+ * The path mirrors `webkitRelativePath`'s shape — the entry's `fullPath` with
+ * the leading slash stripped — so a drop and the picker recreate the same
+ * sub-directories under the collection (ADR-0008). It travels explicitly with
+ * the file because a `File` resolved from `entry.file()` carries an empty
+ * `webkitRelativePath`, so the path could not otherwise be recovered from the
+ * file alone.
+ *
+ * @since 0.5.0
+ */
+export interface WalkedFile {
+	/** The file resolved from a file entry. */
+	readonly file: File;
+	/** The source-relative path, e.g. `trip/day1/IMG_2024.jpg`. */
+	readonly relativePath: string;
+}
+
+/**
+ * The result of walking a dropped batch: the readable files paired with their
+ * relative paths, plus the paths of entries that could not be read.
+ *
+ * The unreadable paths exist so the view can render an honest failed status
  * row instead of silently dropping an entry — silent loss is exactly what the
- * folder-drop handling guards against.
+ * folder-drop handling guards against. A failed directory listing surfaces the
+ * whole subtree under that directory's path.
  *
  * @since 0.2.0
  */
 export interface DroppedFileCollection {
-	/** The files resolved from the drop, in traversal order. */
-	readonly files: File[];
-	/** The names of entries (files or directories) that failed to read. */
+	/** The files resolved from the drop, each with its relative path, in walk order. */
+	readonly files: WalkedFile[];
+	/** The relative paths of entries (files or directories) that failed to read. */
 	readonly unreadable: string[];
 }
 
@@ -136,8 +161,9 @@ export function snapshotEntries(
 /**
  * Reports whether a snapshot contains at least one directory.
  *
- * This is the trigger for the folder warning: a drop with no directory entry
- * is the loose-file fast path and uploads proceed untouched.
+ * This is the trigger for the recursive walk: a drop with no directory entry
+ * is the loose-file fast path and uploads proceed straight off the plain
+ * `files` list, skipping the async traversal entirely.
  *
  * @since 0.2.0
  *
@@ -207,62 +233,93 @@ function entryFile( entry: FileSystemEntryLike ): Promise< File > {
 }
 
 /**
- * Collects the uploadable files of a consented folder drop, flat.
+ * Derives an entry's source-relative path from its `fullPath`.
  *
- * Implements the design contract for a dropped folder: every loose file entry
- * is included, and each directory contributes only its *top-level* file
- * entries — sub-directories are skipped entirely, never recursed into (folder
- * structure is the "Select folder" picker's job). Entries that fail to read,
- * and directories whose listing fails, are reported by name in `unreadable`
- * rather than silently dropped.
+ * `fullPath` is rooted at the dropped tree with a leading slash
+ * (`/trip/day1/IMG_2024.jpg`); stripping that slash yields the shape
+ * `webkitRelativePath` carries for the same file picked via `webkitdirectory`,
+ * so a drop and the picker recreate identical sub-directories server-side
+ * (ADR-0008). When `fullPath` is unexpectedly empty (a browser that does not
+ * populate it), the entry's base name is the lossless fallback.
  *
- * @since 0.2.0
+ * @since 0.5.0
+ *
+ * @param entry - The entry whose relative path is wanted.
+ * @return The source-relative path with no leading slash.
+ */
+function relativePathOf( entry: FileSystemEntryLike ): string {
+	const fullPath = entry.fullPath;
+	if ( fullPath === '' ) {
+		return entry.name;
+	}
+	return fullPath.startsWith( '/' ) ? fullPath.slice( 1 ) : fullPath;
+}
+
+/**
+ * Walks a dropped batch recursively, preserving each file's hierarchy.
+ *
+ * Implements the ADR-0008 contract: every loose file entry is included, and
+ * each directory is descended into at every level — every file at every depth
+ * contributes, each carrying the relative path derived from its `fullPath`, so
+ * the on-disk placement matches the "Select folder" picker exactly. The walk
+ * is depth-first in entry order, so a folder's files stay contiguous. Entries
+ * that fail to read, and directories whose listing fails, are reported by their
+ * relative path in `unreadable` (a failed listing surfaces the whole subtree
+ * under that directory) rather than silently dropped.
+ *
+ * @since 0.5.0
  *
  * @param entries - The snapshotted entries from `snapshotEntries`.
- * @return The readable files plus the names of unreadable entries.
+ * @return The readable files with their paths plus the paths of unreadable entries.
  */
-export async function collectTopLevelFiles(
+export async function walkDroppedEntries(
 	entries: readonly FileSystemEntryLike[]
 ): Promise< DroppedFileCollection > {
-	const files: File[] = [];
+	const files: WalkedFile[] = [];
 	const unreadable: string[] = [];
 
-	// Resolve one file entry into the result bins; an unreadable entry is
-	// recorded by name so the caller can surface it.
+	// Resolve one file entry into the result bins, keyed by its source-relative
+	// path; an unreadable entry is recorded by that path so the caller can
+	// surface it as a failed row.
 	const readInto = async ( entry: FileSystemEntryLike ): Promise< void > => {
+		const relativePath = relativePathOf( entry );
 		try {
-			files.push( await entryFile( entry ) );
+			files.push( { file: await entryFile( entry ), relativePath } );
 		} catch {
-			unreadable.push( entry.name );
+			unreadable.push( relativePath );
 		}
 	};
 
-	for ( const entry of entries ) {
-		// A loose file dropped alongside the folder is part of the batch.
-		if ( entry.isFile ) {
-			await readInto( entry );
-			continue;
-		}
-		if ( ! entry.isDirectory ) {
-			continue;
-		}
-
-		// Take only the directory's top-level file entries — no recursion;
-		// a failed listing marks the whole directory unreadable.
+	// Descend one directory: drain its children, recurse into sub-directories,
+	// and read its files; a failed listing marks the whole subtree unreadable
+	// by the directory's own path.
+	const descend = async ( entry: FileSystemEntryLike ): Promise< void > => {
 		try {
 			if ( ! entry.createReader ) {
 				throw new Error( 'Directory exposes no createReader().' );
 			}
 			const children = await readAllEntries( entry.createReader() );
-			for ( const child of children ) {
-				if ( child.isFile ) {
-					await readInto( child );
-				}
-			}
+			await walkInto( children );
 		} catch {
-			unreadable.push( entry.name );
+			unreadable.push( relativePathOf( entry ) );
 		}
-	}
+	};
+
+	// Walk a level in entry order: each file is read, each directory recursed
+	// into, anything else (a symlink-like oddity) ignored.
+	const walkInto = async (
+		level: readonly FileSystemEntryLike[]
+	): Promise< void > => {
+		for ( const entry of level ) {
+			if ( entry.isFile ) {
+				await readInto( entry );
+			} else if ( entry.isDirectory ) {
+				await descend( entry );
+			}
+		}
+	};
+
+	await walkInto( entries );
 
 	return { files, unreadable };
 }
