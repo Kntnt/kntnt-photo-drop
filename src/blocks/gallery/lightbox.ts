@@ -36,6 +36,7 @@
 
 import { trapFocus } from './focus-trap';
 import { saveFile } from './save-file';
+import { readSlides, type GallerySlide } from './slides';
 import { actionForKey, type LightboxKeyAction } from './lightbox-keys';
 import {
 	close,
@@ -76,26 +77,6 @@ const LOADING_CLASS = 'kntnt-photo-drop-lightbox--loading';
  * @since 0.2.0
  */
 const ERROR_CLASS = 'kntnt-photo-drop-lightbox--error';
-
-/**
- * The per-image data the controller reads off each thumbnail anchor: the full
- * image URL it points at, the responsive srcset the server mirrored onto the
- * anchor, the accessible label to announce when shown, and the overlay caption
- * text the server mirrored onto the anchor (empty when the gallery has no
- * caption).
- *
- * @since 0.7.0
- */
-interface LightboxSlide {
-	/** The full-resolution image URL (the anchor's `href`). */
-	readonly url: string;
-	/** The slide's responsive srcset (the anchor's srcset data attribute). */
-	readonly srcset: string;
-	/** The accessible label for the image (the thumbnail's `alt`). */
-	readonly label: string;
-	/** The overlay caption text mirrored from the gallery figure, or `''`. */
-	readonly caption: string;
-}
 
 /**
  * The overlay elements the controller drives, resolved once on construction.
@@ -191,7 +172,7 @@ export class GalleryLightbox {
 	readonly #links: readonly HTMLAnchorElement[];
 
 	/** The per-image data read off the anchors once on construction. */
-	readonly #slides: readonly LightboxSlide[];
+	readonly #slides: readonly GallerySlide[];
 
 	/** The resolved overlay elements. */
 	readonly #refs: OverlayRefs;
@@ -273,12 +254,7 @@ export class GalleryLightbox {
 		this.#links = links;
 		this.#refs = refs;
 		this.#counterTemplate = counterTemplate;
-		this.#slides = links.map( ( link ) => ( {
-			url: link.dataset.kntntPhotoDropFull ?? link.href,
-			srcset: link.dataset.kntntPhotoDropSrcset ?? '',
-			label: link.querySelector< HTMLImageElement >( 'img' )?.alt ?? '',
-			caption: link.dataset.kntntPhotoDropCaption ?? '',
-		} ) );
+		this.#slides = readSlides( links );
 		this.#state = createLightboxState( links.length );
 		this.#bind();
 	}

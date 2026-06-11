@@ -269,6 +269,11 @@ final class Render_Gallery {
 		$on_thumbnail      = $download && ! $lightbox_enabled;
 		$figure_behaviour  = new Click_Behaviour( $on_thumbnail, $download_settings );
 
+		// Resolve the slideshow settings once — a third surface orthogonal to the
+		// click matrix (ADR-0009), consumed by the wrapper flags, the built-in
+		// button, and the overlay.
+		$slideshow = self::slideshow_settings( $attributes );
+
 		// Pre-compose every render-constant string the figure loop would otherwise
 		// rebuild per image — the download icon, the image class/style, and the caption
 		// class prefix/style — so a thousand-image gallery escapes each only once.
@@ -295,6 +300,7 @@ final class Render_Gallery {
 			$caption,
 			$caption_support,
 			$download_settings,
+			$slideshow,
 		);
 
 	}
@@ -795,6 +801,8 @@ final class Render_Gallery {
 	 * @since 0.2.0 The `init` hook is also bound for the justified layout with the lightbox off.
 	 * @since 0.4.0 Replaced the single lightbox flag with the lightbox + download click matrix.
 	 * @since 0.5.0 The icon anchor is the sole download trigger in every cell.
+	 * @since 0.7.0 Added the slideshow surface (ADR-0009): the wrapper flags, the
+	 *              built-in button, the overlay, and the mirrored HTML anchor id.
 	 *
 	 * @param array<string,mixed>              $attributes        The block attributes.
 	 * @param string                           $layout            The resolved layout token.
@@ -805,6 +813,7 @@ final class Render_Gallery {
 	 * @param Caption_Settings                 $caption           The resolved caption settings.
 	 * @param array{style:string,class:string} $caption_support   The figcaption block-support style/class.
 	 * @param Download_Settings                $download_settings The resolved download-icon styling.
+	 * @param Slideshow_Settings               $slideshow         The resolved slideshow settings.
 	 * @return string The full gallery markup.
 	 */
 	private static function wrap(
@@ -817,6 +826,7 @@ final class Render_Gallery {
 		Caption_Settings $caption,
 		array $caption_support,
 		Download_Settings $download_settings,
+		Slideshow_Settings $slideshow,
 	): string {
 
 		// Build the inner container's style from the gap (both layouts) and, for the
@@ -855,7 +865,32 @@ final class Render_Gallery {
 		if ( $lightbox ) {
 			$wrapper_attrs['data-wp-context'] = self::lightbox_context();
 		}
+
+		// The slideshow is wired only on the frontend — the editor preview never
+		// plays — and only when a trigger mode is chosen; an off-mode gallery
+		// carries no slideshow flags at all (ADR-0009).
+		$slideshow_active = $slideshow->mode !== Slideshow_Settings::MODE_OFF && ! $is_preview;
+		if ( $slideshow_active ) {
+			$wrapper_attrs['data-kntnt-photo-drop-slideshow-mode']    = $slideshow->mode;
+			$wrapper_attrs['data-kntnt-photo-drop-slideshow-seconds'] = (string) $slideshow->seconds;
+		}
+
+		// Mirror the block's HTML anchor onto the wrapper id — core does not emit
+		// the anchor for dynamic blocks, and a custom slideshow trigger targets
+		// the gallery by this id (ADR-0009).
+		$anchor = self::read_string( $attributes, 'anchor' );
+		if ( $anchor !== '' ) {
+			$wrapper_attrs['id'] = $anchor;
+		}
 		$wrapper = get_block_wrapper_attributes( $wrapper_attrs );
+
+		// The built-in button renders in button mode only: hidden on the frontend
+		// until the view module proves the slideshow can run (a no-JS visitor never
+		// sees a dead control), visible and inert in the editor preview so the
+		// builder sees its placement.
+		$slideshow_button = $slideshow->mode === Slideshow_Settings::MODE_BUTTON
+			? self::slideshow_button( $slideshow->label, $is_preview )
+			: '';
 
 		// Append the hidden lightbox overlay only when the lightbox is on, carrying its
 		// own download affordance and caption element so the enlarged image mirrors the
@@ -864,13 +899,21 @@ final class Render_Gallery {
 			? self::lightbox_overlay( $download, $caption, $caption_support, $download_settings )
 			: '';
 
+		// Append the hidden slideshow overlay only when the slideshow is wired, so
+		// an off-mode gallery (and every editor preview) carries no playback chrome.
+		$slideshow_overlay = $slideshow_active
+			? self::slideshow_overlay( $caption, $caption_support )
+			: '';
+
 		return sprintf(
-			'<div %1$s><div class="%2$s" style="%3$s">%4$s</div>%5$s</div>',
+			'<div %1$s>%2$s<div class="%3$s" style="%4$s">%5$s</div>%6$s%7$s</div>',
 			$wrapper,
+			$slideshow_button,
 			esc_attr( $container_class ),
 			esc_attr( $container_style ),
 			$figures,
 			$overlay,
+			$slideshow_overlay,
 		);
 
 	}
@@ -1032,38 +1075,147 @@ final class Render_Gallery {
 		// the text left empty for the view module to fill per slide.
 		$caption_element = $caption->content === Caption_Builder::CONTENT_NONE
 			? ''
-			: self::lightbox_caption( $caption->anchor, $caption_support );
+			: self::overlay_caption( 'kntnt-photo-drop-lightbox__caption', $caption->anchor, $caption_support );
 
 		return $image . $caption_element;
 
 	}
 
 	/**
-	 * Builds the empty mirrored caption element for the lightbox figure.
+	 * Builds the empty mirrored caption element for a full-screen surface's figure.
 	 *
 	 * The identical overlay `<figcaption>` the gallery figures carry — the base
 	 * class, the nine-point anchor variant, and the colour/typography block-support
 	 * preset classnames and inline declarations — but with empty text the view module
-	 * fills per slide from each thumbnail's caption data attribute.
+	 * fills per slide from each thumbnail's caption data attribute. The lightbox and
+	 * the slideshow both mirror the caption this way; only the marker class telling
+	 * the view module which surface owns the element differs.
 	 *
 	 * @since 0.4.0
+	 * @since 0.7.0 Generalised from the lightbox to both surfaces via `$marker`.
 	 *
+	 * @param string                           $marker  The surface's own figcaption class.
 	 * @param string                           $anchor  The nine-point overlay anchor.
 	 * @param array{style:string,class:string} $support The figcaption block-support style/class.
 	 * @return string The empty figcaption markup.
 	 */
-	private static function lightbox_caption( string $anchor, array $support ): string {
+	private static function overlay_caption( string $marker, string $anchor, array $support ): string {
 
-		// Compose the same caption classes the gallery figures use plus the lightbox
-		// marker, so the lightbox caption is styled and placed identically; the view
+		// Compose the same caption classes the gallery figures use plus the surface
+		// marker, so the mirrored caption is styled and placed identically; the view
 		// module supplies the text, so this figcaption ships empty (always present).
-		$classes = 'kntnt-photo-drop-gallery__caption kntnt-photo-drop-lightbox__caption'
+		$classes = 'kntnt-photo-drop-gallery__caption ' . $marker
 			. ' kntnt-photo-drop-gallery__caption--anchor-' . $anchor;
 		if ( $support['class'] !== '' ) {
 			$classes .= ' ' . $support['class'];
 		}
 
 		return self::figcaption( esc_attr( $classes ), esc_attr( $support['style'] ), '' );
+
+	}
+
+	/**
+	 * Collects the slideshow settings from the attributes into one value object.
+	 *
+	 * Narrows the trigger mode to the three documented values (defaulting an
+	 * unexpected value to off), clamps the per-slide seconds to at least one, and
+	 * resolves an empty button label to its translated default so the built-in
+	 * button is never blank.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param array<string,mixed> $attributes The block attributes.
+	 * @return Slideshow_Settings The resolved slideshow settings.
+	 */
+	private static function slideshow_settings( array $attributes ): Slideshow_Settings {
+
+		// Narrow the mode and clamp the seconds; a malformed seconds value falls
+		// back to the documented default before the clamp.
+		$mode = self::one_of(
+			self::read_string( $attributes, 'slideshow' ),
+			[ Slideshow_Settings::MODE_OFF, Slideshow_Settings::MODE_BUTTON, Slideshow_Settings::MODE_CUSTOM ],
+			Slideshow_Settings::MODE_OFF,
+		);
+		$seconds = max( 1, self::read_int( $attributes, 'slideshowSeconds', 5 ) );
+
+		// Resolve the label: the editor-set text, or the translated default when
+		// empty.
+		$label = self::read_string( $attributes, 'slideshowButtonLabel' );
+		if ( $label === '' ) {
+			$label = __( 'Slideshow', 'kntnt-photo-drop' );
+		}
+
+		return new Slideshow_Settings( $mode, $seconds, $label );
+
+	}
+
+	/**
+	 * Builds the built-in slideshow button — the quiet trigger above the gallery.
+	 *
+	 * The button ships `hidden` on the frontend: the slideshow needs JavaScript,
+	 * so the view module reveals it only once a controller is wired and a no-JS
+	 * visitor never sees a dead control. The editor preview renders it visible
+	 * (and inert, like everything else in the preview) so the builder sees its
+	 * placement.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $label      The button label (already resolved, never empty).
+	 * @param bool   $is_preview Whether this is the editor preview.
+	 * @return string The button markup.
+	 */
+	private static function slideshow_button( string $label, bool $is_preview ): string {
+		return sprintf(
+			'<button type="button" class="kntnt-photo-drop-gallery__slideshow-button"%1$s>%2$s</button>',
+			$is_preview ? '' : ' hidden',
+			esc_html( $label ),
+		);
+	}
+
+	/**
+	 * Builds the hidden slideshow overlay markup the view module drives.
+	 *
+	 * A single dialog-role overlay per gallery, hidden until a trigger starts the
+	 * playback (ADR-0009): two stacked slide images the controller crossfades
+	 * between, a close button — the touch path's exit affordance, beside Escape
+	 * and the native fullscreen exit — and, when the shared Caption content is
+	 * not "none", the same mirrored caption `<figcaption>` the lightbox carries.
+	 * The surface is passive, so there is no counter, no paging, and no download
+	 * affordance. The images start empty; the view module fills them per slide
+	 * from the thumbnails' own anchor data.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param Caption_Settings                 $caption         The resolved caption settings.
+	 * @param array{style:string,class:string} $caption_support The figcaption block-support style/class.
+	 * @return string The escaped overlay markup.
+	 */
+	private static function slideshow_overlay( Caption_Settings $caption, array $caption_support ): string {
+
+		// Label the dialog and its close control — the only runtime strings the
+		// overlay carries, translated and escaped at output.
+		$dialog_label = esc_attr__( 'Slideshow', 'kntnt-photo-drop' );
+		$close_label  = esc_attr__( 'End slideshow', 'kntnt-photo-drop' );
+
+		// Mirror the gallery caption when the content is not "none" — the same
+		// overlay element, anchor, and projection the lightbox mirrors.
+		$caption_element = $caption->content === Caption_Builder::CONTENT_NONE
+			? ''
+			: self::overlay_caption( 'kntnt-photo-drop-slideshow__caption', $caption->anchor, $caption_support );
+
+		return sprintf(
+			'<div class="kntnt-photo-drop-slideshow" role="dialog" aria-modal="true" aria-label="%1$s" hidden>'
+				. '<figure class="kntnt-photo-drop-slideshow__figure">'
+				. '<img class="kntnt-photo-drop-slideshow__image" src="" alt="" />'
+				. '<img class="kntnt-photo-drop-slideshow__image" src="" alt="" />'
+				. '%3$s'
+				. '</figure>'
+				. '<button type="button" class="kntnt-photo-drop-slideshow__close" aria-label="%2$s">&times;</button>'
+				. '</div>',
+			$dialog_label,
+			$close_label,
+			$caption_element,
+		);
 
 	}
 

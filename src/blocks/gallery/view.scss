@@ -173,9 +173,91 @@
 	}
 }
 
+// The slideshow overlay (ADR-0009): a black, viewport-filling layer the
+// controller unhides per playback. With the Fullscreen API it is also the
+// fullscreen element; without it (iPhone Safari) the fixed layer alone is the
+// surface — the rules below serve both. The two stacked slide images crossfade
+// by the front class: the controller raises it on the incoming image and drops
+// it from the outgoing one, and the CSS opacity transition is the dissolve.
+.kntnt-photo-drop-slideshow {
+	position: fixed;
+	inset: 0;
+	z-index: 999999;
+	background: #000;
+
+	&[hidden] {
+		display: none;
+	}
+
+	// The fullscreen backdrop matches the overlay so letterboxing is seamless.
+	&::backdrop {
+		background: #000;
+	}
+
+	&__figure {
+		// The figure spans the surface and is the positioning context for the two
+		// stacked images and the anchored caption overlay.
+		position: absolute;
+		inset: 0;
+		margin: 0;
+	}
+
+	&__image {
+		// Both stacked images span the surface, letterboxing each photo with
+		// object-fit; only the front one is visible, and toggling the front class
+		// drives the dissolve. The duration must match DISSOLVE_MS in
+		// slideshow.ts, which finalises the swap on the same clock.
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		opacity: 0;
+		transition: opacity 1s ease;
+	}
+
+	&__image--front {
+		opacity: 1;
+	}
+
+	&__close {
+		// The discreet, always-visible exit affordance — the touch path's only way
+		// out (Escape and the native fullscreen exit serve keyboards). Same chrome
+		// as the lightbox controls, kept just clear of the corner.
+		position: absolute;
+		top: clamp(0.5rem, 2vw, 1.5rem);
+		right: clamp(0.5rem, 2vw, 1.5rem);
+		z-index: 2;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 3rem;
+		min-height: 3rem;
+		padding: 0;
+		font-size: 2rem;
+		line-height: 1;
+		color: #fff;
+		background: rgba(0, 0, 0, 0.5);
+		border: 0;
+		border-radius: 50%;
+		cursor: pointer;
+
+		&:hover,
+		&:focus-visible {
+			background: rgba(0, 0, 0, 0.8);
+		}
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 
 	.kntnt-photo-drop-lightbox--loading .kntnt-photo-drop-lightbox__figure::after {
 		animation: none;
+	}
+
+	// A reduced-motion visitor gets a hard cut instead of the dissolve; the
+	// controller collapses its swap timer to zero on the same preference.
+	.kntnt-photo-drop-slideshow__image {
+		transition: none;
 	}
 }

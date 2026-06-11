@@ -47,6 +47,8 @@
 import { getContext, getElement, store } from '@wordpress/interactivity';
 import './view.scss';
 import { GalleryLightbox } from './lightbox';
+import { GallerySlideshow } from './slideshow';
+import { resolveSlideshowTarget } from './slideshow-target';
 import { lastRowFlags } from './justified-rows';
 import { saveFile } from './save-file';
 
@@ -94,6 +96,170 @@ const RESIZE_DEBOUNCE = 200;
  * @since 0.7.0
  */
 const mountedGalleries = new WeakSet< Element >();
+
+/**
+ * The default fully-visible seconds per slide, used when the wrapper's seconds
+ * flag is missing or malformed. Matches the `slideshowSeconds` attribute
+ * default in `block.json`.
+ *
+ * @since 0.7.0
+ */
+const DEFAULT_SLIDESHOW_SECONDS = 5;
+
+/**
+ * One slideshow-enabled gallery: its anchor id (or `''`) and its start hook.
+ *
+ * @since 0.7.0
+ */
+interface SlideshowEntry {
+	/** The gallery wrapper's HTML anchor id, or `''` when none is set. */
+	readonly id: string;
+	/** Starts the gallery's slideshow, focusing back on `trigger` when it ends. */
+	readonly start: ( trigger: HTMLElement ) => void;
+}
+
+/**
+ * The page's slideshow-enabled galleries, in mount order.
+ *
+ * Galleries mount through the Interactivity API's `init` in document order, so
+ * the registry's order is the document order the forgiving first-match rule of
+ * the custom-trigger contract (ADR-0009) resolves against.
+ *
+ * @since 0.7.0
+ */
+const slideshowRegistry: SlideshowEntry[] = [];
+
+/**
+ * Whether the document-level custom-trigger listener is already installed.
+ *
+ * @since 0.7.0
+ */
+let customTriggersWired = false;
+
+/**
+ * Mounts a gallery's slideshow when its wrapper flags ask for one.
+ *
+ * Reads the wrapper's slideshow mode and seconds, mounts a
+ * {@link GallerySlideshow} over the same anchors the lightbox uses, registers
+ * the gallery for the custom-trigger contract, and — in button mode — reveals
+ * the server-emitted quiet button (hidden until JavaScript proves the
+ * slideshow can run) and wires it as a trigger. Both modes register: a custom
+ * trigger may forgivingly target a button-mode gallery, which is harmless and
+ * documented behaviour.
+ *
+ * @since 0.7.0
+ *
+ * @param wrapper - The gallery wrapper the `init` callback resolved.
+ */
+function wireSlideshow( wrapper: HTMLElement ): void {
+	// Bail quietly unless the wrapper carries a recognised slideshow mode; an
+	// off-mode gallery emits no flag at all.
+	const mode = wrapper.dataset.kntntPhotoDropSlideshowMode;
+	if ( mode !== 'button' && mode !== 'custom' ) {
+		return;
+	}
+
+	// Mount the controller over the gallery's anchors and the server-emitted
+	// overlay; incomplete markup leaves the slideshow unwired and the gallery
+	// standing as-is.
+	const links = Array.from(
+		wrapper.querySelectorAll< HTMLAnchorElement >(
+			'.kntnt-photo-drop-gallery__link'
+		)
+	);
+	const overlay = wrapper.querySelector< HTMLElement >(
+		'.kntnt-photo-drop-slideshow'
+	);
+	if ( links.length === 0 || ! overlay ) {
+		return;
+	}
+	const seconds = Number.parseInt(
+		wrapper.dataset.kntntPhotoDropSlideshowSeconds ?? '',
+		10
+	);
+	const slideshow = GallerySlideshow.mount(
+		links,
+		overlay,
+		Number.isFinite( seconds ) && seconds >= 1
+			? seconds
+			: DEFAULT_SLIDESHOW_SECONDS
+	);
+	if ( ! slideshow ) {
+		return;
+	}
+
+	// Register the gallery for the custom-trigger contract and install the
+	// page-wide trigger listener on first need.
+	slideshowRegistry.push( {
+		id: wrapper.id,
+		start: ( trigger ) => slideshow.start( trigger ),
+	} );
+	wireCustomTriggers( wrapper.ownerDocument );
+
+	// In button mode, reveal the server-emitted quiet button — hidden until now
+	// so a no-JS visitor never sees a dead control — and wire it as a trigger.
+	if ( mode === 'button' ) {
+		const button = wrapper.querySelector< HTMLButtonElement >(
+			'.kntnt-photo-drop-gallery__slideshow-button'
+		);
+		if ( button ) {
+			button.hidden = false;
+			button.addEventListener( 'click', () => slideshow.start( button ) );
+		}
+	}
+}
+
+/**
+ * Installs the one document-level listener behind the custom-trigger contract.
+ *
+ * Any element anywhere on the page carrying `data-kntnt-photo-drop-slideshow`
+ * is a slideshow trigger (ADR-0009): its value names the target gallery's HTML
+ * anchor, and a valueless attribute targets the page's first slideshow-enabled
+ * gallery. One delegated listener serves every trigger, present or future, so
+ * a designer's markup needs no per-element wiring; modified clicks are left to
+ * the browser, and a trigger that resolves to no gallery is left entirely
+ * alone (its own default behaviour stands).
+ *
+ * @since 0.7.0
+ *
+ * @param doc - The document the galleries live in.
+ */
+function wireCustomTriggers( doc: Document ): void {
+	if ( customTriggersWired ) {
+		return;
+	}
+	customTriggersWired = true;
+	doc.addEventListener( 'click', ( event ) => {
+		if (
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey ||
+			event.button !== 0
+		) {
+			return;
+		}
+		const target = event.target;
+		if ( ! ( target instanceof Element ) ) {
+			return;
+		}
+		const trigger = target.closest< HTMLElement >(
+			'[data-kntnt-photo-drop-slideshow]'
+		);
+		if ( ! trigger ) {
+			return;
+		}
+		const index = resolveSlideshowTarget(
+			trigger.getAttribute( 'data-kntnt-photo-drop-slideshow' ),
+			slideshowRegistry.map( ( entry ) => entry.id )
+		);
+		if ( index === -1 ) {
+			return;
+		}
+		event.preventDefault();
+		slideshowRegistry[ index ]?.start( trigger );
+	} );
+}
 
 /**
  * Suppresses plain navigation on the gallery's thumbnail anchors.
@@ -238,11 +404,13 @@ function wireLastRowCorrection( layout: HTMLElement ): void {
 store( 'kntnt-photo-drop/gallery', {
 	callbacks: {
 		/**
-		 * Enhances one gallery wrapper: the justified last-row correction and
-		 * the click matrix (lightbox, native download, or inert).
+		 * Enhances one gallery wrapper: the justified last-row correction, the
+		 * slideshow, and the click matrix (lightbox, native download, or inert).
 		 *
 		 * The correction is wired whenever the gallery uses the justified
-		 * layout, independent of the click flags. The click matrix then
+		 * layout, independent of the click flags. The slideshow mounts whenever
+		 * the wrapper carries a slideshow mode — a third surface orthogonal to
+		 * the click matrix (ADR-0009). The click matrix then
 		 * branches on the two wrapper flags (issue #34): with the lightbox on,
 		 * a {@link GalleryLightbox} controller mounts (the overlay carries the
 		 * download-icon anchor when download is on); with the lightbox off,
@@ -274,6 +442,10 @@ store( 'kntnt-photo-drop/gallery', {
 			if ( justified ) {
 				wireLastRowCorrection( justified );
 			}
+
+			// Mount the slideshow when the wrapper asks for one — a third surface
+			// orthogonal to the click matrix below (ADR-0009).
+			wireSlideshow( ref );
 
 			const lightbox = ref.dataset.kntntPhotoDropLightbox === 'true';
 			const download = ref.dataset.kntntPhotoDropDownload === 'true';

@@ -206,6 +206,42 @@
 	// The nine anchors place the download badge a small inset clear of the corner.
 	@include nine-point-anchors("download", 0.4em);
 
+	&__slideshow-button {
+		// The quiet slideshow affordance above the gallery (ADR-0009): a
+		// link-styled button, right-aligned, visible when you look for it and
+		// unobtrusive when you don't — the same design language as the Drop
+		// Zone's quiet folder picker. The server emits it `hidden`; the view
+		// module reveals it once the slideshow is wired, so a no-JS visitor never
+		// sees a dead control (the editor preview renders it unhidden instead).
+		// The explicit `[hidden]` rule keeps that contract against the
+		// `display: block` here.
+		display: block;
+		margin: 0 0 0.5em auto;
+		padding: 0.2em 0.4em;
+		font: inherit;
+		font-size: 0.9em;
+		color: inherit;
+		background: none;
+		border: 0;
+		cursor: pointer;
+		opacity: 0.75;
+
+		&::before {
+			content: "\25b6\00a0"; // ▶ and a no-break space before the label.
+			font-size: 0.8em;
+		}
+
+		&:hover,
+		&:focus-visible {
+			text-decoration: underline;
+			opacity: 1;
+		}
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
 	// The legible default overlay colours live at zero specificity (`:where`), so
 	// both a panel's preset classname and a panel's inline declaration win over
 	// them — the caption reads on an unstyled image yet defers the moment the

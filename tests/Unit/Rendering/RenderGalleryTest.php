@@ -1931,3 +1931,277 @@ test( 'the justified packing accepts a rem blockGap (converted at 16px) rather t
 
 	gallery_remove_tree( $basedir );
 } );
+
+// ---------------------------------------------------------------------------
+// Slideshow — wrapper flags, button, overlay, anchor (ADR-0009)
+// ---------------------------------------------------------------------------
+
+test( 'the default render carries no slideshow markup at all', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// Off is the default: no button, no overlay, no wrapper flags.
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__slideshow-button' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-slideshow' );
+	expect( $html )->not->toContain( 'data-kntnt-photo-drop-slideshow-mode' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'button mode emits the hidden default-labelled button, the wrapper flags, and the overlay', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'slideshow' => 'button' ],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The quiet button ships hidden (the view module reveals it once the
+	// slideshow is wired) with the translated default label.
+	expect( $html )->toContain(
+		'<button type="button" class="kntnt-photo-drop-gallery__slideshow-button" hidden>Slideshow</button>'
+	);
+
+	// The wrapper carries the mode and the documented default seconds.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-slideshow-mode="button"' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-slideshow-seconds="5"' );
+
+	// The overlay holds the two stacked slide images, the close control, and —
+	// with the caption content at its "none" default — no caption element.
+	expect( $html )->toContain( 'class="kntnt-photo-drop-slideshow"' );
+	expect( substr_count( $html, 'kntnt-photo-drop-slideshow__image' ) )->toBe( 2 );
+	expect( $html )->toContain( 'kntnt-photo-drop-slideshow__close' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-slideshow__caption' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the button label attribute replaces the default label', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'slideshow'            => 'button',
+			'slideshowButtonLabel' => 'Bildspel',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->toContain( '>Bildspel</button>' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'custom mode emits the overlay and flags but no built-in button', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'slideshow' => 'custom' ],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->toContain( 'data-kntnt-photo-drop-slideshow-mode="custom"' );
+	expect( $html )->toContain( 'class="kntnt-photo-drop-slideshow"' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__slideshow-button' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'an unrecognised slideshow mode renders as off', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'slideshow' => 'autoplay' ],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->not->toContain( 'data-kntnt-photo-drop-slideshow-mode' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-slideshow' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the per-slide seconds are clamped to at least one and default when malformed', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'slideshow'        => 'custom',
+			'slideshowSeconds' => 0,
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// Zero clamps to the one-second floor.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-slideshow-seconds="1"' );
+
+	gallery_remove_tree( $basedir );
+
+	$html = render_seeded_gallery(
+		[
+			'slideshow'        => 'custom',
+			'slideshowSeconds' => 'fast',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// A malformed value falls back to the documented default.
+	expect( $html )->toContain( 'data-kntnt-photo-drop-slideshow-seconds="5"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor preview shows the button visible but wires no slideshow', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'slideshow'       => 'button',
+			'isEditorPreview' => true,
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The builder sees the button's placement (visible, inert), but the preview
+	// carries no playback chrome: no overlay and no wrapper flags.
+	expect( $html )->toContain(
+		'<button type="button" class="kntnt-photo-drop-gallery__slideshow-button">Slideshow</button>'
+	);
+	expect( $html )->not->toContain( 'data-kntnt-photo-drop-slideshow-mode' );
+	expect( $html )->not->toContain( 'class="kntnt-photo-drop-slideshow"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the slideshow overlay mirrors the gallery caption when the content is not none', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'slideshow'      => 'button',
+			'captionContent' => 'filename',
+			'captionAnchor'  => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The mirrored caption is the identical overlay element the gallery figures
+	// carry — base class and anchor variant — plus the slideshow marker.
+	expect( $html )->toContain( 'kntnt-photo-drop-slideshow__caption' );
+	expect( $html )->toMatch(
+		'/kntnt-photo-drop-gallery__caption kntnt-photo-drop-slideshow__caption'
+		. ' kntnt-photo-drop-gallery__caption--anchor-top-right/'
+	);
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the block HTML anchor is mirrored onto the wrapper id', function (): void {
+
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[
+			'slideshow' => 'custom',
+			'anchor'    => 'field-day',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->toContain( 'id="field-day"' );
+
+	gallery_remove_tree( $basedir );
+} );

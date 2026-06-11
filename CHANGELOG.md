@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-12
+
+### Added
+
+- **Slideshow** for the **Photo Drop Gallery**: a visitor-started, endlessly looping fullscreen playback of exactly the images the gallery shows, in the gallery's order. A three-state block setting picks the trigger — off (the default), a quiet built-in button above the gallery with an editable label, or any element the page designer places anywhere on the page carrying the documented `data-kntnt-photo-drop-slideshow` attribute (its value targets a gallery by its HTML anchor; without a value it targets the page's first slideshow-enabled gallery). Each image stands fully visible for a configurable number of seconds (default 5) and dissolves (~1 s) to the next; visitors who prefer reduced motion get a hard cut instead. Playback is deliberately passive — Escape, the browser's own fullscreen exit, or the always-visible close button end it and return to the gallery — and it never advances to an image that has not finished loading, holds a screen wake lock while playing, uses the Fullscreen API where available with a viewport-filling fallback (notably iPhone Safari), and mirrors the gallery's caption overlay on each slide. (ADR-0009)
+- End-to-end coverage of both slideshow trigger modes (the built-in button's reveal/start/auto-advance/Escape round trip, and a designer-supplied element targeting a gallery by anchor), Jest suites for the slideshow's advance gate and trigger resolution, and Pest coverage of the server-emitted slideshow markup.
+
 ## [0.6.0] - 2026-06-11
 
 ### Changed
@@ -145,7 +152,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.4.0

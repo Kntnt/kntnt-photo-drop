@@ -7,8 +7,10 @@
  * Collection panel (selector from the editor REST list, start-path control, and a
  * "this folder only" toggle), an Ordering panel, a Layout panel whose revealed
  * controls depend on the mode, a Captions panel whose controls reveal with the
- * content, and a Click behaviour panel (the Lightbox and Download toggles plus the
- * download-icon styling that reveals with Download) — plus an in-canvas
+ * content, a Click behaviour panel (the Lightbox and Download toggles plus the
+ * download-icon styling that reveals with Download), and a Slideshow panel (the
+ * three-state trigger choice with its mode-dependent controls; ADR-0009) — plus
+ * an in-canvas
  * `ServerSideRender` preview, so the canvas shows the same markup `Render_Gallery`
  * emits on the frontend. The preview runs in editor-preview mode: it sends the
  * render-time-only `isEditorPreview` flag so the server caps the figures and
@@ -35,10 +37,13 @@ import {
 	ToggleControl,
 	TextControl,
 	RangeControl,
-	// The package exports UnitControl only under its experimental name; this
-	// aliased import is what core blocks themselves do.
+	// The package exports UnitControl and NumberControl only under their
+	// experimental names; these aliased imports are what core blocks themselves
+	// do.
 	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
 	__experimentalUnitControl as UnitControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalNumberControl as NumberControl,
 	Disabled,
 	Notice,
 	Spinner,
@@ -56,6 +61,7 @@ import type {
 	CaptionAnchor,
 	DownloadIconAnchor,
 	GalleryLayout,
+	SlideshowTrigger,
 } from './attributes';
 
 /**
@@ -207,6 +213,10 @@ export function GalleryEdit( {
 		downloadIconBackground,
 		downloadIconForeground,
 		downloadIconAnchor,
+		slideshow,
+		slideshowButtonLabel,
+		slideshowSeconds,
+		anchor,
 		captionContent,
 		captionHumanize,
 		captionIncludeCollectionName,
@@ -688,6 +698,120 @@ export function GalleryEdit( {
 								] }
 							/>
 						</>
+					) }
+				</PanelBody>
+
+				<PanelBody
+					title={ __( 'Slideshow', 'kntnt-photo-drop' ) }
+					initialOpen={ false }
+				>
+					<SelectControl
+						__next40pxDefaultSize
+						__nextHasNoMarginBottom
+						label={ __( 'Slideshow', 'kntnt-photo-drop' ) }
+						value={ slideshow }
+						options={ [
+							{
+								value: 'off',
+								label: __( 'Off', 'kntnt-photo-drop' ),
+							},
+							{
+								value: 'button',
+								label: __(
+									'Built-in button',
+									'kntnt-photo-drop'
+								),
+							},
+							{
+								value: 'custom',
+								label: __(
+									'Custom element',
+									'kntnt-photo-drop'
+								),
+							},
+						] }
+						onChange={ ( value: string ) =>
+							setAttributes( {
+								slideshow: ( value === 'button' ||
+								value === 'custom'
+									? value
+									: 'off' ) as SlideshowTrigger,
+							} )
+						}
+						help={ __(
+							'A fullscreen, endlessly looping playback of this gallery. Exit with Escape or the close button.',
+							'kntnt-photo-drop'
+						) }
+					/>
+					{ slideshow === 'button' && (
+						<TextControl
+							__next40pxDefaultSize
+							__nextHasNoMarginBottom
+							label={ __( 'Button label', 'kntnt-photo-drop' ) }
+							value={ slideshowButtonLabel }
+							placeholder={ __(
+								'Slideshow',
+								'kntnt-photo-drop'
+							) }
+							onChange={ ( value: string ) =>
+								setAttributes( {
+									slideshowButtonLabel: value,
+								} )
+							}
+							help={ __(
+								'Shown on the quiet button above the gallery. Leave empty for the default.',
+								'kntnt-photo-drop'
+							) }
+						/>
+					) }
+					{ slideshow === 'custom' && (
+						<p className="kntnt-photo-drop-gallery-editor__hint">
+							{ __(
+								'Any link or button anywhere on the page starts this slideshow when it carries this attribute:',
+								'kntnt-photo-drop'
+							) }
+							<br />
+							<code>
+								{ anchor
+									? `data-kntnt-photo-drop-slideshow="${ anchor }"`
+									: 'data-kntnt-photo-drop-slideshow' }
+							</code>
+							<br />
+							{ __(
+								'Without a value it targets the page’s first slideshow-enabled gallery. Set an HTML anchor under Advanced to target this gallery explicitly.',
+								'kntnt-photo-drop'
+							) }
+						</p>
+					) }
+					{ slideshow !== 'off' && (
+						<NumberControl
+							__next40pxDefaultSize
+							label={ __(
+								'Seconds per image',
+								'kntnt-photo-drop'
+							) }
+							value={ slideshowSeconds }
+							min={ 1 }
+							step={ 1 }
+							onChange={ (
+								value: string | number | undefined
+							) => {
+								const parsed =
+									typeof value === 'number'
+										? value
+										: parseInt( value ?? '', 10 );
+								setAttributes( {
+									slideshowSeconds:
+										Number.isFinite( parsed ) && parsed >= 1
+											? Math.trunc( parsed )
+											: 5,
+								} );
+							} }
+							help={ __(
+								'How long each image stands fully visible; the dissolve comes on top.',
+								'kntnt-photo-drop'
+							) }
+						/>
 					) }
 				</PanelBody>
 			</InspectorControls>

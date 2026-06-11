@@ -30,6 +30,8 @@ The ubiquitous language for this project. Terms only — no implementation detai
 
 **Gallery** — The block that renders a public, browsable view of a collection, including a lightbox.
 
+**Slideshow** — A visitor-started, automatically advancing fullscreen playback of a Gallery's view — the same images in the same order the gallery shows — looping endlessly until the visitor ends it and returns to the gallery.
+
 **Import** — Bringing external image files into an *existing* collection, optimising each to that collection's output contract at the point of entry. A pure consumer: it never creates or reconfigures a collection.
 
 **Doctor** — The diagnostic that inspects a collection and reports inconsistencies. In its acting mode it reconciles derived artifacts to the main images.

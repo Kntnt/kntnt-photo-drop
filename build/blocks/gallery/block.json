@@ -121,6 +121,18 @@
       "type": "string",
       "default": "top-left"
     },
+    "slideshow": {
+      "type": "string",
+      "default": "off"
+    },
+    "slideshowButtonLabel": {
+      "type": "string",
+      "default": ""
+    },
+    "slideshowSeconds": {
+      "type": "number",
+      "default": 5
+    },
     "captionContent": {
       "type": "string",
       "default": "none"

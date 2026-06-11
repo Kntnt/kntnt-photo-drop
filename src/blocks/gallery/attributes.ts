@@ -43,6 +43,15 @@ export type CaptionAnchor =
 export type GalleryLayout = 'grid' | 'justified';
 
 /**
+ * The three slideshow trigger modes (ADR-0009): no slideshow, the built-in
+ * quiet button above the gallery, or a designer-supplied element anywhere on
+ * the page carrying the documented `data-kntnt-photo-drop-slideshow` attribute.
+ *
+ * @since 0.7.0
+ */
+export type SlideshowTrigger = 'off' | 'button' | 'custom';
+
+/**
  * The nine anchor points for the overlay download icon.
  *
  * The same nine-point vocabulary as {@link CaptionAnchor}; kept a distinct alias
@@ -88,6 +97,18 @@ export interface GalleryAttributes {
 	downloadIconForeground: string;
 	/** The nine-point anchor that places the overlay download icon inside the image. */
 	downloadIconAnchor: DownloadIconAnchor;
+	/** The slideshow trigger mode: off, the built-in button, or a custom element (ADR-0009). */
+	slideshow: SlideshowTrigger;
+	/** The built-in slideshow button's label; `''` = the translated default. */
+	slideshowButtonLabel: string;
+	/** How long each slide stands fully visible, in whole seconds (≥ 1). */
+	slideshowSeconds: number;
+	/**
+	 * The block's HTML anchor, injected by core's `supports.anchor` rather than
+	 * declared in `block.json`. A custom slideshow trigger targets the gallery
+	 * by this id (ADR-0009).
+	 */
+	anchor?: string;
 	/** The caption content mode. */
 	captionContent: CaptionContent;
 	/** Whether to humanise filenames and path segments. */
