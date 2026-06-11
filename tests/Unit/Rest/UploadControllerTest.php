@@ -40,14 +40,24 @@ use Kntnt\Photo_Drop\Storage\Index;
  * gate. `apply_filters()` honours an optional capability override so the
  * `kntnt_photo_drop_upload_capability` filter can be exercised; every other
  * filter (the root, the thumbnail width) passes its value through unchanged.
+ * The current user resolves to a fixed `user_nicename`, and `sanitize_title()`
+ * reduces it to a single safe segment, so the uploader-folders placement path
+ * has a deterministic prefix to prepend.
  *
  * @param string      $basedir      Temp directory standing in for the uploads basedir.
  * @param bool        $nonce_ok     What `wp_verify_nonce()` should return.
  * @param bool        $cap_ok       What `current_user_can()` should return for the resolved cap.
  * @param string|null $cap_override Value the capability filter should return, or null to leave the default.
+ * @param string      $nicename     The `user_nicename` the current user resolves to.
  * @return void
  */
-function wire_upload_stubs( string $basedir, bool $nonce_ok, bool $cap_ok, ?string $cap_override = null ): void {
+function wire_upload_stubs(
+	string $basedir,
+	bool $nonce_ok,
+	bool $cap_ok,
+	?string $cap_override = null,
+	string $nicename = 'anders'
+): void {
 
 	Functions\when( 'wp_upload_dir' )->justReturn(
 		[
@@ -85,6 +95,23 @@ function wire_upload_stubs( string $basedir, bool $nonce_ok, bool $cap_ok, ?stri
 				return $cap_override;
 			}
 			return $value;
+		}
+	);
+
+	// Resolve the request user to a fixed nicename so the uploader-folders prefix
+	// is deterministic, and reduce a nicename to one safe segment exactly as the
+	// real sanitize_title() would (lowercase, alphanumerics and hyphens only).
+	Functions\when( 'wp_get_current_user' )->justReturn(
+		(object) [
+			'ID'            => 7,
+			'user_nicename' => $nicename,
+		]
+	);
+	Functions\when( 'sanitize_title' )->alias(
+		static function ( string $title ): string {
+			$lower = strtolower( $title );
+			$clean = preg_replace( '/[^a-z0-9]+/', '-', $lower ) ?? '';
+			return trim( $clean, '-' );
 		}
 	);
 
@@ -333,7 +360,7 @@ test( 'an over-ceiling JPEG POSTed directly is stored conforming as a downscaled
 	// converted to WebP server-side; the outcome reports the re-encode.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ], uploader_folders: false );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
@@ -355,7 +382,7 @@ test( 'an already-conforming WebP POSTed directly is stored as-is with a stored 
 	// so the outcome is stored, not reencoded, and the name is not doubled.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: false );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$source     = rest_webp( 800, 600 );
 	$controller = new Upload_Controller( new Repository() );
@@ -401,7 +428,7 @@ test( 'a hostile relativePath is rejected with nothing written outside the root'
 	// holds only the descriptor it was seeded with — nothing escaped above it.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: false );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
@@ -436,7 +463,7 @@ test( 'an accepted nested relativePath is confined inside the collection root', 
 	// of the created directory stays inside the collection root.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: false );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
@@ -448,6 +475,76 @@ test( 'an accepted nested relativePath is confined inside the collection root', 
 
 	rest_remove_tree( $basedir );
 } );
+
+// ---------------------------------------------------------------------------
+// Per-uploader placement — the uploaderFolders namespace (ADR-0008)
+// ---------------------------------------------------------------------------
+
+test( 'an upload to an uploader-folders collection lands under the request user nicename', function (): void {
+
+	// With uploaderFolders on, the server prepends a first segment derived from
+	// the request user's nicename ahead of the client path; the file lands under
+	// <nicename>/<relative path>, never at the bare root.
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true, nicename: 'anders' );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: true );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = new Upload_Controller( new Repository() );
+
+	$response = $controller->upload( rest_request( 'photos', 'trip/IMG.jpg', rest_jpeg( 800, 600 ) ) );
+
+	expect( $response->get_status() )->toBe( 200 );
+	expect( is_file( $path . '/anders/trip/IMG.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $path . '/trip/IMG.jpg.webp' ) )->toBeFalse();
+
+	rest_remove_tree( $basedir );
+} );
+
+test( 'the uploader folder is server-derived, ignoring any client-named segment', function (): void {
+
+	// The nicename comes from the request user, never the client: a client that
+	// names its own "victim" first segment still lands under the server's
+	// "anders" folder, so the prefix cannot be spoofed.
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true, nicename: 'anders' );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: true );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = new Upload_Controller( new Repository() );
+
+	$controller->upload( rest_request( 'photos', 'victim/IMG.jpg', rest_jpeg( 800, 600 ) ) );
+
+	expect( is_file( $path . '/anders/victim/IMG.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $path . '/victim/IMG.jpg.webp' ) )->toBeFalse();
+
+	rest_remove_tree( $basedir );
+} );
+
+test( 'a hostile relativePath is still confined after prefixing', function ( string $hostile ): void {
+
+	// Prepending the nicename must not weaken confinement: a traversal payload
+	// that would climb out of the uploader folder (and the collection root) is
+	// still rejected by Path_Guard, with nothing written anywhere.
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true, nicename: 'anders' );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: true );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = new Upload_Controller( new Repository() );
+
+	$sanitize = capture_route_config( $controller )['args']['relativePath']['sanitize_callback'];
+	$response = $controller->upload( rest_request( 'photos', $sanitize( $hostile ), rest_jpeg( 400, 300 ) ) );
+
+	expect( $response->get_status() )->toBe( 422 );
+	expect( $response->get_data()['outcome'] )->toBe( 'rejected' );
+	expect( glob( $path . '/*' ) )->toBe( [ $path . '/collection.json' ] );
+
+	rest_remove_tree( $basedir );
+} )->with( [
+	'climb out of the uploader folder' => [ '../escape.jpg' ],
+	'climb out of the collection root' => [ '../../escape.jpg' ],
+	'deep traversal'                   => [ '../../../../etc/passwd.jpg' ],
+	'encoded traversal'                => [ '%2e%2e%2f%2e%2e%2fescape.jpg' ],
+	'double-encoded'                   => [ '%252e%252e%252fescape.jpg' ],
+] );
 
 // ---------------------------------------------------------------------------
 // Unknown collection, missing file, and per-file outcomes
@@ -476,7 +573,7 @@ test( 'a request with no uploaded file is a 400', function (): void {
 	// 400 rather than treating the absence as a content rejection.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: false );
 	seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
@@ -495,7 +592,7 @@ test( 'an existing path skips by default and reports the skipped outcome', funct
 	// (the default), so the bytes are unchanged and the outcome is skipped.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: false );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
@@ -516,7 +613,7 @@ test( 'the handler writes main plus thumbnails but never writes the index', func
 	// but no index.json — the index self-heals on the next gallery view (ADR-0006).
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320, 640 ] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320, 640 ], uploader_folders: false );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
@@ -538,7 +635,7 @@ test( 'every per-file response outcome is one of the four legal values', functio
 	// reported outcome is drawn from exactly the closed set the design fixes.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: false );
 	seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new Upload_Controller( new Repository() );
 
@@ -572,7 +669,7 @@ test( 'a missing WebP codec yields an actionable 500 instead of an uncaught thro
 	// server error.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [], uploader_folders: false );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$controller = new class( new Repository() ) extends Upload_Controller {
 

@@ -46,7 +46,7 @@ afterAll( function () use ( $slug, $fixture ): void {
 	@unlink( $fixture );
 } );
 
-test( 'an authenticated upload stores a conforming re-encoded file', function () use ( $slug, $fixture ): void {
+test( 'an authenticated upload lands under the uploader folder, conforming', function () use ( $slug, $fixture ): void {
 
 	// POST the JPEG with both gates satisfied: the admin session cookie and a
 	// fresh wp_rest nonce, targeting a nested relative path.
@@ -60,11 +60,14 @@ test( 'an authenticated upload stores a conforming re-encoded file', function ()
 	expect( $response['body']['outcome'] )->toBe( 'reencoded' );
 	expect( $response['body']['storedName'] )->toBe( 'photo.jpg.webp' );
 
-	// The file on disk conforms: WebP bytes, under the relative path the
-	// client named, never upscaled past its own 800px width.
-	$main = collection_path( $slug ) . '/field/day-1/photo.jpg.webp';
-	expect( is_file( $main ) )->toBeTrue();
-	$info = getimagesize( $main );
+	// The collection defaults to uploaderFolders on, so the file lands under the
+	// admin's nicename ahead of the client path — never at the bare root — and
+	// conforms: WebP bytes, never upscaled past its own 800px width.
+	$prefixed = collection_path( $slug ) . '/admin/field/day-1/photo.jpg.webp';
+	$bare     = collection_path( $slug ) . '/field/day-1/photo.jpg.webp';
+	expect( is_file( $prefixed ) )->toBeTrue();
+	expect( is_file( $bare ) )->toBeFalse();
+	$info = getimagesize( $prefixed );
 	expect( $info['mime'] )->toBe( 'image/webp' );
 	expect( $info[0] )->toBe( 800 );
 

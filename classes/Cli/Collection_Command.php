@@ -221,13 +221,15 @@ final class Collection_Command {
 			return;
 		}
 
-		// Rewrite the descriptor with only the name replaced; max-width, quality
-		// and the thumbnail widths carry over untouched.
+		// Rewrite the descriptor with only the name replaced; max-width, quality,
+		// the thumbnail widths and the immutable uploader-folders flag carry over
+		// untouched.
 		$updated = new Descriptor(
 			$assoc_args['name'],
 			$current->max_width,
 			$current->quality,
 			$current->thumbnail_widths,
+			$current->uploader_folders,
 		);
 		if ( ! $updated->write( $path ) ) {
 			WP_CLI::error( "Failed to write the updated descriptor for '{$slug}'." );

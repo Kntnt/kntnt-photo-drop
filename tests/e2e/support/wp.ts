@@ -129,19 +129,28 @@ export function siteUrl( pathname: string ): string {
  *
  * Collections live under `wp_upload_dir()` at
  * `uploads/kntnt-photo-drop/<slug>/`, and a stored main is the original
- * filename with `.webp` appended (ADR-0003).
+ * filename with `.webp` appended (ADR-0003). When the collection namespaces
+ * per uploader (`uploaderFolders`, on by default — ADR-0008), a Drop Zone
+ * upload lands under a first segment derived from the uploader's nicename, so
+ * the caller passes that segment to address the prefixed location.
  *
  * @since 0.2.0
  *
- * @param slug         - The collection slug.
- * @param originalName - The uploaded file's original name, e.g. `a.jpg`.
+ * @param slug           - The collection slug.
+ * @param originalName   - The uploaded file's original name, e.g. `a.jpg`.
+ * @param uploaderFolder - The uploader-folder segment, or '' for the bare root.
  * @return The absolute URL of the stored `<originalName>.webp`.
  */
-export function storedImageUrl( slug: string, originalName: string ): string {
+export function storedImageUrl(
+	slug: string,
+	originalName: string,
+	uploaderFolder = ''
+): string {
 	return siteUrl(
 		path.posix.join(
 			'/wp-content/uploads/kntnt-photo-drop',
 			slug,
+			uploaderFolder,
 			`${ originalName }.webp`
 		)
 	);

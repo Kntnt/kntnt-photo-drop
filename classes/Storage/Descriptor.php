@@ -3,8 +3,10 @@
  * The collection descriptor — `collection.json`, the one irreplaceable file.
  *
  * A descriptor is the stored record of a collection's immutable output contract
- * (`maxWidth`, `quality`), its human display `name`, and the `thumbnailWidths`
- * currently in use. It is the visible, authoritative file at a collection root;
+ * (`maxWidth`, `quality`), its human display `name`, the `thumbnailWidths`
+ * currently in use, and whether the collection namespaces Drop Zone uploads under
+ * per-uploader folders (`uploaderFolders`). It is the visible, authoritative file
+ * at a collection root;
  * unlike thumbnails and the per-folder index it is never regenerable, so it is
  * the file the rest of the system treats as ground truth for a collection's
  * shape. This class is both the typed value object and its on-disk codec: it
@@ -23,14 +25,16 @@ use Kntnt\Photo_Drop\Plugin;
 /**
  * An immutable, typed view of a collection's `collection.json`.
  *
- * The five descriptor fields are exposed as `readonly` promoted properties, so
+ * The six descriptor fields are exposed as `readonly` promoted properties, so
  * an instance is a faithful in-memory image of the file with no setters and no
  * drift. The external interface is deliberately small: construct one from the
  * filter (`from_filter()`) when establishing a collection, `read()` one back
  * from disk, and `write()` it out again. `thumbnailWidths` is always normalised
  * to a sorted, de-duplicated, positive-int list — `[]` meaning "no thumbnail" —
  * so every consumer (the gallery's `srcset`, the doctor's reconciliation) sees
- * one canonical shape regardless of what the filter returned.
+ * one canonical shape regardless of what the filter returned. `uploaderFolders`
+ * is fixed at establishment and has no update path anywhere; `read()` treats it
+ * as a required boolean — a descriptor lacking it is malformed (ADR-0008).
  *
  * @since 0.1.0
  */
@@ -82,6 +86,9 @@ final readonly class Descriptor {
 	 * `from_filter()` (establishing a collection) or `read()` (loading one),
 	 * both of which normalise their inputs first. The constructor itself
 	 * assumes `thumbnail_widths` is already canonical (sorted, unique, positive).
+	 * `uploader_folders` is fixed at establishment and defaults to `true`; once a
+	 * collection exists the value is carried over verbatim on any rewrite, as it
+	 * has no update path anywhere (ADR-0008).
 	 *
 	 * @since 0.1.0
 	 *
@@ -89,12 +96,14 @@ final readonly class Descriptor {
 	 * @param int|null       $max_width        The contract ceiling in pixels, or null for no limit.
 	 * @param int            $quality          The WebP compression quality (0–100).
 	 * @param array<int,int> $thumbnail_widths Canonical thumbnail widths; `[]` means no thumbnail.
+	 * @param bool           $uploader_folders Whether Drop Zone uploads are namespaced per uploader.
 	 */
 	public function __construct(
 		public string $name,
 		public ?int $max_width,
 		public int $quality,
 		public array $thumbnail_widths,
+		public bool $uploader_folders = true,
 	) {}
 
 	/**
@@ -105,6 +114,8 @@ final readonly class Descriptor {
 	 * widths are resolved here from the `kntnt_photo_drop_thumbnail_width`
 	 * filter and normalised, because thumbnail width is a setting derived
 	 * outside the contract (ADR-0002), not something the caller fixes by hand.
+	 * The uploader-folders namespace defaults to on at establishment (ADR-0008);
+	 * the create-time choice surface (admin checkbox, CLI flag) is a later slice.
 	 *
 	 * @since 0.1.0
 	 *
@@ -130,9 +141,13 @@ final readonly class Descriptor {
 	 *
 	 * Returns a typed descriptor, or `null` when the file is missing, unreadable,
 	 * or not valid JSON of the expected shape — a degraded state the caller
-	 * surfaces rather than crashing on. Every field is coerced defensively:
+	 * surfaces rather than crashing on. Most fields are coerced defensively:
 	 * `maxWidth` accepts an int or `null`; `thumbnailWidths` is re-normalised on
 	 * read so an externally hand-edited file still yields the canonical shape.
+	 * `uploaderFolders` is the exception — it is a *required* boolean (ADR-0008,
+	 * pre-1.0 policy): a descriptor that omits it, or carries a non-boolean for
+	 * it, is malformed and read as `null` rather than silently defaulted, since a
+	 * wrong placement rule would mis-file every future upload.
 	 *
 	 * @since 0.1.0
 	 *
@@ -160,6 +175,15 @@ final readonly class Descriptor {
 			return null;
 		}
 
+		// Reject a descriptor whose required uploader-folders flag is missing or
+		// not a boolean: the placement rule is fixed at establishment and has no
+		// default-on-read fallback (pre-1.0, ADR-0008), so an absent or malformed
+		// value means a corrupt record we refuse to interpret.
+		if ( ! isset( $data['uploaderFolders'] ) || ! is_bool( $data['uploaderFolders'] ) ) {
+			Plugin::warning( "The collection descriptor at {$file} is missing the uploaderFolders flag." );
+			return null;
+		}
+
 		// Coerce each field to its declared type, re-normalising the thumbnail
 		// widths so a hand-edited file still lands in the canonical shape.
 		$name      = isset( $data['name'] ) && is_string( $data['name'] ) ? $data['name'] : '';
@@ -167,7 +191,7 @@ final readonly class Descriptor {
 		$quality   = isset( $data['quality'] ) && is_int( $data['quality'] ) ? $data['quality'] : 0;
 		$widths    = self::normalise_widths( $data['thumbnailWidths'] ?? [] );
 
-		return new self( $name, $max_width, $quality, $widths );
+		return new self( $name, $max_width, $quality, $widths, $data['uploaderFolders'] );
 
 	}
 
@@ -175,7 +199,7 @@ final readonly class Descriptor {
 	 * Writes this descriptor to a collection root as stable, pretty JSON.
 	 *
 	 * The key order is fixed (`schema`, `name`, `maxWidth`, `quality`,
-	 * `thumbnailWidths`) and the output is pretty-printed with unescaped slashes
+	 * `thumbnailWidths`, `uploaderFolders`) and the output is pretty-printed with unescaped slashes
 	 * and unicode, so the file is human-readable and a re-write with unchanged
 	 * data produces byte-identical output — keeping diffs and any content-hash
 	 * comparison stable. The file is published through `Atomic_Writer`, so a
@@ -223,7 +247,7 @@ final readonly class Descriptor {
 	 *
 	 * @since 0.1.0
 	 *
-	 * @return array{schema:int,name:string,maxWidth:int|null,quality:int,thumbnailWidths:array<int,int>}
+	 * @return array{schema:int,name:string,maxWidth:int|null,quality:int,thumbnailWidths:array<int,int>,uploaderFolders:bool}
 	 */
 	public function to_array(): array {
 		return [
@@ -232,6 +256,7 @@ final readonly class Descriptor {
 			'maxWidth'        => $this->max_width,
 			'quality'         => $this->quality,
 			'thumbnailWidths' => $this->thumbnail_widths,
+			'uploaderFolders' => $this->uploader_folders,
 		];
 	}
 

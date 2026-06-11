@@ -471,9 +471,16 @@ final class Admin_Page {
 			return false;
 		}
 
-		// Rewrite the descriptor with only the name replaced; max-width, quality
-		// and the thumbnail widths carry over untouched.
-		$updated = new Descriptor( $name, $current->max_width, $current->quality, $current->thumbnail_widths );
+		// Rewrite the descriptor with only the name replaced; max-width, quality,
+		// the thumbnail widths and the immutable uploader-folders flag carry over
+		// untouched.
+		$updated = new Descriptor(
+			$name,
+			$current->max_width,
+			$current->quality,
+			$current->thumbnail_widths,
+			$current->uploader_folders,
+		);
 		if ( ! $updated->write( $path ) ) {
 			$this->add_error(
 				__( 'Failed to write the updated collection descriptor.', 'kntnt-photo-drop' ),

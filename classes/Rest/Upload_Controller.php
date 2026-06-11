@@ -11,7 +11,11 @@
  * uploaded bytes and the attacker-controlled `relativePath` to the shared
  * `Ingestor`, which `Path_Guard`-confines the path, re-enforces the output
  * contract through the `Optimizer`, writes the main plus thumbnails, and never
- * touches the index. The per-file response carries the `Ingest_Outcome`
+ * touches the index. When the collection namespaces per uploader
+ * (`uploaderFolders`), a first path segment derived server-side from the request
+ * user's `user_nicename` is prepended ahead of the client path before
+ * confinement, so each uploader's files land under their own folder (ADR-0008).
+ * The per-file response carries the `Ingest_Outcome`
  * (`stored | skipped | reencoded | rejected`) so one bad file is a per-file
  * rejection, never a batch abort (ADR-0006).
  *
@@ -240,7 +244,16 @@ class Upload_Controller {
 			$message = __( 'No readable image was uploaded.', 'kntnt-photo-drop' );
 			return new \WP_Error( 'kntnt_photo_drop_no_file', $message, [ 'status' => 400 ] );
 		}
+
+		// Read the client relative target, then — when this collection namespaces
+		// per uploader — prepend a server-derived uploader folder ahead of it. The
+		// prefix comes from the authenticated request user, never the client, so it
+		// cannot be spoofed; it is still subject to the same Path_Guard confinement
+		// the Ingestor applies to the whole assembled path (ADR-0008).
 		$relative_path = $this->read_relative_path( $request );
+		if ( $descriptor->uploader_folders ) {
+			$relative_path = $this->prefix_uploader_folder( $relative_path );
+		}
 
 		// Build the per-collection ingestor; construction throws when no PHP codec
 		// on the host can encode WebP — a server misconfiguration, not a client
@@ -398,6 +411,42 @@ class Upload_Controller {
 	private function read_relative_path( \WP_REST_Request $request ): string {
 		$raw = $request->get_param( self::RELATIVE_PATH_PARAM );
 		return is_string( $raw ) ? $raw : '';
+	}
+
+	/**
+	 * Prepends the request user's uploader folder ahead of a relative target.
+	 *
+	 * Called only when the collection's descriptor namespaces per uploader. The
+	 * segment is derived server-side from the authenticated user's
+	 * `user_nicename` — WordPress's already-public author slug, not the sensitive
+	 * login (ADR-0008) — so the client can neither name nor spoof it. The nicename
+	 * is hard-sanitised into a single safe path segment (`sanitize_title()` strips
+	 * every separator, dot, and traversal token), and a degenerate result falls
+	 * back to the numeric user id so the upload is still namespaced rather than
+	 * silently landing at the collection root. The prefixed path is returned as a
+	 * plain relative string and stays subject to the `Path_Guard` confinement the
+	 * `Ingestor` runs over the whole assembled target.
+	 *
+	 * @since 0.5.0
+	 *
+	 * @param string $relative_path The client-supplied relative target.
+	 * @return string The relative target with the uploader folder prepended.
+	 */
+	private function prefix_uploader_folder( string $relative_path ): string {
+
+		// Resolve the request user and reduce the public nicename to one safe path
+		// segment; an empty segment (a degenerate nicename) falls back to the user
+		// id so the namespace is never silently dropped.
+		$user    = wp_get_current_user();
+		$segment = sanitize_title( $user->user_nicename );
+		if ( $segment === '' ) {
+			$segment = (string) $user->ID;
+		}
+
+		// Prepend the segment ahead of the client path; an empty client path pairs
+		// the uploader folder with the uploaded file's own basename downstream.
+		return $relative_path === '' ? $segment : $segment . '/' . $relative_path;
+
 	}
 
 	/**
