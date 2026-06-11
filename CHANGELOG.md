@@ -4,8 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-12
+
 ### Fixed
 
+- The **Photo Drop Zone**'s seeded heading is centred again on current WordPress. WordPress 7.0 moved `core/heading`'s text alignment onto the typography support (`style.typography.textAlign`) and dropped the legacy top-level `textAlign` attribute the seeded template set, so a freshly inserted block's heading came out left-aligned there (it stayed centred on the WordPress 6.6 floor — the only version the test suite ran against, which is why it slipped through). The template now seeds both alignment mechanisms, so the heading is centred from WordPress 6.6 through 7.0, and each version keeps only the attribute it recognises so the saved markup stays clean. The end-to-end suite now also runs against current WordPress rather than only the 6.6 floor, so this class of version-specific regression is caught.
 - The README has been trued up against the shipped plugin: a dropped folder is no longer described as warned-about-and-flattened (it has uploaded recursively with its hierarchy preserved since 0.5.0), the uploader-folders choice now appears in the admin create form walkthrough and the `collection create` CLI synopsis, the editable token-wired upload controls and the admin list's always-visible Edit/Delete buttons are described as they actually behave, the gallery block is called by its real name — **Photo Drop Gallery** — throughout, and a `--format` flag the CLI never had is no longer documented (`doctor` and `import` print plain WP-CLI tables).
 - The contributor and agent documentation caught up with the same drift: `AGENTS.md` counts all ten ADRs (0008–0010 were missing) and points at `docs/updater.md`, `docs/design.md` records the slideshow decision and the actual `docs/` layout, `docs/blocks.md` mirrors the real `block.json` files, `docs/testing.md` and `docs/definition-of-done.md` drop the retired dragged-folder warning and cover the slideshow and download surfaces, and `CONTRIBUTING.md` no longer mentions the retired FilePond dependency or the old WordPress 6.5 floor.
 
@@ -157,7 +160,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.1
 [0.7.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.5.0

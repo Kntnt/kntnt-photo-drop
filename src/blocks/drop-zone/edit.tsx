@@ -177,7 +177,15 @@ const DEFAULT_TEMPLATE: readonly BlockTemplate[] = [
 		'core/heading',
 		{
 			level: 4,
+			// Centre the heading across the whole supported WordPress range. Current
+			// core/heading reads the typography support (`style.typography.textAlign`);
+			// WordPress 6.6's core/heading reads the legacy top-level `textAlign`
+			// attribute and ignores the former. Seeding both lets each version honour the
+			// one it recognises — and `createBlock` strips the attribute that is not in
+			// the running version's schema, so a modern editor keeps only
+			// `style.typography.textAlign` and the markup stays clean.
 			textAlign: 'center',
+			style: { typography: { textAlign: 'center' } },
 			content: __( 'Photo Drop Zone', 'kntnt-photo-drop' ),
 		},
 	],
