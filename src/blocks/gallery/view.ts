@@ -5,18 +5,21 @@
  * The gallery itself is pure server-rendered HTML; this module progressively
  * enhances it via the WordPress Interactivity API. The baseline is no-JS: every
  * thumbnail is wrapped in an `<a href="<main>.webp">` by `render.php`, so a
- * click navigates to (or, with the `download` attribute, saves) the full image
- * even with this module inert or absent. The wrapper carries two flags the `init`
- * callback reads to apply the click matrix (issue #34):
- * `data-kntnt-photo-drop-lightbox` and `data-kntnt-photo-drop-download`.
+ * click navigates to the full image even with this module inert or absent. The
+ * wrapper carries two flags the `init` callback reads to apply the click matrix
+ * (issue #34): `data-kntnt-photo-drop-lightbox` and
+ * `data-kntnt-photo-drop-download`. The download trigger is always the overlay
+ * download-icon anchor alone — a click on the image outside the icon never
+ * downloads.
  *
  * - Lightbox on → a {@link GalleryLightbox} controller turns the anchors into a
  *   modal image viewer (open/close, prev/next, keyboard, swipe, neighbour
  *   preload, focus trap, `aria`) and suppresses the navigation so browser history
- *   is never touched (ADR-0007). When download is also on, the lightbox image
- *   carries a download affordance and the enlarged image saves on click.
- * - Lightbox off + download on → nothing is wired; the native `<a download>`
- *   saves the main image on click.
+ *   is never touched (ADR-0007). When download is also on, the lightbox carries
+ *   the download-icon anchor and only a click on it saves the current slide.
+ * - Lightbox off + download on → the thumbnail click is suppressed (the image
+ *   does nothing) and each figure's icon anchor saves its image programmatically
+ *   ({@link saveFile} — a blob download no environment can turn into a new tab).
  * - Lightbox off + download off → the click is suppressed so it does nothing
  *   (the no-JS fallback would navigate, but with JS the gallery is inert).
  *
@@ -45,6 +48,7 @@ import { getContext, getElement, store } from '@wordpress/interactivity';
 import './view.scss';
 import { GalleryLightbox } from './lightbox';
 import { lastRowFlags } from './justified-rows';
+import { saveFile } from './save-file';
 
 /**
  * The per-block Interactivity context emitted by `Render_Gallery`.
@@ -92,17 +96,20 @@ const RESIZE_DEBOUNCE = 200;
 const mountedGalleries = new WeakSet< Element >();
 
 /**
- * Suppresses plain navigation on the gallery's thumbnail anchors (both-off cell).
+ * Suppresses plain navigation on the gallery's thumbnail anchors.
  *
- * With neither the lightbox nor download on, a thumbnail click should do nothing
- * — but the anchor still points at the main image (the no-JS fallback), so with
+ * In both lightbox-off cells a thumbnail click should do nothing — but the
+ * anchor still points at the main image (the no-JS fallback), so with
  * JavaScript a plain click would navigate. A single delegated listener on the
  * wrapper cancels that for a plain primary click on (or inside) any thumbnail
  * anchor, while leaving modified clicks (new tab/window, save-as) to the browser,
  * so the gallery is inert without breaking the visitor's own intentions — and
- * without one listener per anchor in a thousand-image gallery.
+ * without one listener per anchor in a thousand-image gallery. The download-icon
+ * anchor is a sibling of the thumbnail anchor, never inside it, so its clicks
+ * pass this suppression untouched.
  *
  * @since 0.4.0
+ * @since 0.5.0 Applies to the download-on cell too; only the icon downloads.
  *
  * @param wrapper - The gallery wrapper the thumbnail anchors live in.
  */
@@ -124,6 +131,46 @@ function suppressNavigation( wrapper: HTMLElement ): void {
 		) {
 			event.preventDefault();
 		}
+	} );
+}
+
+/**
+ * Wires the figures' download-icon anchors to the programmatic blob download.
+ *
+ * One delegated listener on the wrapper intercepts a plain primary click on any
+ * icon anchor and saves its image via {@link saveFile} instead of the anchor's
+ * own `download` navigation — a blob download cannot be turned into a new tab
+ * by a link-rewriting theme or a cross-origin media host, which native
+ * `<a download>` can. Modified clicks are left to the browser, and without
+ * JavaScript the anchor's `download` attribute is the fallback.
+ *
+ * @since 0.5.0
+ *
+ * @param wrapper - The gallery wrapper the icon anchors live in.
+ */
+function wireIconDownloads( wrapper: HTMLElement ): void {
+	wrapper.addEventListener( 'click', ( event ) => {
+		if (
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey ||
+			event.button !== 0
+		) {
+			return;
+		}
+		const target = event.target;
+		if ( ! ( target instanceof Element ) ) {
+			return;
+		}
+		const icon = target.closest< HTMLAnchorElement >(
+			'.kntnt-photo-drop-gallery__download'
+		);
+		if ( ! icon ) {
+			return;
+		}
+		event.preventDefault();
+		void saveFile( icon.href );
 	} );
 }
 
@@ -197,15 +244,16 @@ store( 'kntnt-photo-drop/gallery', {
 		 * The correction is wired whenever the gallery uses the justified
 		 * layout, independent of the click flags. The click matrix then
 		 * branches on the two wrapper flags (issue #34): with the lightbox on,
-		 * a {@link GalleryLightbox} controller mounts (passing whether download
-		 * is on so the enlarged image gets a download affordance); with the
-		 * lightbox off and download on, nothing is wired so the native
-		 * `<a download>` saves the image; with both off, the thumbnail clicks
-		 * are suppressed so a click does nothing. In every lightbox bail path
+		 * a {@link GalleryLightbox} controller mounts (the overlay carries the
+		 * download-icon anchor when download is on); with the lightbox off,
+		 * the thumbnail clicks are suppressed so a click on the image does
+		 * nothing, and — when download is on — the figures' icon anchors are
+		 * wired to the programmatic blob download. In every lightbox bail path
 		 * the no-JS fallback markup stands.
 		 *
 		 * @since 0.7.0
 		 * @since 0.4.0 Branches on the lightbox + download click matrix.
+		 * @since 0.5.0 The icon anchor is the sole download trigger.
 		 */
 		init(): void {
 			// Resolve the wrapper and guard against a double-init re-hydration.
@@ -230,13 +278,15 @@ store( 'kntnt-photo-drop/gallery', {
 			const lightbox = ref.dataset.kntntPhotoDropLightbox === 'true';
 			const download = ref.dataset.kntntPhotoDropDownload === 'true';
 
-			// Lightbox off: with download on the native `<a download>` saves the
-			// image (wire nothing); with both off, suppress the plain click via one
-			// delegated listener on the wrapper so a thumbnail click does nothing
-			// rather than navigate. Neither branch needs the anchors materialised.
+			// Lightbox off: suppress the plain thumbnail click via one delegated
+			// listener so a click on the image does nothing rather than navigate;
+			// with download on, additionally wire the figures' icon anchors to the
+			// programmatic blob download. Neither branch needs the anchors
+			// materialised.
 			if ( ! lightbox ) {
-				if ( ! download ) {
-					suppressNavigation( ref );
+				suppressNavigation( ref );
+				if ( download ) {
+					wireIconDownloads( ref );
 				}
 				return;
 			}

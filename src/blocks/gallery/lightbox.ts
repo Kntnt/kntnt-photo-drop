@@ -22,17 +22,20 @@
  * `Render_Gallery` and escaped there; the controller only fills in the live
  * `src`/`srcset`, caption, counter, loading/error state, and `aria` state.
  *
- * When download is on (issue #34), the enlarged image is wrapped server-side in a
- * `download` anchor and the controller points its `href` at the current slide's
- * full image, so a click on the enlarged image saves it. When the gallery has a
- * caption, the controller mirrors each slide's caption text onto the lightbox's
- * caption figcaption (the same overlay element, anchor, and styling the gallery
- * figures use).
+ * When download is on (issue #34), the overlay carries a download-icon anchor —
+ * the sole download trigger. The controller points its `href` at the current
+ * slide's full image and intercepts a plain click to save the slide
+ * programmatically ({@link saveFile} — a blob download no link-rewriting theme
+ * or cross-origin host can turn into a new tab); a click on the enlarged image
+ * outside the icon does nothing. When the gallery has a caption, the controller
+ * mirrors each slide's caption text onto the lightbox's caption figcaption (the
+ * same overlay element, anchor, and styling the gallery figures use).
  *
  * @since 0.7.0
  */
 
 import { trapFocus } from './focus-trap';
+import { saveFile } from './save-file';
 import { actionForKey, type LightboxKeyAction } from './lightbox-keys';
 import {
 	close,
@@ -111,7 +114,7 @@ interface OverlayRefs {
 	readonly forward: HTMLButtonElement;
 	readonly dismiss: HTMLButtonElement;
 	readonly failure: HTMLElement;
-	/** The download anchor wrapping the image, or `null` when download is off. */
+	/** The download-icon anchor, or `null` when download is off. */
 	readonly download: HTMLAnchorElement | null;
 	/** The mirrored caption figcaption, or `null` when the gallery has no caption. */
 	readonly caption: HTMLElement | null;
@@ -331,6 +334,28 @@ export class GalleryLightbox {
 			}
 		} );
 
+		// A plain primary click on the download-icon anchor saves the current
+		// slide programmatically — a blob download no link-rewriting theme or
+		// cross-origin host can turn into a new tab, unlike the anchor's own
+		// `download` navigation, which stays as the no-JS fallback. Modified
+		// clicks are left to the browser.
+		const download = this.#refs.download;
+		if ( download ) {
+			download.addEventListener( 'click', ( event ) => {
+				if (
+					event.metaKey ||
+					event.ctrlKey ||
+					event.shiftKey ||
+					event.altKey ||
+					event.button !== 0
+				) {
+					return;
+				}
+				event.preventDefault();
+				void saveFile( download.href );
+			} );
+		}
+
 		// Reflect the slide image's network state: clear the loading veil when it
 		// arrives, or swap it for the server-translated failure message.
 		this.#refs.image.addEventListener( 'load', () =>
@@ -536,9 +561,9 @@ export class GalleryLightbox {
 		// The alt is the image's accessible label.
 		this.#refs.image.alt = slide.label;
 
-		// Point the download affordance at the current slide's full image, so a click
-		// on the enlarged image saves it; the anchor is null (so this is skipped) when
-		// download is off, since the server then emits no download anchor.
+		// Point the download-icon anchor at the current slide's full image, so an
+		// icon click saves it; the anchor is null (so this is skipped) when download
+		// is off, since the server then emits no icon.
 		if ( this.#refs.download ) {
 			this.#refs.download.href = slide.url;
 		}

@@ -95,6 +95,12 @@ test.describe( 'Editor', () => {
 		await expect( wrapper ).toContainText( 'Photo Drop Zone' );
 		await expect( wrapper ).toContainText( '{kntnt-drop-zone-collection}' );
 
+		// The seeded heading is centred — the template's textAlign survives into
+		// the block markup as the core alignment class.
+		await expect(
+			wrapper.locator( 'h4:has-text("Photo Drop Zone")' )
+		).toHaveClass( /has-text-align-center/ );
+
 		// No block error boundary anywhere in the canvas.
 		await expect(
 			editor.canvas.locator( '.block-editor-warning' )

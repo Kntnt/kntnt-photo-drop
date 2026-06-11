@@ -50,15 +50,14 @@
 		object-fit: contain;
 	}
 
-	&__download {
-		// The download anchor wraps the enlarged image when download is on; a click
-		// on the image saves the full image (the anchor carries `download`). It is a
-		// shrink-to-fit block so the overlay download icon (the gallery's
-		// `__download` badge, placed by its nine-point anchor) sits inside the
-		// image's own box rather than the whole viewport.
+	&__media {
+		// The media wrapper holds the enlarged image and the overlay download-icon
+		// anchor (the gallery's `__download` badge, the sole download trigger) when
+		// download is on. As a flex item of the figure it shrink-wraps the image,
+		// so the badge's nine-point anchor places it inside the image's own box
+		// rather than the whole viewport. A click on the image itself does nothing.
 		position: relative;
 		display: block;
-		cursor: pointer;
 	}
 
 	// While the current slide is loading, the (still-previous) image dims and a

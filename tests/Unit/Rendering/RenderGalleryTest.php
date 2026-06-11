@@ -1314,7 +1314,7 @@ test( 'cell 2 — lightbox on, download off: lightbox wired, no download afforda
 	gallery_remove_tree( $basedir );
 } );
 
-test( 'cell 3 — lightbox off, download on: icon overlays each thumbnail, anchor downloads', function (): void {
+test( 'cell 3 — lightbox off, download on: the icon anchor is the sole download trigger', function (): void {
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
@@ -1334,13 +1334,17 @@ test( 'cell 3 — lightbox off, download on: icon overlays each thumbnail, ancho
 		basedir_out: $basedir,
 	);
 
-	// The download icon overlays the thumbnail and the thumbnail anchor carries the
-	// download attribute, so a plain click saves the main image. No lightbox overlay
-	// at all, since the lightbox is off.
+	// The download icon overlays the thumbnail as an <a download> anchor pointing
+	// at the main image, with a translated accessible label; the thumbnail anchor
+	// itself never carries the download attribute (a click on the image outside
+	// the icon does nothing). No lightbox overlay at all, since the lightbox is off.
 	expect( $html )->toContain( 'data-kntnt-photo-drop-lightbox="false"' );
 	expect( $html )->toContain( 'data-kntnt-photo-drop-download="true"' );
-	expect( $html )->toContain( 'kntnt-photo-drop-gallery__download' );
-	expect( $html )->toMatch( '/<a class="kntnt-photo-drop-gallery__link" href="[^"]+" download/' );
+	expect( $html )->toMatch(
+		'/<a class="kntnt-photo-drop-gallery__download[^"]*"[^>]* href="https:\/\/example\.test'
+		. '\/uploads\/kntnt-photo-drop\/photos\/a\.jpg\.webp" download aria-label="Download image">/'
+	);
+	expect( $html )->not->toMatch( '/<a class="kntnt-photo-drop-gallery__link"[^>]* download/' );
 	expect( $html )->not->toContain( 'class="kntnt-photo-drop-lightbox"' );
 
 	gallery_remove_tree( $basedir );
@@ -1431,10 +1435,12 @@ test( 'cell 4 — both on: no icon on the thumbnail; the icon and download live 
 	);
 
 	// Both on: the gallery thumbnail shows no download icon and its anchor carries no
-	// download attribute (a click opens the lightbox); the download icon and the
-	// download anchor appear inside the lightbox overlay instead. Split on the overlay
-	// boundary so "no icon on the thumbnail" is asserted against the figures only —
-	// the lightbox icon reuses the same `gallery__download` class on purpose.
+	// download attribute (a click opens the lightbox); the icon anchor — the sole
+	// download trigger — appears inside the lightbox overlay instead, with the
+	// enlarged image standing inside a media wrapper rather than a download anchor.
+	// Split on the overlay boundary so "no icon on the thumbnail" is asserted against
+	// the figures only — the lightbox icon reuses the same `gallery__download` class
+	// on purpose.
 	$overlay_start = strpos( $html, 'class="kntnt-photo-drop-lightbox"' );
 	$figures_part  = $overlay_start === false ? $html : substr( $html, 0, $overlay_start );
 	$overlay_part  = $overlay_start === false ? '' : substr( $html, $overlay_start );
@@ -1442,9 +1448,12 @@ test( 'cell 4 — both on: no icon on the thumbnail; the icon and download live 
 	expect( $html )->toContain( 'data-kntnt-photo-drop-download="true"' );
 	expect( $figures_part )->not->toContain( 'kntnt-photo-drop-gallery__download' );
 	expect( $figures_part )->not->toMatch( '/<a class="kntnt-photo-drop-gallery__link"[^>]* download/' );
-	expect( $overlay_part )->toContain( 'kntnt-photo-drop-lightbox__download' );
-	expect( $overlay_part )->toMatch( '/<a class="kntnt-photo-drop-lightbox__download" href="" download>/' );
-	expect( $overlay_part )->toContain( 'kntnt-photo-drop-gallery__download' );
+	expect( $overlay_part )->toContain( '<span class="kntnt-photo-drop-lightbox__media">' );
+	expect( $overlay_part )->toMatch(
+		'/<a class="kntnt-photo-drop-gallery__download[^"]*kntnt-photo-drop-lightbox__download"'
+		. '[^>]* href="" download aria-label="Download image">/'
+	);
+	expect( $overlay_part )->not->toMatch( '/<a [^>]*>\s*<img class="kntnt-photo-drop-lightbox__image"/' );
 
 	gallery_remove_tree( $basedir );
 } );

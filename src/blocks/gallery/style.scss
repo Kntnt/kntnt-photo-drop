@@ -161,8 +161,9 @@
 	&__download {
 		// The overlay download icon: a circular, absolutely-placed badge inside the
 		// image, drawn purely from the three inline custom properties the server
-		// emits (size, background, foreground). It is decorative — the click target
-		// is the enclosing anchor's `download` — so it never intercepts the pointer.
+		// emits (size, background, foreground). The badge is itself the download
+		// anchor — the sole download trigger — so it owns the pointer, and a
+		// keyboard user gets a visible ring on the otherwise text-free control.
 		position: absolute;
 		z-index: 2;
 		box-sizing: border-box;
@@ -172,7 +173,12 @@
 		color: var(--kntnt-photo-drop-download-fg, #fff);
 		background: var(--kntnt-photo-drop-download-bg, #00000080);
 		border-radius: 50%;
-		pointer-events: none;
+		cursor: pointer;
+
+		&:focus-visible {
+			outline: 2px solid currentcolor;
+			outline-offset: 2px;
+		}
 
 		// The download glyph is a masked SVG so the foreground colour paints it; no
 		// SVG element, icon font, or extra request is needed. The arrow-into-tray

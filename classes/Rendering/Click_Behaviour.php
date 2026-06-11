@@ -6,12 +6,12 @@
  * thumbnail does, and where the download icon lives (issue #34). This value object
  * is the resolution of that matrix as it applies to each gallery `<figure>`: the
  * single `on_thumbnail` flag is true only in the download-on / lightbox-off cell,
- * where the thumbnail anchor carries the `download` attribute (a plain click saves
- * the main image) and the overlay download icon is painted on the thumbnail; in
- * every other cell it is false (with the Lightbox on, the download moves inside the
- * lightbox, resolved separately by the wrapper). The download-icon styling rides
- * along so the figure builder can paint the overlay without re-reading the
- * attributes.
+ * where the overlay download icon — itself a `download` anchor, the sole download
+ * trigger — is painted on the thumbnail; in every other cell it is false (with the
+ * Lightbox on, the download moves inside the lightbox, resolved separately by the
+ * wrapper). A click on the image outside the icon never downloads. The
+ * download-icon styling rides along so the figure builder can paint the overlay
+ * without re-reading the attributes.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.4.0
@@ -35,8 +35,10 @@ final readonly class Click_Behaviour {
 	 * Constructs the resolved per-figure click behaviour.
 	 *
 	 * @since 0.4.0
+	 * @since 0.5.0 The icon anchor is the sole download trigger; the thumbnail
+	 *              anchor itself no longer downloads.
 	 *
-	 * @param bool              $on_thumbnail Whether the thumbnail carries the `download` attribute plus the icon.
+	 * @param bool              $on_thumbnail Whether the download-icon anchor overlays the thumbnail.
 	 * @param Download_Settings $settings     The resolved download-icon styling.
 	 */
 	public function __construct(

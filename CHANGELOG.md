@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- End-to-end coverage of both download-on cells of the click matrix (a thumbnail/enlarged-image click does nothing; an icon click saves the file without navigating or opening a tab), a Jest suite for the programmatic download helper, and a regression assertion that a freshly inserted Drop Zone seeds its heading centred.
+
+### Changed
+
+- The **Photo Drop Gallery**'s download trigger is now the download icon alone: a click on the icon saves the full main image, and a click on the image outside the icon never downloads — it does nothing with the lightbox off, and in the lightbox the enlarged image is no longer a download anchor. The icon itself is now an `<a download>` anchor with a translated accessible label and a visible keyboard-focus ring.
+- The download is performed programmatically (the image is fetched into a Blob and saved through a temporary same-document object-URL anchor), so the save can no longer be turned into navigation or a new browser tab by a link-rewriting theme/plugin or a cross-origin media host; the icon anchor's own `download` attribute remains the no-JS fallback, and a failed fetch falls back to a plain same-tab navigation.
+
 ## [0.4.0] - 2026-06-10
 
 ### Changed

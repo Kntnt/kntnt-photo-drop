@@ -88,6 +88,21 @@ final class Render_Gallery {
 	];
 
 	/**
+	 * The literal href placeholder inside the pre-composed download-icon template.
+	 *
+	 * The icon anchor is render-constant except for its per-image href, so the
+	 * template is composed and escaped once per render with this token as the href
+	 * and the figure hot loop substitutes each image's escaped main URL. A plain
+	 * token replacement avoids `sprintf` here because the icon's inline style may
+	 * legitimately contain `%` (e.g. a percentage icon size), which would corrupt a
+	 * format string.
+	 *
+	 * @since 0.5.0
+	 * @var string
+	 */
+	private const ICON_HREF_PLACEHOLDER = '{kntnt-photo-drop-download-href}';
+
+	/**
 	 * The render-time-only attribute that flags an editor-preview render.
 	 *
 	 * Declared in `block.json` (it must be, or the REST block-renderer endpoint —
@@ -240,8 +255,8 @@ final class Render_Gallery {
 
 		// Resolve the click behaviour once — the lightbox and download toggles drive
 		// the whole matrix (issue #34). The gallery thumbnail carries the download
-		// icon and downloads on click only when download is on and the lightbox is
-		// off; with the lightbox on, the icon and the download move into the lightbox.
+		// icon — the sole download trigger — only when download is on and the
+		// lightbox is off; with the lightbox on, the icon moves into the lightbox.
 		// The `$lightbox_enabled` flag is the editor-set toggle as authored; `$lightbox`
 		// is that toggle gated by the preview (a preview never wires the lightbox). The
 		// thumbnail cell keys off the authored toggle, not the gated one, so an editor
@@ -288,14 +303,18 @@ final class Render_Gallery {
 	 * Pre-composes the render-constant figure chrome once per gallery render.
 	 *
 	 * Everything a figure carries that does not vary from image to image — the
-	 * overlay download icon, the `<img>` class and style, and the caption class
-	 * prefix and style — is composed and escaped here, so the per-figure hot loop
-	 * (a gallery can hold thousands of images) interpolates the finished strings
-	 * instead of rebuilding and re-escaping them on every iteration. The image and
-	 * caption styles come back empty when their block-support panels contributed
-	 * nothing, so the figure builder can omit the `style` attribute entirely.
+	 * overlay download-icon template, the `<img>` class and style, and the caption
+	 * class prefix and style — is composed and escaped here, so the per-figure hot
+	 * loop (a gallery can hold thousands of images) interpolates the finished
+	 * strings instead of rebuilding and re-escaping them on every iteration. The
+	 * icon varies only in its href, so its template carries the href placeholder
+	 * the figure builder substitutes per image. The image and caption styles come
+	 * back empty when their block-support panels contributed nothing, so the
+	 * figure builder can omit the `style` attribute entirely.
 	 *
 	 * @since 0.4.0
+	 * @since 0.5.0 The icon became a per-figure download anchor template; the
+	 *              thumbnail anchor's ` download` attribute is gone.
 	 *
 	 * @param Click_Behaviour                  $behaviour       The resolved per-figure click behaviour.
 	 * @param Caption_Settings                 $caption         The resolved caption settings.
@@ -310,10 +329,13 @@ final class Render_Gallery {
 		array $image_support,
 	): Figure_Chrome {
 
-		// Paint the overlay download icon and arm the anchor's download attribute only
-		// in the download-on / lightbox-off cell; in every other cell both are absent.
-		$icon          = $behaviour->on_thumbnail ? self::download_icon( $behaviour->settings ) : '';
-		$download_attr = $behaviour->on_thumbnail ? ' download' : '';
+		// Compose the overlay download-icon anchor only in the download-on /
+		// lightbox-off cell — the icon is the sole download trigger, so the template
+		// carries the href placeholder the figure builder fills with each image's
+		// main URL; in every other cell the thumbnail has no icon.
+		$icon_template = $behaviour->on_thumbnail
+			? self::download_icon( $behaviour->settings, self::ICON_HREF_PLACEHOLDER )
+			: '';
 
 		// Compose the <img> class (base plus any border-colour preset classnames) and
 		// fold in the panels' inline declarations as the style.
@@ -331,8 +353,7 @@ final class Render_Gallery {
 		}
 
 		return new Figure_Chrome(
-			$download_attr,
-			$icon,
+			$icon_template,
 			esc_attr( $image_class ),
 			esc_attr( $image_support['style'] ),
 			esc_attr( $caption_class ),
@@ -499,14 +520,16 @@ final class Render_Gallery {
 	 * caption, when any, is always an anchored overlay inside the image
 	 * (issue #33) and so follows the link; its text is also mirrored onto the
 	 * anchor as a data attribute so the lightbox slide can show the same caption.
-	 * The render-constant chrome (issue #34) — the download attribute, the overlay
-	 * download icon, and the image/caption classes and styles — is pre-composed once
-	 * per render and threaded in via `$chrome`, so this loop only fills in the
-	 * per-image URL, dimensions, srcset, and caption text. Every URL and attribute is
-	 * escaped at the point of output (the `$chrome` strings were escaped on
-	 * construction).
+	 * The render-constant chrome (issue #34) — the overlay download-icon template
+	 * and the image/caption classes and styles — is pre-composed once per render
+	 * and threaded in via `$chrome`, so this loop only fills in the per-image URL,
+	 * dimensions, srcset, caption text, and the icon's href. Every URL and
+	 * attribute is escaped at the point of output (the `$chrome` strings were
+	 * escaped on construction).
 	 *
 	 * @since 0.4.0
+	 * @since 0.5.0 The icon anchor is the sole download trigger; the thumbnail
+	 *              anchor never carries the `download` attribute.
 	 *
 	 * @param Gallery_Item     $item       The image.
 	 * @param Descriptor       $descriptor The collection contract.
@@ -569,58 +592,75 @@ final class Render_Gallery {
 		// Wrap the image in an <a href> to the main image — the no-JS fallback and the
 		// lightbox's upgrade hook. The data attributes hand the main URL, the srcset,
 		// and the caption text to the lightbox without re-parsing the markup. The
-		// pre-composed download attribute makes a plain click save the main image rather
-		// than navigate in the download-on / lightbox-off cell; the no-JS fallback (no
-		// attribute) navigates.
+		// anchor never downloads; in the download-on / lightbox-off cell the view
+		// module suppresses its plain click so only the icon anchor saves the image.
 		$caption_attr = $caption_text !== ''
 			? sprintf( ' data-kntnt-photo-drop-caption="%s"', esc_attr( $caption_text ) )
 			: '';
 		$link         = sprintf(
-			'<a class="kntnt-photo-drop-gallery__link" href="%1$s"%2$s data-kntnt-photo-drop-full="%1$s"'
-				. ' data-kntnt-photo-drop-srcset="%3$s"%4$s>%5$s</a>',
+			'<a class="kntnt-photo-drop-gallery__link" href="%1$s" data-kntnt-photo-drop-full="%1$s"'
+				. ' data-kntnt-photo-drop-srcset="%2$s"%3$s>%4$s</a>',
 			esc_url( $main_url ),
-			$chrome->download_attr,
 			esc_attr( $srcset ),
 			$caption_attr,
 			$image,
 		);
 
-		// The caption and the pre-built icon are both anchored overlays over the image,
-		// so they follow the link inside the figure and are positioned absolutely by
-		// their anchor classes.
+		// Fill the icon template's href with this image's main URL — the icon anchor
+		// is the figure's only download trigger; an empty template means no icon.
+		$icon = $chrome->icon_template === ''
+			? ''
+			: str_replace( self::ICON_HREF_PLACEHOLDER, esc_url( $main_url ), $chrome->icon_template );
+
+		// The caption and the icon are both anchored overlays over the image, so they
+		// follow the link inside the figure and are positioned absolutely by their
+		// anchor classes.
 		return sprintf(
 			'<figure class="kntnt-photo-drop-gallery__item %1$s" style="%2$s">%3$s%4$s%5$s</figure>',
 			esc_attr( $item_class ),
 			esc_attr( $item_style ),
 			$link,
-			$chrome->icon,
+			$icon,
 			$caption_html,
 		);
 
 	}
 
 	/**
-	 * Builds the overlay download-icon element for one gallery thumbnail.
+	 * Builds the overlay download-icon anchor — the sole download trigger.
 	 *
-	 * A small, decorative `<span>` (the click target is the enclosing anchor, which
-	 * carries the `download` attribute) anchored inside the image by the nine-point
+	 * A small `<a download>` badge anchored inside the image by the nine-point
 	 * anchor class and styled by the bespoke download-icon controls — size,
 	 * background, foreground — projected as inline custom properties the stylesheet
-	 * reads. The glyph itself is an inline SVG data URI painted through a CSS mask, so
-	 * there is no SVG element in the markup, icon font, or extra request. It is
-	 * `aria-hidden`: the accessible affordance is the anchor's own download semantics.
+	 * reads. The glyph itself is an inline SVG data URI painted through a CSS mask,
+	 * so there is no SVG element in the markup, icon font, or extra request. Only a
+	 * click on this anchor downloads; the view module intercepts the plain click
+	 * and saves the image programmatically (so no environment can turn it into
+	 * navigation or a new tab), while the anchor's own `download` semantics remain
+	 * the no-JS fallback. The translated `aria-label` is the accessible name of
+	 * the otherwise text-free anchor.
 	 *
 	 * @since 0.4.0
+	 * @since 0.5.0 Became an `<a download>` anchor (was a decorative `<span>`).
 	 *
-	 * @param Download_Settings $download The resolved download-icon styling.
-	 * @return string The icon overlay markup.
+	 * @param Download_Settings $download    The resolved download-icon styling.
+	 * @param string            $href        The href attribute value — pre-escaped by the caller,
+	 *                                       the literal href placeholder, or '' when the view
+	 *                                       module sets it per slide.
+	 * @param string            $extra_class An additional class for the anchor, or ''.
+	 * @return string The icon anchor markup.
 	 */
-	private static function download_icon( Download_Settings $download ): string {
+	private static function download_icon(
+		Download_Settings $download,
+		string $href,
+		string $extra_class = '',
+	): string {
 
 		// Place the icon by its anchor class and carry its size/colours as inline
 		// custom properties; the stylesheet draws the glyph from those properties.
 		$class = 'kntnt-photo-drop-gallery__download'
-			. ' kntnt-photo-drop-gallery__download--anchor-' . $download->anchor;
+			. ' kntnt-photo-drop-gallery__download--anchor-' . $download->anchor
+			. ( $extra_class === '' ? '' : ' ' . $extra_class );
 		$style = sprintf(
 			'--kntnt-photo-drop-download-size:%1$s;'
 				. '--kntnt-photo-drop-download-bg:%2$s;'
@@ -631,9 +671,11 @@ final class Render_Gallery {
 		);
 
 		return sprintf(
-			'<span class="%1$s" style="%2$s" aria-hidden="true"></span>',
+			'<a class="%1$s" style="%2$s" href="%3$s" download aria-label="%4$s"></a>',
 			esc_attr( $class ),
 			esc_attr( $style ),
+			$href,
+			esc_attr__( 'Download image', 'kntnt-photo-drop' ),
 		);
 
 	}
@@ -734,15 +776,15 @@ final class Render_Gallery {
 	 *
 	 * The two flags drive the whole click matrix (issue #34): the view module reads
 	 * `data-kntnt-photo-drop-lightbox` and `data-kntnt-photo-drop-download` to decide
-	 * whether a thumbnail click opens the lightbox, suppresses navigation entirely
-	 * (both off — the click does nothing), or is left to the native `<a download>`
-	 * (download on, lightbox off). The `init` hook is bound on every frontend render
-	 * — for the lightbox wiring, the justified layout's last-row correction, or the
-	 * click suppression — and the per-block context and the hidden overlay are
-	 * appended only when the lightbox is on, so a lightbox-off gallery carries no
-	 * overlay chrome. When the lightbox is on, the overlay also carries a download
-	 * affordance (active only when download is on) and a caption element (filled only
-	 * when the shared Caption content is not "none").
+	 * whether a thumbnail click opens the lightbox or is suppressed entirely (the
+	 * lightbox-off cells — only the icon anchor downloads, the image itself does
+	 * nothing). The `init` hook is bound on every frontend render — for the lightbox
+	 * wiring, the justified layout's last-row correction, or the click suppression —
+	 * and the per-block context and the hidden overlay are appended only when the
+	 * lightbox is on, so a lightbox-off gallery carries no overlay chrome. When the
+	 * lightbox is on, the overlay also carries a download-icon anchor (only when
+	 * download is on) and a caption element (filled only when the shared Caption
+	 * content is not "none").
 	 *
 	 * The editor preview suppresses interactivity unconditionally: the lightbox flag
 	 * reads `false`, no overlay/context is emitted, and no `init` is bound, so clicks
@@ -752,6 +794,7 @@ final class Render_Gallery {
 	 * @since 0.6.0
 	 * @since 0.2.0 The `init` hook is also bound for the justified layout with the lightbox off.
 	 * @since 0.4.0 Replaced the single lightbox flag with the lightbox + download click matrix.
+	 * @since 0.5.0 The icon anchor is the sole download trigger in every cell.
 	 *
 	 * @param array<string,mixed>              $attributes        The block attributes.
 	 * @param string                           $layout            The resolved layout token.
@@ -873,19 +916,21 @@ final class Render_Gallery {
 	 * data as its slide source, so it adds no image URLs of its own to escape —
 	 * only static, translated chrome.
 	 *
-	 * When download is on (issue #34), the live image is wrapped in a `download`
-	 * anchor whose `href` the view module sets to the current slide's main image,
-	 * and an overlay download icon — styled by the bespoke download-icon controls,
-	 * placed by its nine-point anchor — sits inside the figure, so a click on the
-	 * enlarged image saves the full image. When download is off the image is a bare
-	 * `<img>` and a click does nothing. When the shared Caption content is not
-	 * "none", a caption `<figcaption>` (the identical overlay element the gallery
-	 * figures use — same anchor and colour/typography projection) sits inside the
-	 * figure for the view module to fill per slide.
+	 * When download is on (issue #34), an overlay download-icon anchor — the sole
+	 * download trigger, whose `href` the view module sets to the current slide's
+	 * main image; styled by the bespoke download-icon controls, placed by its
+	 * nine-point anchor — sits inside the image's box. A click on the enlarged
+	 * image outside the icon does nothing. When download is off the image is a
+	 * bare `<img>` and a click does nothing. When the shared Caption content is
+	 * not "none", a caption `<figcaption>` (the identical overlay element the
+	 * gallery figures use — same anchor and colour/typography projection) sits
+	 * inside the figure for the view module to fill per slide.
 	 *
 	 * @since 0.7.0
 	 * @since 0.2.0 Added the hidden load-failure message element.
 	 * @since 0.4.0 Added the in-lightbox download affordance and the mirrored caption.
+	 * @since 0.5.0 The icon anchor is the sole download trigger; the enlarged image
+	 *              itself no longer downloads.
 	 *
 	 * @param bool                             $download          Whether the in-lightbox download is on.
 	 * @param Caption_Settings                 $caption           The resolved caption settings.
@@ -940,16 +985,18 @@ final class Render_Gallery {
 	 * Builds the lightbox figure's inner markup: the image, the download affordance,
 	 * and the mirrored caption.
 	 *
-	 * With download on the image is wrapped in a `download` anchor (its `href` set by
-	 * the view module per slide) and an overlay icon — placed by the download anchor,
-	 * styled by the bespoke download controls — so a click on the enlarged image
-	 * saves the full image. With download off the image stands bare so a click does
-	 * nothing. The caption, when the content is not "none", is the same anchored
-	 * overlay `<figcaption>` the gallery figures carry — same anchor, same
-	 * colour/typography projection — so the lightbox caption mirrors the gallery; the
-	 * view module fills its text per slide.
+	 * With download on the image and the overlay download-icon anchor — the sole
+	 * download trigger, its `href` set by the view module per slide — sit inside a
+	 * positioning wrapper that shrink-wraps the image, so the icon is anchored
+	 * inside the image's own box. A click on the enlarged image outside the icon
+	 * does nothing. With download off the image stands bare. The caption, when the
+	 * content is not "none", is the same anchored overlay `<figcaption>` the
+	 * gallery figures carry — same anchor, same colour/typography projection — so
+	 * the lightbox caption mirrors the gallery; the view module fills its text per
+	 * slide.
 	 *
 	 * @since 0.4.0
+	 * @since 0.5.0 The icon anchor replaced the image-wrapping download anchor.
 	 *
 	 * @param bool                             $download          Whether the in-lightbox download is on.
 	 * @param Caption_Settings                 $caption           The resolved caption settings.
@@ -967,13 +1014,14 @@ final class Render_Gallery {
 		// The live image the view module swaps per slide; it starts empty.
 		$image = '<img class="kntnt-photo-drop-lightbox__image" src="" alt="" />';
 
-		// With download on, wrap the image in a download anchor (href set per slide)
-		// and add the overlay icon so a click on the enlarged image saves the full
-		// image; with download off the bare image makes a click do nothing.
+		// With download on, put the image and the icon anchor — the sole download
+		// trigger, href set per slide by the view module — inside a wrapper that
+		// shrink-wraps the image so the icon anchors within the image's own box;
+		// with download off the bare image makes a click do nothing.
 		if ( $download ) {
-			$icon  = self::download_icon( $download_settings );
+			$icon  = self::download_icon( $download_settings, '', 'kntnt-photo-drop-lightbox__download' );
 			$image = sprintf(
-				'<a class="kntnt-photo-drop-lightbox__download" href="" download>%1$s%2$s</a>',
+				'<span class="kntnt-photo-drop-lightbox__media">%1$s%2$s</span>',
 				$image,
 				$icon,
 			);
