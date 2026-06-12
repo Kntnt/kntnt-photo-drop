@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-12
+
+### Added
+
+- The **Photo Drop Gallery** slideshow now **re-syncs with the gallery at the start of every loop**: images uploaded while the slideshow plays join the rotation on the next pass, deleted images leave it, and caption changes follow — no page reload needed. The slideshow simply refetches the page it is on, so each loop plays exactly what a reload would show (including any full-page cache the site runs). A single-image gallery cycles too — previously its slideshow stood still forever — so a photo frame started at the beginning of an event keeps up as the photographer's uploads stream in; and when the gallery has been emptied or its collection deleted, the playback ends within one loop, so removed images never linger on screen. A network hiccup never interrupts playback: the slideshow keeps its current images and tries again on the next loop. (ADR-0011)
+- End-to-end coverage of the resync — an image imported mid-playback joins at the loop boundary, a single-image slideshow grows, an emptied collection ends the playback — and a Jest suite for the resync's fresh-view parsing, wrapper matching, and keep/replace/end decisions.
+
+### Fixed
+
+- `npm run lint:js` no longer crawls for minutes through Playwright's generated HTML report when run after the e2e suite: the project ESLint configuration (the `@wordpress/scripts` bundled config, unchanged) now ignores the gitignored test-artifact directories.
+
 ## [0.8.0] - 2026-06-12
 
 ### Added
@@ -174,7 +185,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.8.0
 [0.7.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.1
 [0.7.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.0

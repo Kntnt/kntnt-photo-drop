@@ -108,6 +108,26 @@ export function importFixture( slug: string, fixtureName: string ): void {
 }
 
 /**
+ * Deletes one main image (and its derived artifacts) from a collection.
+ *
+ * @since 0.9.0
+ *
+ * @param slug       - The collection slug.
+ * @param storedName - The stored main's path relative to the collection root,
+ *                   e.g. `e2e-alpha.jpg.webp`.
+ */
+export function deleteImage( slug: string, storedName: string ): void {
+	wpCli( [
+		'kntnt-photo-drop',
+		'image',
+		'delete',
+		slug,
+		storedName,
+		'--yes',
+	] );
+}
+
+/**
  * Builds an absolute URL on the wp-env instance under test.
  *
  * Reads `WP_BASE_URL` (defaulted by `playwright.config.ts`), for the places

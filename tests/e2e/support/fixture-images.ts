@@ -56,11 +56,19 @@ export const FIXTURE_ALPHA = 'e2e-alpha.jpg';
 export const FIXTURE_BETA = 'e2e-beta.jpg';
 
 /**
- * The pixel sizes and colours the two fixtures are generated with.
+ * Third fixture filename; sorts after {@link FIXTURE_BETA}. Used by the
+ * slideshow resync spec as the image that arrives mid-playback (ADR-0011).
  *
- * Both stay well under the seeded collections' 1920 px contract ceiling, so
+ * @since 0.9.0
+ */
+export const FIXTURE_GAMMA = 'e2e-gamma.jpg';
+
+/**
+ * The pixel sizes and colours the fixtures are generated with.
+ *
+ * All stay well under the seeded collections' 1920 px contract ceiling, so
  * a client- or server-side ingest stores them without downscaling, and the
- * distinct landscape/portrait shapes plus colours make the two images
+ * distinct landscape/portrait shapes plus colours make the images
  * trivially distinguishable in failure screenshots.
  *
  * @since 0.2.0
@@ -68,6 +76,7 @@ export const FIXTURE_BETA = 'e2e-beta.jpg';
 const FIXTURE_RECIPES = [
 	{ name: FIXTURE_ALPHA, width: 640, height: 480, color: '#3a7d44' },
 	{ name: FIXTURE_BETA, width: 480, height: 640, color: '#9b2226' },
+	{ name: FIXTURE_GAMMA, width: 640, height: 480, color: '#1d3557' },
 ] as const;
 
 /**

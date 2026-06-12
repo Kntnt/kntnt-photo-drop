@@ -48,7 +48,9 @@ import { getContext, getElement, store } from '@wordpress/interactivity';
 import './view.scss';
 import { GalleryLightbox } from './lightbox';
 import { GallerySlideshow } from './slideshow';
+import { createResync } from './slideshow-resync';
 import { resolveSlideshowTarget } from './slideshow-target';
+import { SLIDE_LINK_SELECTOR } from './slides';
 import { lastRowFlags } from './justified-rows';
 import { saveFile } from './save-file';
 
@@ -161,11 +163,10 @@ function wireSlideshow( wrapper: HTMLElement ): void {
 
 	// Mount the controller over the gallery's anchors and the server-emitted
 	// overlay; incomplete markup leaves the slideshow unwired and the gallery
-	// standing as-is.
+	// standing as-is. The wrapper-bound resync provider feeds the controller
+	// the gallery's fresh view at each cycle boundary (ADR-0011).
 	const links = Array.from(
-		wrapper.querySelectorAll< HTMLAnchorElement >(
-			'.kntnt-photo-drop-gallery__link'
-		)
+		wrapper.querySelectorAll< HTMLAnchorElement >( SLIDE_LINK_SELECTOR )
 	);
 	const overlay = wrapper.querySelector< HTMLElement >(
 		'.kntnt-photo-drop-slideshow'
@@ -182,7 +183,8 @@ function wireSlideshow( wrapper: HTMLElement ): void {
 		overlay,
 		Number.isFinite( seconds ) && seconds >= 1
 			? seconds
-			: DEFAULT_SLIDESHOW_SECONDS
+			: DEFAULT_SLIDESHOW_SECONDS,
+		createResync( wrapper )
 	);
 	if ( ! slideshow ) {
 		return;
@@ -293,7 +295,7 @@ function suppressNavigation( wrapper: HTMLElement ): void {
 		const target = event.target;
 		if (
 			target instanceof Element &&
-			target.closest( '.kntnt-photo-drop-gallery__link' )
+			target.closest( SLIDE_LINK_SELECTOR )
 		) {
 			event.preventDefault();
 		}
@@ -469,9 +471,7 @@ store( 'kntnt-photo-drop/gallery', {
 			// have degraded to `{}` server-side, so the counter template falls back to a
 			// neutral numeric form rather than crashing mid-open.
 			const links = Array.from(
-				ref.querySelectorAll< HTMLAnchorElement >(
-					'.kntnt-photo-drop-gallery__link'
-				)
+				ref.querySelectorAll< HTMLAnchorElement >( SLIDE_LINK_SELECTOR )
 			);
 			const overlay = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-lightbox'

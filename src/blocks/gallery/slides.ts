@@ -12,6 +12,17 @@
  */
 
 /**
+ * The selector every consumer of the anchor data contract collects slides by.
+ *
+ * One definition serves the lightbox mount, the slideshow mount, and the
+ * slideshow's cycle-boundary resync (ADR-0011), so the live and the refetched
+ * document are always read with the same rule.
+ *
+ * @since 0.9.0
+ */
+export const SLIDE_LINK_SELECTOR = '.kntnt-photo-drop-gallery__link';
+
+/**
  * The per-image data read off one thumbnail anchor: the full image URL it
  * points at, the responsive srcset the server mirrored onto the anchor, the
  * accessible label to announce when shown, and the overlay caption text

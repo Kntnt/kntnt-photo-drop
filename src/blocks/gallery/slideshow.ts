@@ -28,7 +28,17 @@
  * is skipped; when every slide in a full cycle has failed, the slideshow ends
  * rather than spinning on a dead set.
  *
+ * At each cycle boundary — the wrap from the last slide back to the first,
+ * which a single-slide gallery reaches every visible period — the slide list
+ * re-syncs to the gallery's current view through the injected resync provider
+ * (ADR-0011): the fetch starts when the boundary slide becomes visible, the
+ * wrap waits for it to settle exactly as the gate waits for a slow image
+ * (bounded by the provider's abort timeout), a failure keeps the stale list,
+ * and an emptied view ends the playback so a takedown propagates within one
+ * cycle.
+ *
  * @since 0.7.0
+ * @since 0.9.0 Re-syncs the slide list at each cycle boundary (ADR-0011).
  */
 
 import { trapFocus } from './focus-trap';
@@ -41,6 +51,7 @@ import {
 	timerFired,
 	type AdvanceGate,
 } from './slideshow-advance';
+import { resolveResync, type SlideshowResync } from './slideshow-resync';
 
 /**
  * How long the dissolve crossfade runs, in milliseconds.
@@ -120,14 +131,17 @@ function resolveOverlay( overlay: HTMLElement ): SlideshowRefs | null {
  * @since 0.7.0
  */
 export class GallerySlideshow {
-	/** The per-image data read off the anchors once on construction. */
-	readonly #slides: readonly GallerySlide[];
+	/** The current slide list; replaced wholesale at each cycle boundary. */
+	#slides: readonly GallerySlide[];
 
 	/** The resolved overlay elements. */
 	readonly #refs: SlideshowRefs;
 
 	/** How long each slide stands fully visible, in seconds. */
 	readonly #seconds: number;
+
+	/** The provider the cycle-boundary resync fetches the fresh view through. */
+	readonly #resync: SlideshowResync;
 
 	/** Whether the slideshow is currently playing. */
 	#playing = false;
@@ -152,6 +166,12 @@ export class GallerySlideshow {
 
 	/** Consecutive load failures, for the all-slides-broken bail. */
 	#failures = 0;
+
+	/** Whether the resync found an emptied view: end at the boundary. */
+	#endAtBoundary = false;
+
+	/** Bumped on stop so a late resync settle never touches a later playback. */
+	#generation = 0;
 
 	/** The visible-time timer, or `null` when none is running. */
 	#timer: ReturnType< typeof setTimeout > | null = null;
@@ -199,41 +219,53 @@ export class GallerySlideshow {
 	 * gallery stands as-is.
 	 *
 	 * @since 0.7.0
+	 * @since 0.9.0 Takes the cycle-boundary resync provider (ADR-0011).
 	 *
 	 * @param links   - The thumbnail anchors, in gallery order.
 	 * @param overlay - The overlay container emitted by `Render_Gallery`.
 	 * @param seconds - How long each slide stands fully visible, in seconds (≥ 1).
+	 * @param resync  - The provider fetching the gallery's fresh view per cycle.
 	 * @return The wired controller, or `null` when the overlay markup is incomplete.
 	 */
 	static mount(
 		links: readonly HTMLAnchorElement[],
 		overlay: HTMLElement,
-		seconds: number
+		seconds: number,
+		resync: SlideshowResync
 	): GallerySlideshow | null {
 		const refs = resolveOverlay( overlay );
 		if ( ! refs ) {
 			return null;
 		}
-		return new GallerySlideshow( readSlides( links ), refs, seconds );
+		return new GallerySlideshow(
+			readSlides( links ),
+			refs,
+			seconds,
+			resync
+		);
 	}
 
 	/**
 	 * Wires a controller for one gallery wrapper.
 	 *
 	 * @since 0.7.0
+	 * @since 0.9.0 Takes the cycle-boundary resync provider (ADR-0011).
 	 *
 	 * @param slides  - The per-image slide data, in gallery order.
 	 * @param refs    - The resolved overlay elements.
 	 * @param seconds - How long each slide stands fully visible, in seconds.
+	 * @param resync  - The provider fetching the gallery's fresh view per cycle.
 	 */
 	private constructor(
 		slides: readonly GallerySlide[],
 		refs: SlideshowRefs,
-		seconds: number
+		seconds: number,
+		resync: SlideshowResync
 	) {
 		this.#slides = slides;
 		this.#refs = refs;
 		this.#seconds = Math.max( 1, Math.trunc( seconds ) );
+		this.#resync = resync;
 		this.#front = refs.images[ 0 ];
 		this.#back = refs.images[ 1 ];
 		this.#bind();
@@ -288,6 +320,7 @@ export class GallerySlideshow {
 		this.#trigger = trigger;
 		this.#index = 0;
 		this.#failures = 0;
+		this.#endAtBoundary = false;
 
 		// A reduced-motion visitor gets a hard cut instead of the dissolve; the
 		// preference is read per playback so a mid-session OS change is honoured.
@@ -350,6 +383,11 @@ export class GallerySlideshow {
 			return;
 		}
 		this.#playing = false;
+
+		// Invalidate any in-flight resync; a settle arriving after this stop —
+		// even into a brand-new playback — must be discarded.
+		this.#generation += 1;
+		this.#endAtBoundary = false;
 
 		// Cancel whichever timers are in flight; no advance may outlive the
 		// playback.
@@ -572,32 +610,97 @@ export class GallerySlideshow {
 
 	/**
 	 * Begins one slide's fully-visible phase: a fresh gate, the visible-time
-	 * timer, and the next slide preloading into the back image.
+	 * timer, and the next slide on its way into the back image.
 	 *
-	 * A single-image gallery has nothing to advance to — the one slide simply
-	 * stands until the visitor ends the playback.
+	 * Off the cycle boundary the next slide preloads immediately. On the
+	 * boundary — the step that wraps back to the first slide, which a
+	 * single-slide gallery reaches every visible period — the next slide is
+	 * unknown until the resync settles, so the fetch is what feeds the back
+	 * image (ADR-0011); the gate then holds the wrap exactly as it holds for
+	 * a slow image.
 	 *
 	 * @since 0.7.0
+	 * @since 0.9.0 Resyncs at the boundary; single-slide galleries cycle too.
 	 */
 	#beginVisible(): void {
+		// Arm the two-event gate and work out the upcoming step; a wrap back
+		// to the first slide is the cycle boundary where the list re-syncs.
 		this.#failures = 0;
-		if ( this.#slides.length < 2 ) {
-			return;
-		}
-
-		// Arm the two-event gate: the timer measures the fully-visible seconds
-		// (the dissolve comes on top of them), and the back image starts loading
-		// the next slide now so it is usually ready when the timer fires.
 		this.#gate = createAdvanceGate();
 		this.#pending = nextIndex( this.#index, this.#slides.length );
-		this.#load( this.#back, this.#slides[ this.#pending ] );
+		const boundary = this.#pending === 0;
+
+		// Start feeding the back image: directly off the boundary, through the
+		// settled resync on it. The dissolve comes on top of the visible
+		// seconds either way.
+		if ( boundary ) {
+			this.#beginResync();
+		} else {
+			this.#load( this.#back, this.#slides[ this.#pending ] );
+		}
+
+		// The timer measures the fully-visible seconds; at an emptied-view
+		// boundary it is also the moment the playback ends.
 		this.#timer = setTimeout( () => {
 			this.#timer = null;
+			if ( this.#endAtBoundary ) {
+				this.#stop();
+				return;
+			}
 			this.#gate = timerFired( this.#gate );
 			if ( shouldAdvance( this.#gate ) ) {
 				this.#dissolve();
 			}
 		}, this.#seconds * 1000 );
+	}
+
+	/**
+	 * Kicks off the cycle-boundary resync and routes its settlement.
+	 *
+	 * The provider never rejects — every failure mode resolves to `null` — so
+	 * the only guards here are temporal: a settle after the playback stopped,
+	 * or after a stop *and* a restart, is discarded by the generation stamp.
+	 *
+	 * @since 0.9.0
+	 */
+	#beginResync(): void {
+		const generation = this.#generation;
+		void this.#resync().then( ( fresh ) => {
+			if ( this.#playing && this.#generation === generation ) {
+				this.#applyResync( fresh );
+			}
+		} );
+	}
+
+	/**
+	 * Applies a settled resync to the playback.
+	 *
+	 * An emptied view ends the playback at the boundary — immediately when the
+	 * visible-time timer has already fired, otherwise when it does. Any other
+	 * outcome adopts the resolved list (the stale one on failure, the fresh
+	 * one otherwise) and preloads its first slide into the back image, raising
+	 * the gate's image flag when it arrives.
+	 *
+	 * @since 0.9.0
+	 *
+	 * @param fresh - The settled fetch result.
+	 */
+	#applyResync( fresh: readonly GallerySlide[] | null ): void {
+		// End on an emptied view — takedowns propagate within one cycle.
+		const { slides, end } = resolveResync( fresh, this.#slides );
+		if ( end ) {
+			this.#endAtBoundary = true;
+			if ( this.#gate.timerDone ) {
+				this.#stop();
+			}
+			return;
+		}
+
+		// Adopt the resolved list and feed its first slide to the back image;
+		// the advance gate holds the wrap until that image has arrived.
+		this.#slides = slides;
+		this.#pending = 0;
+		this.#load( this.#back, this.#slides[ 0 ] );
 	}
 
 	/**
