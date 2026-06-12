@@ -83,23 +83,6 @@
     "collection": {
       "type": "string",
       "default": ""
-    },
-    "style": {
-      "type": "object",
-      "default": {
-        "border": {
-          "color": "#808080",
-          "style": "dashed",
-          "width": "2px",
-          "radius": "4px"
-        },
-        "color": {
-          "background": "#fafaff"
-        },
-        "spacing": {
-          "padding": "2rem"
-        }
-      }
     }
   }
 }

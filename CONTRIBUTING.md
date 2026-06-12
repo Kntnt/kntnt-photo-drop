@@ -19,7 +19,7 @@ composer install   # PHP toolchain: Pest, PHPStan, PHPCS, WordPress stubs
 npm install        # block toolchain: @wordpress/scripts, @wordpress/interactivity
 ```
 
-The plugin requires **PHP 8.4+** and **WordPress 6.6+**. The blocks are built with `@wordpress/scripts`; `npm run build` compiles the TypeScript and SCSS under `src/blocks/` into the committed `build/` directory. For interactive testing against a real WordPress, use [`@wordpress/env`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/) — `npx wp-env start` boots WordPress with the plugin mounted (see [`AGENTS.md`](AGENTS.md) and [`docs/testing.md`](docs/testing.md)).
+The plugin requires **PHP 8.4+** and **WordPress 7.0+**. The blocks are built with `@wordpress/scripts`; `npm run build` compiles the TypeScript and SCSS under `src/blocks/` into the committed `build/` directory. For interactive testing against a real WordPress, use [`@wordpress/env`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/) — `npx wp-env start` boots WordPress with the plugin mounted (see [`AGENTS.md`](AGENTS.md) and [`docs/testing.md`](docs/testing.md)).
 
 ## Quality gates
 

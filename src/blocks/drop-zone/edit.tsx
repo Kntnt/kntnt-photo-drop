@@ -12,10 +12,13 @@
  * whose two buttons are the visible upload controls — each wired to the uploader by
  * an anchor-token href the view module recognises (`#kntnt-drop-zone-files` opens the
  * loose-file picker, `#kntnt-drop-zone-folder` the folder picker; ADR-0010). The
- * wrapper's seeded `style` (dashed `#808080` border, `#fafaff` background, `2rem`
- * padding) reproduces today's default look. The template is **not** locked, so a
- * site builder can relabel, restyle, reposition, or remove the controls (or any of
- * the surface); render.php replaces the placeholder with the collection's display
+ * wrapper's default dashed-box look (dashed `#808080` border, `#fafaff` background,
+ * `2rem` padding) comes from the block's stylesheet, not a `style` attribute default
+ * — a block-attribute default is never serialised, so the dynamic wrapper never
+ * received it on the front end; the border/colour/spacing supports still override it.
+ * The template is **not** locked, so a site builder can relabel, restyle, reposition,
+ * or remove the controls (or any of the surface); render.php replaces the placeholder
+ * with the collection's display
  * name at frontend render and turns the whole wrapper into the native drop-and-browse
  * uploader for a capable visitor (ADR-0006).
  *
@@ -163,8 +166,8 @@ type BlockTemplate = [ string, Record< string, unknown >?, BlockTemplate[]? ];
  * button — each wired to the uploader by an anchor-token href ({@link FILES_TOKEN},
  * {@link FOLDER_TOKEN}; ADR-0010). Seeded **directly** into the block's wrapper,
  * with no inner `core/group`, because the wrapper is itself the layout container
- * (its dashed-box look comes from the block's seeded `style` attribute and its
- * centring from the `constrained` layout support). The template is intentionally
+ * (its dashed-box look comes from the block's stylesheet and its block centring from
+ * the `constrained` layout support). The template is intentionally
  * not locked, so a builder can relabel, restyle, reposition, or remove any of it —
  * including turning the folder button back into a plain text link; the placeholder
  * and the tokens are defaults and conventions, not a contract.
@@ -177,14 +180,10 @@ const DEFAULT_TEMPLATE: readonly BlockTemplate[] = [
 		'core/heading',
 		{
 			level: 4,
-			// Centre the heading across the whole supported WordPress range. Current
-			// core/heading reads the typography support (`style.typography.textAlign`);
-			// WordPress 6.6's core/heading reads the legacy top-level `textAlign`
-			// attribute and ignores the former. Seeding both lets each version honour the
-			// one it recognises — and `createBlock` strips the attribute that is not in
-			// the running version's schema, so a modern editor keeps only
-			// `style.typography.textAlign` and the markup stays clean.
-			textAlign: 'center',
+			// Centre the heading via the typography support — how current core/heading
+			// (WordPress 7.0+, the plugin floor) represents text alignment. The legacy
+			// top-level `textAlign` attribute it used before is gone, so seeding it would
+			// be silently stripped.
 			style: { typography: { textAlign: 'center' } },
 			content: __( 'Photo Drop Zone', 'kntnt-photo-drop' ),
 		},
@@ -289,11 +288,11 @@ function formatThumbnailWidths( widths: readonly number[] ): string {
  * Renders the read-only output-contract display for the selected collection.
  *
  * A plain definition list of the four contract facets — max width, quality, format
- * (always WebP), and thumbnail width(s) — with a hint linking to the admin page
- * where the lifecycle (and thus the contract) is managed. Nothing here is
- * editable; the panel exists so a site builder can confirm what the chosen
- * collection will do to uploaded images. The admin-page link is spaced clear of
- * the definition list so it does not read as another contract row.
+ * (always WebP), and thumbnail width(s). Nothing here is editable; the panel exists
+ * so a site builder can confirm what the chosen collection will do to uploaded
+ * images. The "Manage collections" admin link is rendered separately and always by
+ * the inspector panel (issue #41), not here, so it shows even when no collection is
+ * selected.
  *
  * @since 0.5.0
  *
@@ -324,11 +323,6 @@ function ContractDisplay( {
 				<dt>{ __( 'Thumbnail width', 'kntnt-photo-drop' ) }</dt>
 				<dd>{ formatThumbnailWidths( collection.thumbnailWidths ) }</dd>
 			</dl>
-			<p className="kntnt-photo-drop-drop-zone__contract-note">
-				<ExternalLink href="admin.php?page=kntnt-photo-drop">
-					{ __( 'Manage collections', 'kntnt-photo-drop' ) }
-				</ExternalLink>
-			</p>
 		</div>
 	);
 }
@@ -492,6 +486,11 @@ export function DropZoneEdit( {
 							) }
 						</>
 					) }
+					<p className="kntnt-photo-drop-drop-zone__contract-note">
+						<ExternalLink href="admin.php?page=kntnt-photo-drop">
+							{ __( 'Manage collections', 'kntnt-photo-drop' ) }
+						</ExternalLink>
+					</p>
 				</PanelBody>
 			</InspectorControls>
 			<div { ...innerBlocksProps } />

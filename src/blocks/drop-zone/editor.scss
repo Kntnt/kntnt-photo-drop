@@ -1,9 +1,9 @@
 // Photo Drop Zone — editor-only styles.
 // The block's appearance in the canvas is its inner blocks, so there is no
 // bespoke editor preview to style. What remains is the read-only
-// output-contract display in the inspector panel: a definition list of the
-// four contract facets plus a spaced-off link to the admin page where the
-// lifecycle is managed.
+// output-contract display in the inspector panel (a definition list of the four
+// contract facets) and the always-shown "Manage collections" link to the admin
+// page where the lifecycle is managed (issue #41).
 
 .kntnt-photo-drop-drop-zone__contract {
 	margin-top: 1rem;
@@ -29,8 +29,8 @@
 		margin: 0;
 	}
 
-	// Set the "Manage collections" link clear of the contract list so it does
-	// not read as another contract row.
+	// The always-shown "Manage collections" link (issue #41). The top margin sets
+	// it clear of whatever precedes it so it never reads as a contract row.
 	&-note {
 		margin: 1.5rem 0 0;
 	}

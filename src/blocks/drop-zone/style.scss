@@ -1,9 +1,20 @@
 // Photo Drop Zone — styles shared by the editor and the frontend.
-// The block's visible appearance is its inner blocks (a centred dashed group by
-// default), so this shared baseline only needs to claim the wrapper as a block.
-// Editor-only chrome lives in editor.scss; the frontend drop surface and status
-// list live in view.scss (bundled into the view-side asset).
+// The block's visible appearance is its inner blocks inside a dashed box. The
+// default box look lives here, in the shared style asset (loaded in both the
+// editor and the front end), NOT in the block's `style` attribute default — a
+// block-attribute default is never serialised into post_content, so a dynamic
+// block's wrapper never received it on the front end (the editor merges
+// defaults and showed the box; the published page did not). Editor-only chrome
+// lives in editor.scss; the drop surface and status list live in view.scss.
 
 .kntnt-photo-drop-drop-zone {
 	display: block;
+
+	// The recognisable default drop-target box. A builder still overrides any of
+	// it through the block's border/colour/spacing supports: an inspector value
+	// serialises as an inline style, which beats these low-specificity rules.
+	padding: 2rem;
+	border: 2px dashed #808080;
+	border-radius: 4px;
+	background-color: #fafaff;
 }

@@ -96,11 +96,8 @@ test.describe( 'Editor', () => {
 		await expect( wrapper ).toContainText( 'Photo Drop Zone' );
 		await expect( wrapper ).toContainText( '{kntnt-drop-zone-collection}' );
 
-		// The seeded heading is centred whichever mechanism the running WordPress
-		// honours: current core/heading reads the typography support
-		// (style.typography.textAlign), WordPress 6.6 reads the legacy top-level
-		// textAlign attribute, and the template seeds both — so the alignment class is
-		// present on the floor and on current WordPress alike.
+		// The seeded heading is centred via the typography support — how current
+		// core/heading (WordPress 7.0+, the plugin floor) represents text alignment.
 		await expect(
 			wrapper.locator( 'h4:has-text("Photo Drop Zone")' )
 		).toHaveClass( /has-text-align-center/ );
@@ -111,14 +108,15 @@ test.describe( 'Editor', () => {
 		await expect( wrapper ).toContainText( 'Add photos' );
 		await expect( wrapper ).toContainText( 'Select a folder' );
 
-		// Assert the serialised markup directly: the heading carries a
-		// textAlign:center attribute (the modern style.typography form, the legacy
-		// top-level form, or both, depending on the running version), and the buttons
-		// serialise with the anchor-token hrefs the view module wires against on the
-		// frontend — so a regression that drops the heading centring or the token
-		// wiring is caught regardless of the WordPress version under test (ADR-0010).
+		// Assert the serialised markup directly: the heading carries its alignment as
+		// the modern typography-support attribute, and the buttons serialise with the
+		// anchor-token hrefs the view module wires against on the frontend — so a
+		// regression that drops the heading centring or the token wiring is caught
+		// (ADR-0010).
 		const content = await editor.getEditedPostContent();
-		expect( content ).toMatch( /wp:heading \{[^}]*"textAlign":"center"/ );
+		expect( content ).toContain(
+			'<!-- wp:heading {"level":4,"style":{"typography":{"textAlign":"center"}}} -->'
+		);
 		expect( content ).toContain( 'href="#kntnt-drop-zone-files"' );
 		expect( content ).toContain( 'href="#kntnt-drop-zone-folder"' );
 

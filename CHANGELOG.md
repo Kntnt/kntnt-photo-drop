@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-12
+
+### Added
+
+- The **Photo Drop Zone** block's inspector now **always** shows the **Manage collections** link to the admin page, instead of only once a collection has been selected. (#41)
+
+### Changed
+
+- **The minimum WordPress version is now 7.0** (was 6.6). The plugin tracks current WordPress and carries no compatibility code for older releases — the seeded heading uses only the current typography text-alignment mechanism, and the end-to-end suite runs against current WordPress.
+
+### Fixed
+
+- The **Photo Drop Zone**'s default appearance — the dashed box with its light background and padding — now shows on the **published page**, not only in the editor. The default was stored as a block-attribute default, which WordPress never serialises into `post_content`, so the dynamic block rendered its wrapper without it on the front end; the default now lives in the block's stylesheet (which loads on both the editor and the front end), and the block's border, colour, and spacing controls still override it.
+
 ## [0.7.1] - 2026-06-12
 
 ### Fixed
@@ -160,7 +174,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.8.0
 [0.7.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.1
 [0.7.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.6.0

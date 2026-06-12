@@ -91,6 +91,17 @@ test.describe( 'Drop Zone upload', () => {
 			page.locator( '.kntnt-photo-drop-drop-zone__folder-input' )
 		).toHaveAttribute( 'webkitdirectory', '' );
 
+		// The plugin's default dashed-box styling comes from the stylesheet, not a
+		// block-attribute default (which a dynamic block never receives on the front
+		// end), so it is actually visible on the published page — not only in the
+		// editor. This page binds the block with no custom style, so the dashed border
+		// must come from the shared style asset.
+		expect(
+			await wrapper.evaluate(
+				( el ) => getComputedStyle( el ).borderTopStyle
+			)
+		).toBe( 'dashed' );
+
 		// The "Add photos" control is the builder's own link, wired to the hidden
 		// loose-file input by its anchor-token href (ADR-0010). Clicking it must open
 		// the native file chooser; handing the fixture to that chooser drives the same
