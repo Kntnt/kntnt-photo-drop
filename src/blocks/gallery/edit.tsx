@@ -202,6 +202,7 @@ export function GalleryEdit( {
 		startPath,
 		recursive,
 		order,
+		emptyMessage,
 		layout,
 		minimumColumnWidth,
 		imageFit,
@@ -343,6 +344,26 @@ export function GalleryEdit( {
 								}
 								help={ __(
 									'When on, sub-folders are not included; only images directly in the start path show.',
+									'kntnt-photo-drop'
+								) }
+							/>
+							<TextControl
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								label={ __(
+									'Empty-gallery message',
+									'kntnt-photo-drop'
+								) }
+								value={ emptyMessage }
+								placeholder={ __(
+									'There are currently no images in the gallery. Please try again later.',
+									'kntnt-photo-drop'
+								) }
+								onChange={ ( value: string ) =>
+									setAttributes( { emptyMessage: value } )
+								}
+								help={ __(
+									'Shown to every visitor when the chosen collection has no images yet. Leave empty for the default.',
 									'kntnt-photo-drop'
 								) }
 							/>

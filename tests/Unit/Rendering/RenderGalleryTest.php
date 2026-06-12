@@ -13,9 +13,11 @@
  * flattened order is by full relative path (natural sort, asc/desc) keeping
  * folders contiguous; the start path is validated once and request-time path
  * input is ignored; layout A and B branch; captions assemble across
- * content/position/overlay; a dangling collection renders nothing for the public
- * and a notice for an editor; and every image is wrapped in its `<a href>`
- * fallback. Only the WordPress seams are stubbed; the `Repository`,
+ * content/position/overlay; a no-collection or broken reference renders nothing
+ * for the public and a notice for an editor, while an imageless-but-valid
+ * collection renders a configurable message to everyone (ADR-0012); and every
+ * image is wrapped in its `<a href>` fallback. Only the WordPress seams are
+ * stubbed; the `Repository`,
  * `Descriptor`, `Path_Guard`, `Index_Store`, and the pure helpers run for real.
  *
  * @package Kntnt\Photo_Drop
@@ -1100,7 +1102,7 @@ test( 'the none caption content emits no figcaption at all', function (): void {
 } );
 
 // ---------------------------------------------------------------------------
-// Dangling / empty collection — nothing public, a notice for an editor
+// No-collection / broken reference — nothing public, an editor notice (ADR-0012)
 // ---------------------------------------------------------------------------
 
 test( 'a dangling collection renders nothing for the public', function (): void {
@@ -1122,8 +1124,11 @@ test( 'a dangling collection renders an editor-only notice for a user who can ed
 
 	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
 
+	// A dangling reference is the broken-reference notice, not the imageless
+	// message — the public must never learn a collection is gone.
 	expect( $html )->toContain( 'kntnt-photo-drop-gallery--notice' );
 	expect( $html )->toContain( 'no collection selected' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery--empty' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -1146,7 +1151,39 @@ test( 'the dangling notice is gated on the edit_posts capability specifically', 
 	gallery_remove_tree( $basedir );
 } );
 
-test( 'an empty but valid collection renders nothing for the public', function (): void {
+test( 'an unset collection renders nothing for the public', function (): void {
+
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir, can_edit: false );
+
+	$html = Render_Gallery::render( [ 'collection' => '' ], '', gallery_block_stub() );
+
+	expect( $html )->toBe( '' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'an unset collection renders the no-collection notice for a user who can edit', function (): void {
+
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir, can_edit: true );
+
+	$html = Render_Gallery::render( [ 'collection' => '' ], '', gallery_block_stub() );
+
+	// An unset slug is the no-collection case: the editor notice prompts selection,
+	// and it is never the public imageless message.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery--notice' );
+	expect( $html )->toContain( 'no collection selected' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery--empty' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Imageless collection — a configurable message shown to everyone (ADR-0012)
+// ---------------------------------------------------------------------------
+
+test( 'an imageless but valid collection shows the default message to the public', function (): void {
 
 	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
 	$html       = render_seeded_gallery(
@@ -1157,21 +1194,31 @@ test( 'an empty but valid collection renders nothing for the public', function (
 		basedir_out: $basedir,
 	);
 
-	// A collection that resolves but holds no images is the imageless case: the
-	// public sees nothing.
-	expect( $html )->toBe( '' );
+	// A collection that resolves but holds no images is a legitimate visitor state:
+	// the public sees the default message in the --empty wrapper, not the diagnostic
+	// notice.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery--empty' );
+	expect( $html )->toContain( 'There are currently no images in the gallery. Please try again later.' );
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery--notice' );
 
 	gallery_remove_tree( $basedir );
 } );
 
-test( 'an empty collection attribute renders nothing for the public', function (): void {
+test( 'an imageless collection honours a custom emptyMessage for the public', function (): void {
 
-	$basedir = fresh_gallery_basedir();
-	wire_gallery_stubs( $basedir, can_edit: false );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$html       = render_seeded_gallery(
+		[ 'emptyMessage' => 'No snaps yet — check back after the race.' ],
+		[],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
 
-	$html = Render_Gallery::render( [ 'collection' => '' ], '', gallery_block_stub() );
-
-	expect( $html )->toBe( '' );
+	// The editor-set text wins over the translated default, and it reaches the
+	// public.
+	expect( $html )->toContain( 'No snaps yet — check back after the race.' );
+	expect( $html )->not->toContain( 'Please try again later.' );
 
 	gallery_remove_tree( $basedir );
 } );

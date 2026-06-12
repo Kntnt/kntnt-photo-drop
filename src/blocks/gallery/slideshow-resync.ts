@@ -16,10 +16,12 @@
  * to `null`, which the controller reads as "keep the stale list and retry at
  * the next boundary"; persistent failure degrades to the pre-resync
  * behaviour. A *successfully fetched* page whose gallery is gone or empty is
- * the opposite, deliberate outcome: `Render_Gallery` renders an emptied or
- * deleted collection as no wrapper at all, so a missing wrapper and a wrapper
- * with no anchors both mean "a reload would show no images" — the empty view
- * that ends the playback, so a takedown propagates within one cycle.
+ * the opposite, deliberate outcome: `Render_Gallery` renders a deleted (or
+ * otherwise broken) collection as no wrapper for the public, and an emptied
+ * but still-present one as the empty-message wrapper carrying no slide anchors
+ * (ADR-0012), so a missing wrapper and a wrapper with no anchors both mean "a
+ * reload would show no images" — the empty view that ends the playback, so a
+ * takedown propagates within one cycle.
  *
  * @since 0.9.0
  */
@@ -146,10 +148,11 @@ export function resolveResync(
  * deliberately honoured — the contract is "what a reload would show") and
  * resolves per {@link freshSlides}, except that a gallery missing from a
  * successfully fetched page resolves to the empty view rather than a failure:
- * the server renders an emptied or deleted collection as no wrapper at all
- * (ADR-0011), so "gone" and "empty" are the same takedown signal. The
- * wrapper's identity is read per call, not captured, so a designer-set anchor
- * present at call time is always preferred over the positional fallback.
+ * a deleted collection renders no wrapper and an emptied one renders the
+ * empty-message wrapper with no anchors (ADR-0011, ADR-0012), so "gone" and
+ * "empty" are the same takedown signal. The wrapper's identity is read per
+ * call, not captured, so a designer-set anchor present at call time is always
+ * preferred over the positional fallback.
  *
  * @since 0.9.0
  *
@@ -183,7 +186,8 @@ export function createResync(
 			// Resolve the wrapper's identity in the live document and read the
 			// matching gallery out of the fetched one. A gallery missing from
 			// a page that fetched fine is the empty view, not a failure: the
-			// server renders an emptied or deleted collection as no wrapper.
+			// deleted collection renders no wrapper, an emptied one a wrapper with
+			// no anchors — both read as zero slides here.
 			const index = Array.from(
 				wrapper.ownerDocument.querySelectorAll( WRAPPER_SELECTOR )
 			).indexOf( wrapper );

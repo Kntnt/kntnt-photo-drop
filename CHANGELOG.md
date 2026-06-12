@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-12
+
+### Added
+
+- The **Photo Drop Gallery** now has a configurable **empty-gallery message** — the text every visitor sees when the chosen collection has no images yet (for example, before a photographer has uploaded). It defaults to *"There are currently no images in the gallery. Please try again later."* and is editable in the block's **Collection** inspector panel; leave it empty to keep the default. (ADR-0012)
+
+### Changed
+
+- The gallery's empty-state messaging now splits by cause. A block pointing at **no collection — or a deleted or otherwise broken one** — still shows visitors nothing and a logged-in editor the notice *"This gallery has no collection selected. Choose a collection in the block settings."*, so a deletion never leaks to the public. A **real collection that simply holds no images yet** is now treated as a legitimate visitor-facing state and shows the configurable empty-gallery message **to everyone** — where previously it showed visitors nothing and editors a single combined notice. (ADR-0012)
+
 ## [0.9.0] - 2026-06-12
 
 ### Added
@@ -185,7 +195,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.8.0
 [0.7.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.7.1

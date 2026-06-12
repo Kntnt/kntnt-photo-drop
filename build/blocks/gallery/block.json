@@ -77,6 +77,10 @@
       "type": "string",
       "default": "asc"
     },
+    "emptyMessage": {
+      "type": "string",
+      "default": ""
+    },
     "layout": {
       "type": "string",
       "default": "grid"

@@ -75,6 +75,12 @@ export interface GalleryAttributes {
 	recursive: boolean;
 	/** The ordering of the flattened list: `'asc'` or `'desc'`. */
 	order: 'asc' | 'desc';
+	/**
+	 * The message shown to everyone when the chosen collection resolves but holds
+	 * no images; `''` = the translated default (ADR-0012). A broken reference (no
+	 * collection, dangling slug) shows an editor-only notice instead, not this.
+	 */
+	emptyMessage: string;
 	/** The layout mode: uniform grid or justified rows. */
 	layout: GalleryLayout;
 	/** Mode A: the minimum grid column width (a CSS length). */

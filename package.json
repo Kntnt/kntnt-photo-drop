@@ -1,6 +1,6 @@
 {
 	"name": "kntnt-photo-drop",
-	"version": "0.9.0",
+	"version": "0.10.0",
 	"description": "WordPress plugin that registers two Gutenberg blocks: a front-end bulk Photo Drop Zone that optimises images in the browser before upload, and a server-rendered Photo Gallery with a lightbox.",
 	"private": true,
 	"scripts": {

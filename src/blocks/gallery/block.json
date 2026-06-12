@@ -56,6 +56,7 @@
 		"startPath": { "type": "string", "default": "" },
 		"recursive": { "type": "boolean", "default": true },
 		"order": { "type": "string", "default": "asc" },
+		"emptyMessage": { "type": "string", "default": "" },
 		"layout": { "type": "string", "default": "grid" },
 		"minimumColumnWidth": { "type": "string", "default": "320px" },
 		"imageFit": { "type": "string", "default": "cover" },

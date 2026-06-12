@@ -14,10 +14,12 @@
  * thumbnail wrapped in `<a href="<main>.webp">` (the no-JS fallback and the clean
  * hook the Interactivity-API lightbox upgrades), and an optional caption. Two
  * layouts are supported: mode A is core's Grid layout plus a bespoke
- * aspect-ratio/fit, mode B is bespoke justified rows. A dangling or empty
- * collection renders nothing for the public and an editor-only notice for a
- * logged-in editor. The gallery needs no REST — it is pure SSR plus the view
- * module.
+ * aspect-ratio/fit, mode B is bespoke justified rows. A no-collection or broken
+ * reference (unset slug, dangling slug, unreadable descriptor, invalid start
+ * path) renders nothing for the public and an editor-only notice; a collection
+ * that resolves cleanly but holds no images renders a configurable public
+ * message instead (ADR-0012). The gallery needs no REST — it is pure SSR plus
+ * the view module.
  *
  * The justified-row math, the srcset assembly, the caption assembly, and the URL
  * arithmetic live in the pure helper classes beside this one, so the load-bearing
@@ -134,12 +136,13 @@ final class Render_Gallery {
 	/**
 	 * Returns the gallery's front-end HTML, or an empty string when nothing renders.
 	 *
-	 * Resolves the collection and reads its descriptor; an empty or dangling
+	 * Resolves the collection and reads its descriptor; an unset or dangling
 	 * reference renders nothing for the public and an editor-only notice for a
 	 * logged-in editor (the public never learns a collection is gone). Validates
 	 * the start path once against the root, walks the tree, and — when there is at
-	 * least one image — emits the gallery markup. An empty walk (a valid but
-	 * imageless start path) also yields the editor notice / public nothing.
+	 * least one image — emits the gallery markup. An empty walk (a present
+	 * collection with no images) instead renders the configurable empty message to
+	 * everyone (ADR-0012), since an imageless gallery is a legitimate visitor state.
 	 *
 	 * In editor-preview mode (the `isEditorPreview` render-time-only attribute the
 	 * editor's `ServerSideRender` sends), the walked list is capped to the first
@@ -162,13 +165,15 @@ final class Render_Gallery {
 		// its own placeholders instead of the frontend notice.
 		$is_preview = self::read_bool( $attributes, self::PREVIEW_ATTRIBUTE, false );
 
-		// Resolve the selected slug to a real collection; an empty or dangling
-		// reference is the "nothing for the public, a notice for an editor" case.
+		// Resolve the selected slug to a real collection; an unset or dangling
+		// reference is the no-collection case (nothing for the public, an editor
+		// notice). A dangling slug stays here, not in the imageless case, so the
+		// public never learns a collection is gone.
 		$slug       = self::read_string( $attributes, 'collection' );
 		$repository = new Repository();
 		$root       = $slug === '' ? null : $repository->resolve_slug( $slug );
 		if ( $root === null ) {
-			return self::empty_output( $is_preview );
+			return self::no_collection_output( $is_preview );
 		}
 
 		// Read the descriptor for the thumbnail widths the srcset needs and the
@@ -176,7 +181,7 @@ final class Render_Gallery {
 		// a degraded collection we decline to render rather than guess at.
 		$descriptor = Descriptor::read( $root );
 		if ( $descriptor === null ) {
-			return self::empty_output( $is_preview );
+			return self::no_collection_output( $is_preview );
 		}
 
 		// Validate the editor-set start path once against the collection root via
@@ -185,12 +190,12 @@ final class Render_Gallery {
 		// (ADR-0005) — so the gallery has no per-request traversal surface.
 		$start_path = self::resolve_start_path( $root, self::read_string( $attributes, 'startPath' ) );
 		if ( $start_path === null ) {
-			return self::empty_output( $is_preview );
+			return self::no_collection_output( $is_preview );
 		}
 
 		// Walk the tree (recursive or single-folder) into the flattened, ordered
-		// image list; an empty result renders as the dangling case so an imageless
-		// gallery shows the editor a notice rather than an empty frame.
+		// image list; an empty result is the imageless case — a present collection
+		// with no images, shown to everyone as the configurable empty message.
 		$recursive = self::read_bool( $attributes, 'recursive', true );
 		$order     = self::read_string( $attributes, 'order' ) === Gallery_Walker::ORDER_DESC
 			? Gallery_Walker::ORDER_DESC
@@ -198,7 +203,7 @@ final class Render_Gallery {
 		$walker = new Gallery_Walker( new Index_Store() );
 		$items  = $walker->walk( $root, self::relative_to_root( $root, $start_path ), $recursive, $order );
 		if ( $items === [] ) {
-			return self::empty_output( $is_preview );
+			return self::empty_collection_output( $is_preview, $attributes );
 		}
 
 		// In editor-preview mode, keep only the first few images so the canvas never
@@ -1376,57 +1381,97 @@ final class Render_Gallery {
 	}
 
 	/**
-	 * Maps a dangling/empty collection to the right empty render for the context.
+	 * Renders the "no usable collection" case: an editor-only notice, else nothing.
 	 *
-	 * On a frontend (non-preview) render this is the editor-only notice — the public
-	 * sees nothing, a user who can edit sees the broken-reference notice. In the
-	 * editor preview it is an empty string: the edit component's `ServerSideRender`
-	 * treats an empty response as its empty case and shows its own grey
-	 * placeholders, which is the chosen "no collection / empty / dangling" UI.
+	 * This is the no-collection / broken-reference branch — an unset slug, a
+	 * dangling slug, an unreadable descriptor, or an invalid start path. The public
+	 * (including logged-in users without `edit_posts`) sees nothing, so a visitor
+	 * never learns a collection is gone; a user who can edit sees an inline notice
+	 * prompting them to (re)select a collection. In the editor preview the response
+	 * is an empty string, which the edit component's `ServerSideRender` treats as
+	 * its empty case and replaces with its own grey placeholders.
 	 *
-	 * @since 0.4.0
+	 * @since 0.10.0
 	 *
 	 * @param bool $is_preview Whether this is the capped editor preview.
-	 * @return string The notice markup, '', or '' for the preview's placeholder case.
+	 * @return string The notice markup for an editor, or '' for the public/preview.
 	 */
-	private static function empty_output( bool $is_preview ): string {
+	private static function no_collection_output( bool $is_preview ): string {
 
-		// Hand the preview an empty response so its placeholders show; otherwise fall
-		// through to the frontend notice gated on the edit capability.
-		return $is_preview ? '' : self::dangling_output();
+		// Hand the preview an empty response (grey placeholders) and show the notice
+		// only to a user who can edit; everyone else — the public — sees nothing.
+		if ( $is_preview || ! current_user_can( 'edit_posts' ) ) {
+			return '';
+		}
+
+		return self::message_markup(
+			'notice',
+			esc_html__(
+				'This gallery has no collection selected. Choose a collection in the block settings.',
+				'kntnt-photo-drop',
+			),
+		);
 
 	}
 
 	/**
-	 * Returns the editor-only notice markup, or `''` for anyone who cannot edit.
+	 * Renders the "present collection, no images" case as a public message.
 	 *
-	 * A dangling, empty, or imageless collection renders nothing for the public —
-	 * a visitor never learns a collection is gone — but a user who can edit posts
-	 * sees an inline notice so the broken reference is visible while building the
-	 * page. The gate is the `edit_posts` capability, not mere authentication, so
-	 * a logged-in subscriber is treated as the public.
+	 * Unlike the broken-reference branch, a collection that resolves cleanly but
+	 * holds no images is a legitimate visitor-facing state (a photographer who has
+	 * not uploaded yet), not a leaked deletion — so the message is shown to
+	 * **everyone**, not gated on `edit_posts`. Its text is the editor-set
+	 * `emptyMessage`, or a translated default when that is empty, mirroring the
+	 * `slideshowButtonLabel` pattern so the default stays translatable. The editor
+	 * preview still returns an empty string so the canvas shows its grey
+	 * placeholders rather than the message.
 	 *
-	 * @since 0.6.0
-	 * @since 0.2.0 Gated on `edit_posts` instead of `is_user_logged_in()`.
+	 * @since 0.10.0
 	 *
-	 * @return string The notice markup for a user who can edit, or '' otherwise.
+	 * @param bool                $is_preview Whether this is the capped editor preview.
+	 * @param array<string,mixed> $attributes The block attributes (for `emptyMessage`).
+	 * @return string The message markup for everyone, or '' for the preview.
 	 */
-	private static function dangling_output(): string {
+	private static function empty_collection_output( bool $is_preview, array $attributes ): string {
 
-		// Show the broken-reference notice only to a user who can edit posts; the
-		// public — including logged-in users without editing rights — sees nothing.
-		if ( ! current_user_can( 'edit_posts' ) ) {
+		// The editor preview shows its own placeholders, so hand it an empty response.
+		if ( $is_preview ) {
 			return '';
 		}
-		$notice_class = 'kntnt-photo-drop-gallery kntnt-photo-drop-gallery--notice';
-		$wrapper      = get_block_wrapper_attributes( [ 'class' => $notice_class ] );
-		$notice       = esc_html__(
-			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-			'This gallery has no collection selected, or the collection has no images. Choose a collection in the block settings.',
-			'kntnt-photo-drop',
-		);
 
-		return sprintf( '<div %1$s><p>%2$s</p></div>', $wrapper, $notice );
+		// Resolve the message: the editor-set text, or the translated default when
+		// empty.
+		$message = self::read_string( $attributes, 'emptyMessage' );
+		if ( $message === '' ) {
+			$message = __(
+				'There are currently no images in the gallery. Please try again later.',
+				'kntnt-photo-drop',
+			);
+		}
+
+		return self::message_markup( 'empty', esc_html( $message ) );
+
+	}
+
+	/**
+	 * Wraps a single message line in the gallery block wrapper with a modifier.
+	 *
+	 * Both empty-state messages — the editor-only `--notice` and the public
+	 * `--empty` — share the wrapper-attributes-plus-`<p>` shape; only the modifier
+	 * class and the (already-escaped) text differ, so the markup lives in one place.
+	 *
+	 * @since 0.10.0
+	 *
+	 * @param string $modifier     The wrapper modifier suffix ('notice' or 'empty').
+	 * @param string $escaped_text The message text, already escaped for HTML.
+	 * @return string The wrapped message markup.
+	 */
+	private static function message_markup( string $modifier, string $escaped_text ): string {
+
+		$class   = 'kntnt-photo-drop-gallery kntnt-photo-drop-gallery--' . $modifier;
+		$wrapper = get_block_wrapper_attributes( [ 'class' => $class ] );
+
+		return sprintf( '<div %1$s><p>%2$s</p></div>', $wrapper, $escaped_text );
 
 	}
 

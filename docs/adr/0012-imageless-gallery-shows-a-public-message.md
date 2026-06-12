@@ -1,0 +1,19 @@
+# An imageless gallery shows a configurable public message; a broken reference stays editor-only
+
+The Gallery's empty render splits into two distinct cases by *cause*, with different audiences:
+
+- A **no-collection or broken reference** — an unset slug, a dangling slug (the collection was renamed or deleted), an unreadable descriptor, or an invalid start path — renders **nothing for the public** and an **editor-only notice** (*"This gallery has no collection selected. Choose a collection in the block settings."*), gated on `edit_posts`. This preserves the long-standing invariant that a visitor never learns a collection is gone: "gone" and "misconfigured" are build-time problems, surfaced only to someone who can fix them.
+- A collection that **resolves cleanly but holds no images** (the walk returns an empty list under a valid start path) renders a **configurable message to everyone**: *"There are currently no images in the gallery. Please try again later."* by default, overridable per-block via the new `emptyMessage` attribute (empty = the translated default, mirroring `slideshowButtonLabel`). Its text is `esc_html`-escaped and wrapped in a calm `kntnt-photo-drop-gallery--empty` box, distinct from the dashed `--notice` diagnostic.
+
+This refines [ADR-0005](0005-recursive-flatten-gallery-no-navigation.md), which lumped "dangling or empty" together as "nothing for the public, a notice for an editor." The two are no longer the same: an imageless-but-present collection is a *legitimate visitor-facing state*, not a leaked deletion.
+
+## Considered Options
+
+- **Keep the old single behaviour** (both cases editor-only, nothing for the public): rejected — the motivating scenario is a gallery wired to a collection a photographer has not filled yet (the same photo-frame / live-event case behind [ADR-0011](0011-slideshow-cycle-boundary-resync-by-page-refetch.md)). A visitor hitting that page should see "no images yet, come back later," not a blank where the gallery is. A "try again later" message that only an editor can see is worded for an audience that never receives it.
+- **Make the no-collection / dangling case public too:** rejected — it would leak that a referenced collection was deleted (or never chosen) to every visitor, which is exactly what ADR-0005's invariant exists to prevent. Only the *present-but-empty* case is safe to expose, because no deletion is being revealed.
+- **A hardcoded (non-configurable) public message:** rejected — the message is visitor-facing copy, so a site builder must be able to match it to the page's voice and language. Making it a block attribute is cheap and consistent with the block's other text fields.
+- **Treat an empty `emptyMessage` as "render nothing":** rejected for the default — an empty attribute resolves to the *translated default*, not to silence, so the imageless state is never an unexplained blank and the default stays translatable. (A builder who wants silence can still author whitespace-only copy, but that is not the default path.)
+
+## Consequences
+
+The render callback now distinguishes the two causes structurally: the slug-resolution, descriptor, and start-path guards funnel to `no_collection_output()` (editor-only), while only the empty *walk* funnels to `empty_collection_output()` (public). Both still return `''` in editor-preview mode, so the editor canvas continues to show its grey placeholders for every empty case ([ADR-0005] behaviour in the editor is unchanged). The public surface gains exactly one new string the visitor can see, and only when a real, resolvable collection happens to be empty. The slideshow's "emptied view ends the playback" rule ([ADR-0011](0011-slideshow-cycle-boundary-resync-by-page-refetch.md)) is unaffected: it keys off the *gallery markup* being absent, and the `--empty` message is a notice wrapper with no slide anchors, so a fetched page showing only the empty message still reads as "no images" to the resync.

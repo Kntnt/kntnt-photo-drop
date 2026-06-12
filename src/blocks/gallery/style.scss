@@ -256,11 +256,21 @@
 	@include nine-point-anchors("caption", 0);
 }
 
-// The editor-only notice variant reuses the wrapper, message-only.
+// The editor-only "no collection / broken reference" notice reuses the wrapper,
+// message-only. The dashed box reads as a build-time diagnostic — only a user
+// who can edit ever sees it.
 .kntnt-photo-drop-gallery--notice {
 	padding: 1em;
 	border: 1px dashed currentcolor;
 	opacity: 0.8;
+}
+
+// The public "no images yet" message — shown to every visitor when a present
+// collection holds no images (ADR-0012). A calm, centred line rather than the
+// dashed diagnostic, since it is a legitimate visitor-facing state.
+.kntnt-photo-drop-gallery--empty {
+	padding: 1em;
+	text-align: center;
 }
 
 // The editor canvas chrome around the ServerSideRender preview. The preview
