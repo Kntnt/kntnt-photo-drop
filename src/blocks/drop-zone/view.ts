@@ -51,6 +51,7 @@ import {
 	walkDroppedEntries,
 } from './folder-detect';
 import { shouldUploadFile } from './file-filter';
+import { isHiddenFile } from './hidden-file';
 import {
 	errorLabelFor,
 	isNonceRejection,
@@ -687,6 +688,15 @@ function intakeFiles(
 	const accepted: QueuedFile[] = [];
 
 	for ( const queued of files ) {
+		// Silently drop hidden OS bookkeeping a folder pick/drop sweeps up — macOS
+		// AppleDouble sidecars (`._<name>`), `.DS_Store`, and the like. These never
+		// belong to the photographer and are invisible in Finder, so they get no
+		// status row at all: a "ghost file" the photographer cannot account for is
+		// as confusing skipped as uploaded.
+		if ( isHiddenFile( queued.file.name ) ) {
+			continue;
+		}
+
 		// Deny RAW and video before upload; the row tells the photographer
 		// immediately instead of after a wasted transfer.
 		if ( ! shouldUploadFile( queued.file.name, queued.file.type ) ) {

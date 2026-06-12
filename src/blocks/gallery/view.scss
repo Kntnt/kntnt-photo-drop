@@ -122,8 +122,13 @@
 	&__prev,
 	&__next {
 		// Shared control chrome: a circular, high-contrast button over the backdrop
-		// with a comfortable touch target.
+		// with a comfortable touch target. The z-index lifts every control above the
+		// figure: the controls and the figure are positioned siblings with no z-index
+		// of their own, so they would otherwise paint in DOM order — leaving `__prev`
+		// (which precedes the figure) painted *under* the image, hidden and
+		// unclickable wherever a narrow viewport lets the image reach the left edge.
 		position: absolute;
+		z-index: 1;
 		display: flex;
 		align-items: center;
 		justify-content: center;

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-12
+
+### Fixed
+
+- The **Photo Drop Gallery**'s lightbox **previous (left) arrow is now always clickable**. On a narrow window the enlarged image could reach the left edge and overlap the arrow; because the controls were not lifted above the image in the painting order, the image both hid the left arrow and swallowed its clicks, leaving no way to step backwards (the right arrow, which paints after the image, was unaffected). The previous, next, and close controls now sit above the image at every window size.
+- Uploading a folder on macOS no longer creates **phantom uploads for hidden system files**. Beside every photo, macOS keeps an invisible `._`-prefixed sidecar file (and a `.DS_Store` per folder); because such a sidecar inherits the photo's `.JPG` name, it slipped through the Drop Zone's upload filter and was uploaded — surfacing as a "ghost file" (for example `._DSCF0012.JPG`) the photographer could not account for. Hidden files (any name beginning with a dot) are now silently ignored at intake: never uploaded, and never shown in the status list.
+
 ## [0.10.0] - 2026-06-12
 
 ### Added
@@ -195,7 +202,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.1
 [0.10.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.8.0
