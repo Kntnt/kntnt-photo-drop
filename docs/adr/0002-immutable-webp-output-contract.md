@@ -1,5 +1,7 @@
 # Immutable WebP output contract; thumbnail width is a re-derivable setting
 
+> **Amended by [ADR-0013](0013-three-rendition-model.md).** The immutable contract is now **upload width + upload quality** only; a re-derived **full image** tier joins the thumbnail, and both full and thumbnail width/quality are re-derivable, admin-editable settings. The "main is always a srcset candidate" grain-defence below becomes a full-image **display ceiling** (the main is download-only).
+
 A collection's **output contract** is exactly two lossy values fixed at establishment — **maximum width** and **compression quality** — and the stored format is **always WebP** (not a choice; inputs in other formats are accepted and converted). The contract is immutable because downscaling and re-encoding are irreversible and the original is never kept; raising the maximum later cannot retroactively enlarge already-imported images. This amends the original load-bearing invariant, which listed thumbnail width as part of the immutable contract.
 
 ## Considered Options

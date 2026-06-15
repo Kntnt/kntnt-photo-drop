@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **Design and specifications only — not yet implemented in code.** Settled a major planned redesign across `CONTEXT.md`, `design.md`, `blocks.md`, and the ADRs: the collection model moves from two renditions (main + thumbnail) to a **three-rendition model** — main / full / thumbnail — narrowing the immutable output contract to upload width + quality and making the full and thumbnail settings re-derivable and admin-editable (ADR-0013); the Drop Zone's immutable "uploader folders" boolean becomes a **mutable path-components template** (`%year%/%month%/%day%/%uploader%`), retiring flat-at-root placement (ADR-0014); the gallery's separate captions and download icon are replaced by a **unified overlay system** (breadcrumbs, download, add-to-media, trash) over a new capability-gated REST write-path, gallery ordering becomes a pre-order tree traversal, and every capability check becomes filterable (ADR-0015); and the Drop Zone gains a progress-bar upload UI with cancel and retry. ADRs 0002/0003/0005/0008 carry amendment banners pointing to the new decisions.
 ## [0.10.1] - 2026-06-12
 
 ### Fixed

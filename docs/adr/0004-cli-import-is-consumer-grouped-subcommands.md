@@ -1,5 +1,7 @@
 # CLI: grouped subcommands; `import` is a pure consumer
 
+> **Flags amended by [ADR-0013](0013-three-rendition-model.md) and [ADR-0014](0014-path-components-template.md).** `collection create` now takes the upload/full/thumbnail rendition flags and `--path-components` instead of `--max-width`/`--quality`/`--uploader-folders`; `collection update` additionally mutates `--path-components` and the re-derivable full/thumbnail flags and rejects only the upload pair. The grouping and "import is a consumer" decisions below stand.
+
 The WP-CLI surface is grouped by object with verb subcommands — `collection {create, update, delete, doctor}` and `image {import, delete}` — following WordPress's own pattern (`wp post create`, `wp db check`). **`import` requires an existing collection and carries no contract flags**: it reads the target collection's descriptor and optimises to that contract, making it a pure consumer just like the blocks. Establishing a collection (fixing the immutable contract) is the *only* job of `collection create`, which is the one deliberate CLI place a contract is set.
 
 ## Considered Options

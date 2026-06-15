@@ -1,5 +1,7 @@
 # Gallery is recursive-flatten; no in-gallery folder navigation
 
+> **Amended by [ADR-0015](0015-gallery-overlays-and-rest-write-path.md).** Flattened ordering is now a **pre-order tree traversal** (a folder's own images before its subfolders), not natural-sort over the full relative path. The path/breadcrumb caption referenced below is replaced by the unified overlay system in the same ADR.
+
 The Gallery block targets a collection (slug) plus an optional **start path** (default the collection root), both set in the editor, and renders **all images under that path recursively as one flattened gallery**. There are no clickable folder tiles and no in-gallery drill-down navigation; to present folders separately, the editor places multiple Gallery blocks and uses WordPress's native page composition (headings, layout) between them. A photographer's folder structure is usually incidental filing, not a viewer-facing taxonomy, so building a file-browser inside a block would reinvent navigation against the server-rendered model.
 
 ## Considered Options

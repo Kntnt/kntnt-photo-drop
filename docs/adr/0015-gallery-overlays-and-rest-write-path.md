@@ -1,0 +1,24 @@
+# Unified gallery overlays and a gallery REST write-path
+
+The Gallery block's separate caption and download-icon settings are replaced by a **unified overlay system of four overlays — breadcrumbs, download, add-to-media, trash** — and the gallery, until now pure server-side rendering with no REST surface, **gains a nonce- and capability-gated REST write-path** for the two action overlays. Image ordering also changes from natural-sort-by-path to a **pre-order tree traversal**, which amends ADR-0005.
+
+## The overlay model
+
+Each overlay has one **visibility** (Off / Thumbnail / Full / Both), one nine-point **position**, and one shared **appearance**, applied identically wherever it shows — there is no per-surface divergence. "Thumbnail" is the grid tile; "Full" is the lightbox image and requires the lightbox to be on; the **slideshow shows no overlays at all** (it stays passive per ADR-0009 — a deliberate change from the old mirrored caption). Foreground and background come from the block-support Colour panel (one shared foreground and one shared background across every overlay), the breadcrumb font from the Typography support, the icon size from one bespoke `iconSize`, and each image's border and shadow from the Border/Shadow supports.
+
+Breadcrumbs replace the caption entirely: the first crumb is the collection's display name, segments are always humanised, a hide-count drops leading crumbs, and overflow is handled by a **pure-CSS single-line leading ellipsis that keeps the tail** (RTL-aware via `direction`) — not a JavaScript fitter, since on thumbnails overflow is the common case and a per-element measurement loop is not worth its cost. Because breadcrumbs occupy a whole horizontal band, the editor enforces **mutual exclusion** between the breadcrumb's band and the icon positions; multiple icons sharing a position auto-cluster into a fixed-order row.
+
+## The REST write-path, and add-to-media as a copy
+
+The two action overlays are server-side writes, so the gallery acquires a **nonce + capability gated REST surface**, rendered (like the Drop Zone) only for capable users. This ends the gallery's "pure SSR, needs no REST" property — a deliberate cost of in-gallery actions, not a regression of the read path, which stays pure SSR.
+
+- **Add-to-media copies; it does not link.** The action sideloads the **main image** into the Media Library as an ordinary, independent attachment (WordPress generates its own sub-sizes). Linking instead — letting the Media Library own the file and leaving a symlink in the collection — was explicitly rejected: it reintroduces exactly what ADR-0001 forbids (a database row plus an out-of-collection file backing a collection image — the rejected "Media-Library-backed mode"), collides with ADR-0003's symlink-skipping walk and ADR-0006's `realpath` confinement, couples two lifecycles with two-way deletion failures, and breaks the portability of a self-contained collection. Symlinks are also fragile across the WordPress hosting ecosystem (object-storage offload, backup/migration tools, `FollowSymLinks`). A hardlink would preserve the invariants but its storage saving evaporates on the first backup or migration, so it is not worth the complexity. A plain copy keeps the collection image and the Media Library item genuinely independent, each free to be edited or deleted without touching the other.
+- **Trash is a permanent delete.** Gated by `kntnt_photo_drop_delete_capability` (default `delete_others_posts`, the closest core analog to "can delete others' media in the Library"), it removes the main image and all its derived artifacts, reusing the `image delete` path. There is no recycle bin — collection images are plain files, not posts — so an inline-popover confirm is the only safety, and the tile is removed live on success.
+
+## Ordering — amends ADR-0005
+
+Flattened ordering changes from natural-sort over the full relative path to a **pre-order tree traversal**: a folder's own images first (natural sort), then each subfolder (natural sort), each subfolder fully explored before the next is visited — so top-level images precede subfolder contents instead of interleaving by string comparison. Descending reverses the sort within each level while preserving the own-images-before-subfolders structure (so date-based path components naturally surface the newest folders first).
+
+## The capability-filter rule
+
+Established alongside these features as a project-wide rule: **every capability check in the plugin reads from a `kntnt_photo_drop_*_capability` filter**, each defaulting to a sensible WordPress-standard capability (`upload_files`, `manage_options`, `edit_posts`, `delete_others_posts`, and the new `add_to_media` gate). A site can re-gate any action without touching code.

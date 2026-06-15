@@ -1,5 +1,7 @@
 # On-disk collection layout
 
+> **Amended by [ADR-0013](0013-three-rendition-model.md).** `collection.json` now carries the six-field rendition shape (`uploadWidth/uploadQuality/fullWidth/fullQuality/thumbnailWidth/thumbnailQuality`, no `thumbnailWidths` array) plus `pathComponents` ([ADR-0014](0014-path-components-template.md)). The full image is stored as just another width under `.kntnt-thumbnails/`. The index (`{ file, width, height }`) is unchanged.
+
 A collection's **identity is its directory slug** (relative to the uploads root); the human display name lives in the descriptor. A main image is stored as `<original-filename>.webp` (the original name is preserved and `.webp` appended, except an already-`.webp` input is not doubled), which is collision-free by construction on the case-sensitive Linux server and reversible to the original name. Every content folder holds its visible main `*.webp` images plus one **visible `collection.json`** (descriptor, at the collection root only) and one **hidden `.kntnt-thumbnails/`** directory that corrals all *regenerable* artifacts — the thumbnails (`.kntnt-thumbnails/<width>/<name>.webp`) and that folder's `index.json`.
 
 ## Considered Options
