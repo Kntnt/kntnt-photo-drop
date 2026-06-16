@@ -1,14 +1,32 @@
 /**
- * The bounded, cancellable Drop Zone upload queue — STUB (RED).
+ * The bounded, cancellable Drop Zone upload queue.
  *
- * Inert so the failing tests fail on real assertions, not an import error.
- * Replaced by the real queue in the GREEN step.
+ * A several-hundred-file batch must keep the link busy without opening a socket
+ * per file, must let the photographer abandon it mid-flight without losing what
+ * already uploaded, and must let them re-run only the files that failed. This
+ * queue owns that coordination (issue #44): it holds at most
+ * {@link MAX_CONCURRENT_UPLOADS} uploads in flight, pulls the next the moment a
+ * slot frees, and dedupes each file by its source-relative path — the key the
+ * server recreates sub-directories from — so a duplicate drop never
+ * double-uploads. `cancel()` aborts every in-flight upload and clears the
+ * pending backlog so the queue drains to idle (the `beforeunload` guard stands
+ * down) while the already-uploaded files stay on disk; `retry()` re-queues
+ * exactly the files handed to it, re-admitting keys the dedup set had already
+ * seen.
+ *
+ * The per-file processor is injected as an {@link UploadHandle}-returning
+ * function, so the queue owns no XHR, no DOM, and no Interactivity coupling —
+ * a deep, narrow seam Jest covers with a controllable fake (the live wiring in
+ * `view.ts` supplies the real `XMLHttpRequest`-based processor).
  *
  * @since 0.11.0
  */
 
 /**
  * One file queued for upload, paired with the relative path to send for it.
+ *
+ * The relative path is the file's dedup key and the field the server recreates
+ * sub-directories from; a loose file's path is its plain name.
  *
  * @since 0.11.0
  */
@@ -20,40 +38,165 @@ export interface QueuedFile {
 /**
  * A handle on one in-flight upload — the queue holds it to abort on Cancel.
  *
+ * `abort()` cancels the underlying request; `settled` resolves once the file
+ * has reached a terminal state (uploaded, skipped, or failed) — and, crucially,
+ * resolves on an aborted upload too, so a cancelled batch still drains the
+ * in-flight count to zero and the queue can report idle.
+ *
  * @since 0.11.0
  */
 export interface UploadHandle {
-	/** Aborts the in-flight request; the settle promise still resolves. */
 	readonly abort: () => void;
-	/** Resolves when the file has settled (uploaded, skipped, or failed). */
 	readonly settled: Promise< void >;
 }
 
 /**
- * The queue's external interface — enqueue, retry a failed set, cancel.
+ * The queue's external interface — enqueue a batch, retry a failed set, cancel.
  *
  * @since 0.11.0
  */
 export interface UploadQueue {
+	/**
+	 * Adds a batch, dropping any file whose relative path was already seen.
+	 *
+	 * @param files - The files to upload, each paired with its relative path.
+	 */
 	enqueue( files: readonly QueuedFile[] ): void;
+
+	/**
+	 * Re-queues exactly the given files, re-admitting their already-seen keys.
+	 *
+	 * The Retry-failed path: a previously-settled file is run again, so the
+	 * dedup set must not swallow it. A cancelled queue is reactivated.
+	 *
+	 * @param files - The failed files to run again.
+	 */
 	retry( files: readonly QueuedFile[] ): void;
+
+	/**
+	 * Aborts every in-flight upload and clears the pending backlog.
+	 *
+	 * Already-uploaded files stay on disk; the queue drains to idle as the
+	 * aborted uploads settle, so the caller's `beforeunload` guard stands down.
+	 */
 	cancel(): void;
 }
 
 /**
- * Creates the upload queue — STUB (RED).
+ * The number of uploads allowed in flight at once.
+ *
+ * Each file is still one request; this only bounds how many of those requests
+ * overlap. Four keeps a fast link busy through the per-file convert→encode
+ * latency without opening a socket per file in a several-hundred-file batch.
+ *
+ * @since 0.11.0
+ */
+const MAX_CONCURRENT_UPLOADS = 4;
+
+/**
+ * Creates the bounded, cancellable upload queue over an injected processor.
+ *
+ * The `process` function is called once per file and returns the handle the
+ * queue holds to abort the upload on Cancel; its `settled` promise drives the
+ * concurrency accounting. The `onBusy` callback flips true as the first file of
+ * a batch starts and false once the queue empties (including after a cancel),
+ * so the caller can arm and disarm the `beforeunload` guard.
  *
  * @since 0.11.0
  *
- * @return An inert queue that uploads nothing.
+ * @param process - Starts one upload and returns its abortable handle.
+ * @param onBusy  - Called with the busy state as the queue starts and empties.
+ * @return The queue handle.
  */
 export function createUploadQueue(
-	_process: ( queued: QueuedFile ) => UploadHandle,
-	_onBusy: ( busy: boolean ) => void
+	process: ( queued: QueuedFile ) => UploadHandle,
+	onBusy: ( busy: boolean ) => void
 ): UploadQueue {
+
+	// The pending backlog, the keys already admitted (for dedup), the handles
+	// of the uploads currently in flight (for Cancel), and the two flags that
+	// track whether a batch is draining and whether Cancel has stopped it.
+	const pending: QueuedFile[] = [];
+	const seen = new Set< string >();
+	const inFlight = new Set< UploadHandle >();
+	let draining = false;
+	let cancelled = false;
+
+	// Pull files into free slots until the limit is reached or the backlog is
+	// empty; when both the backlog and the in-flight set are empty the batch is
+	// done and the guard can stand down. A cancelled queue starts nothing.
+	const pump = (): void => {
+		while (
+			! cancelled &&
+			inFlight.size < MAX_CONCURRENT_UPLOADS &&
+			pending.length > 0
+		) {
+			const next = pending.shift();
+			if ( ! next ) {
+				break;
+			}
+			const handle = process( next );
+			inFlight.add( handle );
+			void handle.settled.finally( () => {
+				inFlight.delete( handle );
+				if ( pending.length === 0 && inFlight.size === 0 ) {
+					draining = false;
+					onBusy( false );
+				} else {
+					pump();
+				}
+			} );
+		}
+	};
+
+	// Admit a batch: drop any key already seen this mount (a duplicate would
+	// double-upload the same bytes), then push the survivors and start draining
+	// if the queue was idle. Used by both enqueue and retry, which differ only
+	// in whether they pre-clear the dedup set.
+	const admit = ( files: readonly QueuedFile[] ): void => {
+		const fresh = files.filter( ( queued ) => {
+			if ( seen.has( queued.relativePath ) ) {
+				return false;
+			}
+			seen.add( queued.relativePath );
+			return true;
+		} );
+		if ( fresh.length === 0 ) {
+			return;
+		}
+
+		pending.push( ...fresh );
+		if ( ! draining ) {
+			draining = true;
+			onBusy( true );
+		}
+		pump();
+	};
+
 	return {
-		enqueue: () => undefined,
-		retry: () => undefined,
-		cancel: () => undefined,
+		enqueue: ( files ) => admit( files ),
+
+		retry: ( files ) => {
+			// Re-admit the failed keys and lift the cancel stop so the pump runs
+			// again; the dedup set would otherwise reject these already-seen
+			// files, which is exactly what Retry must override.
+			for ( const queued of files ) {
+				seen.delete( queued.relativePath );
+			}
+			cancelled = false;
+			admit( files );
+		},
+
+		cancel: () => {
+			// Stop the pump, forget the backlog, and abort every in-flight
+			// upload; the aborted uploads still resolve their settled promise,
+			// so the finally-handler drains the in-flight count to zero and
+			// fires onBusy(false). Already-uploaded files are untouched on disk.
+			cancelled = true;
+			pending.length = 0;
+			for ( const handle of inFlight ) {
+				handle.abort();
+			}
+		},
 	};
 }
