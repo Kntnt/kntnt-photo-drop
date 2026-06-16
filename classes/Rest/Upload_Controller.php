@@ -11,13 +11,13 @@
  * uploaded bytes and the attacker-controlled `relativePath` to the shared
  * `Ingestor`, which `Path_Guard`-confines the path, re-enforces the output
  * contract through the `Optimizer`, writes the main plus the derived renditions,
- * and never touches the index. The descriptor's mutable `pathComponents` template
- * (ADR-0014) replaces the retired `uploaderFolders` boolean; its server-side
- * expansion — the year/month/day/uploader prefix prepended ahead of the client
- * path — is a separate concern (issue #48), so until then the client path is
- * ingested as given. The per-file response carries the `Ingest_Outcome`
- * (`stored | skipped | reencoded | rejected`) so one bad file is a per-file
- * rejection, never a batch abort (ADR-0006).
+ * and never touches the index. Before ingestion it expands the descriptor's
+ * mutable `pathComponents` template (ADR-0014) server-side and prepends it ahead
+ * of the client path: `%year%/%month%/%day%` from the upload instant in the site
+ * timezone and `%uploader%` from the authenticated user's nicename, both derived
+ * here so neither can be spoofed. The per-file response carries the
+ * `Ingest_Outcome` (`stored | skipped | reencoded | rejected`) so one bad file is
+ * a per-file rejection, never a batch abort (ADR-0006).
  *
  * @package Kntnt\Photo_Drop
  * @since   0.4.0
@@ -28,6 +28,8 @@ declare( strict_types = 1 );
 namespace Kntnt\Photo_Drop\Rest;
 
 use Kntnt\Photo_Drop\Collection\Image_Name;
+use Kntnt\Photo_Drop\Collection\Path_Guard;
+use Kntnt\Photo_Drop\Collection\Path_Template;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Ingestion\Ingest_Outcome;
 use Kntnt\Photo_Drop\Ingestion\Ingest_Result;
@@ -245,13 +247,26 @@ class Upload_Controller {
 			return new \WP_Error( 'kntnt_photo_drop_no_file', $message, [ 'status' => 400 ] );
 		}
 
-		// Read the client relative target. The descriptor's mutable pathComponents
-		// template (ADR-0014) replaces the retired uploader-folders boolean, and its
-		// server-side expansion — the year/month/day/uploader prefix prepended ahead
-		// of this path — is a separate concern (issue #48); until then the client
-		// path is ingested as given, still subject to the Path_Guard confinement the
-		// Ingestor applies to the whole assembled path.
-		$relative_path = $this->read_relative_path( $request );
+		// Reject a lexically hostile client path before it is prepended with the
+		// template prefix: a caller-supplied relative path that is absolute, carries
+		// a scheme, a backslash, a NUL, or a `..` traversal yields no write and a
+		// rejected outcome, never a file silently confined to a literal `etc/passwd`
+		// folder under the prefix. This reuses the guard's lexical half (the same
+		// unit save-time validation uses) as defence in depth ahead of the assembled
+		// path's full confinement inside the Ingestor.
+		$client_path = $this->read_relative_path( $request );
+		if ( ! Path_Guard::is_lexically_safe( $client_path ) ) {
+			Plugin::warning( "Rejected a lexically unsafe upload path for collection {$slug}: {$client_path}." );
+			return $this->respond( Ingest_Result::rejected( $client_path ) );
+		}
+
+		// Expand the descriptor's mutable pathComponents template server-side and
+		// prepend it ahead of the client relative target (ADR-0014): the date comes
+		// from the upload instant in the site timezone, the uploader from the
+		// authenticated user's nicename — both derived here, never client-named — so
+		// the placement cannot be spoofed. The whole assembled path is then
+		// Path_Guard-confined inside the Ingestor as well.
+		$relative_path = $this->placement_path( $descriptor, $client_path );
 
 		// Build the per-collection ingestor; construction throws when no PHP codec
 		// on the host can encode WebP — a server misconfiguration, not a client
@@ -268,11 +283,104 @@ class Upload_Controller {
 			return new \WP_Error( 'kntnt_photo_drop_no_codec', $message, [ 'status' => 500 ] );
 		}
 
-		// Drive the shared ingestion path: confine the relative target, re-enforce
+		// Drive the shared ingestion path: confine the assembled target, re-enforce
 		// the contract, write the main plus thumbnails, leave the index untouched.
 		$result = $ingestor->ingest( $source_bytes, $relative_path );
 
 		return $this->respond( $result );
+
+	}
+
+	/**
+	 * Assembles the placement path: the expanded template prefix plus the client path.
+	 *
+	 * Expands the descriptor's `pathComponents` template (ADR-0014) and prepends it
+	 * ahead of the caller-supplied source-relative path, preserving the
+	 * dropped-folder hierarchy after the prefix. Every Drop Zone upload nests under
+	 * at least the template — there is no flat-at-root placement — so an empty
+	 * client path still lands under the prefix. The result is the raw relative
+	 * target the `Ingestor`'s `Path_Guard` confines; the placeholder values are safe
+	 * by construction (dates are digits, the nicename is `sanitize_title`'d), so the
+	 * upload-time guard is belt-and-suspenders over an already-safe prefix.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param Descriptor $descriptor    The collection descriptor carrying the template.
+	 * @param string     $relative_path The caller-supplied source-relative path.
+	 * @return string The assembled relative target (prefix + client path).
+	 */
+	private function placement_path( Descriptor $descriptor, string $relative_path ): string {
+
+		// Expand the template; an empty expansion (a degenerate template) leaves the
+		// client path unprefixed, and a non-empty prefix is joined ahead of it with
+		// a single separator, the client path's own leading separators trimmed so the
+		// join never doubles up.
+		$prefix = Path_Template::expand(
+			$descriptor->path_components,
+			$this->upload_date(),
+			$this->uploader_nicename(),
+		);
+		$client = ltrim( $relative_path, '/' );
+		if ( $prefix === '' ) {
+			return $client;
+		}
+
+		return $client === '' ? $prefix : $prefix . '/' . $client;
+
+	}
+
+	/**
+	 * Returns the upload instant as a date in the site timezone.
+	 *
+	 * The `%year%`/`%month%`/`%day%` placeholders are a human-facing folder, so the
+	 * date is taken in the site timezone (`wp_timezone()`), not UTC (ADR-0014). The
+	 * instant itself comes from the overridable `upload_timestamp()` seam so a test
+	 * can freeze it; production stamps each upload with the current time.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @return \DateTimeImmutable The upload moment in the site timezone.
+	 */
+	private function upload_date(): \DateTimeImmutable {
+		return ( new \DateTimeImmutable( '@' . $this->upload_timestamp() ) )->setTimezone( wp_timezone() );
+	}
+
+	/**
+	 * Returns the upload instant as a Unix timestamp — the test clock seam.
+	 *
+	 * Protected so a test subclass can pin the instant and make the expanded
+	 * date-folder deterministic; production returns the wall-clock time at which the
+	 * upload is handled.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @return int The Unix timestamp of this upload.
+	 */
+	protected function upload_timestamp(): int {
+		return time();
+	}
+
+	/**
+	 * Resolves the `%uploader%` segment from the authenticated user, server-side.
+	 *
+	 * Reads the current user's `user_nicename` — already `sanitize_title`'d by
+	 * WordPress, so it is a safe path segment — never a client-supplied value, so
+	 * the placement cannot be spoofed (ADR-0014). A logged-out request or an empty
+	 * nicename (which the upload gate's `upload_files` capability should preclude)
+	 * falls back to `user-<id>`, so the segment is always a non-empty, safe folder
+	 * name.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @return string The uploader path segment.
+	 */
+	private function uploader_nicename(): string {
+
+		// Prefer the server-derived nicename; fall back to the numeric id (prefixed
+		// so it reads as a folder) when the nicename is empty.
+		$user     = wp_get_current_user();
+		$nicename = is_string( $user->user_nicename ) ? $user->user_nicename : '';
+		return $nicename !== '' ? $nicename : 'user-' . $user->ID;
 
 	}
 

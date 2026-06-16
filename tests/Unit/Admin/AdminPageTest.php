@@ -19,6 +19,7 @@ declare( strict_types = 1 );
 
 use Brain\Monkey\Functions;
 use Kntnt\Photo_Drop\Admin\Admin_Page;
+use Kntnt\Photo_Drop\Collection\Path_Template;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Tests\Unit\Fixtures\Admin_Page_Halt;
@@ -239,12 +240,158 @@ test( 'the create form has no format field and no uploader-folders field', funct
 	$html = (string) ob_get_clean();
 
 	// The renditions never expose a format choice (always WebP); the retired
-	// uploader-folders boolean is gone (replaced by the pathComponents template,
-	// not on the create form), so neither input name appears.
+	// uploader-folders boolean is gone (replaced by the path-components template),
+	// so neither input name appears.
 	expect( $html )->not->toContain( 'name="format"' );
 	expect( $html )->not->toContain( 'name="uploader_folders"' );
 
 	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Path components field + live preview on the Create form (ADR-0014)
+// ---------------------------------------------------------------------------
+
+test( 'the create form renders a path-components field with the default as placeholder', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_render_stubs( $basedir );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The Path components field is present; its placeholder shows the default
+	// template so a blank field documents what it falls back to (ADR-0014).
+	expect( $html )->toContain( 'name="path_components"' );
+	expect( $html )->toContain( 'placeholder="' . Descriptor::DEFAULT_PATH_COMPONENTS . '"' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form renders a live expanded-path preview with sample values', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_render_stubs( $basedir );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// A preview element is rendered, seeded with the default template's sample
+	// expansion so the builder sees the resulting path shape immediately; a data
+	// attribute hooks the JS that updates it as the field is typed (ADR-0014).
+	expect( $html )->toContain( 'data-kntnt-photo-drop-path-preview' );
+	expect( $html )->toContain( Path_Template::sample_expansion( Descriptor::DEFAULT_PATH_COMPONENTS ) );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'create stores a normalised path-components template from the form field', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	$page    = new Admin_Page( new Repository() );
+
+	// The submitted template is normalised and stored; edge and repeated separators
+	// collapse (ADR-0014).
+	$created = $page->create_collection( 'placed', 'Placed', admin_renditions(), '/events/%year%//' );
+
+	expect( $created )->toBeTrue();
+	expect( Descriptor::read( $root . 'placed' )->path_components )->toBe( 'events/%year%' );
+
+	admin_remove_tree( $basedir );
+} );
+
+test( 'create defaults the path-components template when the field is blank', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	$page    = new Admin_Page( new Repository() );
+
+	// A blank field means the default template — there is no flat-at-root placement
+	// (ADR-0014).
+	$page->create_collection( 'blank-template', 'Blank', admin_renditions(), '' );
+
+	$descriptor = Descriptor::read( $root . 'blank-template' );
+	expect( $descriptor->path_components )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
+
+	admin_remove_tree( $basedir );
+} );
+
+test( 'create rejects an invalid path-components template and writes nothing', function ( string $template ): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	( new Repository() )->get_root();
+	$page = new Admin_Page( new Repository() );
+
+	// A stray `%` or an unsafe ("..") template is rejected before any directory is
+	// made (ADR-0014).
+	$created = $page->create_collection( 'rejected', 'Rejected', admin_renditions(), $template );
+
+	expect( $created )->toBeFalse();
+	expect( glob( $root . '*', GLOB_ONLYDIR ) )->toBe( [] );
+
+	admin_remove_tree( $basedir );
+} )->with( [
+	'stray percent' => [ '%year%/%moth%' ],
+	'traversal'     => [ '%year%/../../escape' ],
+] );
+
+test( 'handle_create reads the path-components field from the POST', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+
+	// The handler needs the request guard, nonce, and redirect stubs; it reads the
+	// path-components field from $_POST alongside the rendition fields.
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( 'check_admin_referer' )->justReturn( true );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'set_transient' )->justReturn( true );
+	Functions\when( 'get_settings_errors' )->justReturn( [] );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
+	);
+	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
+	Functions\when( 'wp_safe_redirect' )->alias(
+		static function (): void {
+			throw new Admin_Page_Halt();
+		}
+	);
+
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'              => 'posted-template',
+		'name'              => 'Posted Template',
+		'path_components'   => '%year%/%uploader%',
+		'upload_width_mode' => 'limit',
+		'upload_width'      => '1920',
+		'upload_quality'    => '90',
+		'full_width'        => '1600',
+		'full_quality'      => '82',
+		'thumbnail_width'   => '480',
+		'thumbnail_quality' => '70',
+	];
+
+	try {
+		$page->handle_create();
+	} catch ( Admin_Page_Halt ) {
+		$noop = true;
+	}
+
+	expect( Descriptor::read( $root . 'posted-template' )->path_components )->toBe( '%year%/%uploader%' );
+
+	$_POST = [];
 	admin_remove_tree( $basedir );
 } );
 
@@ -351,16 +498,34 @@ test( 'a collection with an unreadable descriptor still lists by slug and keeps 
 	}
 } );
 
-test( 'the page stylesheet is added on this admin page only', function (): void {
+test( 'the page assets — stylesheet and preview script — are added on this admin page only', function (): void {
 	Functions\when( '__' )->returnArg( 1 );
 	Functions\when( 'apply_filters' )->alias( static fn ( string $hook, mixed $value ): mixed => $value );
 	Functions\when( 'add_submenu_page' )->justReturn( 'media_page_kntnt-photo-drop' );
+	Functions\when( 'wp_json_encode' )->alias(
+		static fn ( mixed $data ): string|false => json_encode( $data )
+	);
 
-	// Record every wp_add_inline_style call so the scoping can be asserted.
-	$captured = [];
+	// Record every style and script call so the scoping and the preview wiring can
+	// both be asserted.
+	$styles  = [];
+	$scripts = [];
+	$inline  = [];
 	Functions\when( 'wp_add_inline_style' )->alias(
-		static function ( string $handle, string $css ) use ( &$captured ): bool {
-			$captured[] = [ $handle, $css ];
+		static function ( string $handle, string $css ) use ( &$styles ): bool {
+			$styles[] = [ $handle, $css ];
+			return true;
+		}
+	);
+	Functions\when( 'wp_register_script' )->justReturn( true );
+	Functions\when( 'wp_enqueue_script' )->alias(
+		static function ( string $handle ) use ( &$scripts ): void {
+			$scripts[] = $handle;
+		}
+	);
+	Functions\when( 'wp_add_inline_script' )->alias(
+		static function ( string $handle, string $data ) use ( &$inline ): bool {
+			$inline[] = $data;
 			return true;
 		}
 	);
@@ -368,16 +533,22 @@ test( 'the page stylesheet is added on this admin page only', function (): void 
 	$page = new Admin_Page( new Repository() );
 	$page->register_menu();
 
-	// A foreign screen gets nothing; the page's own hook suffix gets the rules
-	// for the header gap and the right-aligned actions column.
+	// A foreign screen gets nothing — no style and no script.
 	$page->enqueue_styles( 'edit.php' );
-	expect( $captured )->toBe( [] );
+	expect( $styles )->toBe( [] );
+	expect( $scripts )->toBe( [] );
 
+	// The page's own hook gets the list-table CSS and the live-preview script, the
+	// latter carrying its sample config and the placeholder-substitution logic.
 	$page->enqueue_styles( 'media_page_kntnt-photo-drop' );
-	expect( $captured )->toHaveCount( 1 );
-	expect( $captured[0][0] )->toBe( 'common' );
-	expect( $captured[0][1] )->toContain( 'margin-top' );
-	expect( $captured[0][1] )->toContain( 'kntnt-photo-drop-actions' );
+	expect( $styles )->toHaveCount( 1 );
+	expect( $styles[0][0] )->toBe( 'common' );
+	expect( $styles[0][1] )->toContain( 'margin-top' );
+	expect( $styles[0][1] )->toContain( 'kntnt-photo-drop-actions' );
+	expect( $scripts )->toHaveCount( 1 );
+	expect( implode( "\n", $inline ) )->toContain( 'kntntPhotoDropPathPreview' );
+	expect( implode( "\n", $inline ) )->toContain( 'data-kntnt-photo-drop-path-preview' );
+	expect( implode( "\n", $inline ) )->toContain( Path_Template::SAMPLE_UPLOADER );
 } );
 
 // ---------------------------------------------------------------------------
@@ -752,14 +923,123 @@ test( 'update rewrites only the display name and preserves the contract', functi
 
 	$updated = $page->update_collection( 'trip', 'Field Trip 2024', false );
 
-	// Only the name changed; the upload contract and the derived renditions carry
-	// over untouched.
+	// Only the name changed; the upload contract, the derived renditions, and the
+	// placement template carry over untouched (a null template means carry over).
 	expect( $updated )->toBeTrue();
 	$descriptor = Descriptor::read( $root . 'trip' );
 	expect( $descriptor->name )->toBe( 'Field Trip 2024' );
 	expect( $descriptor->upload_width )->toBe( 1280 );
 	expect( $descriptor->upload_quality )->toBe( 70 );
+	expect( $descriptor->path_components )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
 
+	admin_remove_tree( $basedir );
+} );
+
+test( 'update mutates the path-components template, normalised', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	seed_admin_collection( $root, 'placed', 'Placed', 1280, 70 );
+	$page = new Admin_Page( new Repository() );
+
+	// The template is mutable (ADR-0014); submitting a new one rewrites it,
+	// normalised, while leaving the immutable upload contract untouched.
+	$updated = $page->update_collection( 'placed', 'Placed', false, '/events/%year%/' );
+
+	expect( $updated )->toBeTrue();
+	$descriptor = Descriptor::read( $root . 'placed' );
+	expect( $descriptor->path_components )->toBe( 'events/%year%' );
+	expect( $descriptor->upload_width )->toBe( 1280 );
+
+	admin_remove_tree( $basedir );
+} );
+
+test( 'update rejects an invalid path-components template and writes nothing', function ( string $template ): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	seed_admin_collection( $root, 'guarded', 'Guarded', 1024, 60 );
+	$before = file_get_contents( $root . 'guarded/' . Descriptor::FILENAME );
+	$page   = new Admin_Page( new Repository() );
+
+	// A stray `%` or an unsafe template is rejected at save, leaving the descriptor
+	// byte-identical (ADR-0014).
+	$updated = $page->update_collection( 'guarded', 'Guarded', false, $template );
+
+	expect( $updated )->toBeFalse();
+	expect( file_get_contents( $root . 'guarded/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	admin_remove_tree( $basedir );
+} )->with( [
+	'stray percent' => [ '%year%/%moth%' ],
+	'traversal'     => [ '%year%/../../x' ],
+] );
+
+test( 'the edit form renders an editable path-components field and a live preview', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	seed_admin_collection( $root, 'editable', 'Editable', 1440, 65 );
+	$page = new Admin_Page( new Repository() );
+
+	$_GET = [
+		'page'       => Admin_Page::MENU_SLUG,
+		'action'     => 'edit',
+		'collection' => 'editable',
+	];
+
+	ob_start();
+	$page->render_page();
+	$html = (string) ob_get_clean();
+
+	$_GET = [];
+
+	// Path components is editable on the Edit form (it affects only future uploads),
+	// pre-filled with the stored template, and accompanied by the live preview; the
+	// upload-contract fields remain disabled (ADR-0014).
+	expect( $html )->toContain( 'name="path_components"' );
+	expect( $html )->toContain( 'value="' . Descriptor::DEFAULT_PATH_COMPONENTS . '"' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-path-preview' );
+
+	admin_remove_tree( $basedir );
+} );
+
+test( 'handle_update reads and applies the path-components field', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	seed_admin_collection( $root, 'posted-edit', 'Posted Edit', 1920, 80 );
+
+	// The handler needs the guard, nonce, and redirect stubs; it reads the
+	// path-components field from $_POST alongside the display name.
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( 'check_admin_referer' )->justReturn( true );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'set_transient' )->justReturn( true );
+	Functions\when( 'get_settings_errors' )->justReturn( [] );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
+	);
+	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
+	Functions\when( 'wp_safe_redirect' )->alias(
+		static function (): void {
+			throw new Admin_Page_Halt();
+		}
+	);
+
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'            => 'posted-edit',
+		'name'            => 'Posted Edit',
+		'path_components' => '%year%/%uploader%',
+	];
+
+	try {
+		$page->handle_update();
+	} catch ( Admin_Page_Halt ) {
+		$noop = true;
+	}
+
+	expect( Descriptor::read( $root . 'posted-edit' )->path_components )->toBe( '%year%/%uploader%' );
+
+	$_POST = [];
 	admin_remove_tree( $basedir );
 } );
 

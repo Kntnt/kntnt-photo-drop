@@ -223,6 +223,80 @@ test( 'a symlink that stays inside the root is accepted', function (): void {
 } )->skip( ! function_exists( 'symlink' ), 'symlink() is unavailable in this environment.' );
 
 // ---------------------------------------------------------------------------
+// Lexical checks — the filesystem-free half, reused at save time (#48, ADR-0014)
+// ---------------------------------------------------------------------------
+
+test( 'is_lexically_safe rejects every lexically hostile path with no filesystem', function ( string $hostile ): void {
+
+	// The lexical half runs the pure string checks (decode, NUL/control, scheme,
+	// backslash, absolute, `..`) with no realpath and no root — so it needs no
+	// existing collection directory and can vet a template at save time. Every
+	// lexically hostile input is rejected outright.
+	expect( Path_Guard::is_lexically_safe( $hostile ) )->toBeFalse();
+
+} )->with( [
+	'parent traversal'            => [ '../secret' ],
+	'deep traversal'              => [ '../../../../etc/passwd' ],
+	'traversal mid-path'          => [ 'a/../../b' ],
+	'trailing traversal'          => [ 'album/..' ],
+	'lone traversal'              => [ '..' ],
+	'absolute unix'               => [ '/etc/passwd' ],
+	'absolute root'               => [ '/' ],
+	'windows drive'               => [ 'C:\\Windows\\System32' ],
+	'windows backslash traversal' => [ '..\\..\\secret' ],
+	'unc path'                    => [ '\\\\server\\share\\file' ],
+	'backslash separator'         => [ 'a\\b' ],
+	'file scheme'                 => [ 'file:///etc/passwd' ],
+	'php scheme'                  => [ 'php://filter/resource=x' ],
+	'http scheme'                 => [ 'http://evil.example/x' ],
+	'encoded traversal'           => [ '%2e%2e%2fsecret' ],
+	'encoded traversal slash'     => [ '..%2fsecret' ],
+	'double-encoded traversal'    => [ '%252e%252e%252fsecret' ],
+	'encoded backslash'           => [ 'a%5c..%5cb' ],
+	'overlong leading slash'      => [ '%2fetc%2fpasswd' ],
+	'nul byte'                    => [ "album\0/passwd" ],
+	'encoded nul byte'            => [ 'album%00/passwd' ],
+	'control character'           => [ "album\x01/passwd" ],
+] );
+
+test( 'is_lexically_safe accepts a benign relative path with no filesystem', function ( string $benign ): void {
+
+	// A benign relative path passes the lexical gate; no root or temp directory is
+	// constructed, proving the check stands alone for save-time validation.
+	expect( Path_Guard::is_lexically_safe( $benign ) )->toBeTrue();
+
+} )->with( [
+	'empty'           => [ '' ],
+	'single dot'      => [ '.' ],
+	'leading dot'     => [ './album' ],
+	'single segment'  => [ 'album' ],
+	'nested'          => [ '2024/summer/beach' ],
+	'redundant slash' => [ 'a//b/./c' ],
+	'unicode segment' => [ 'Ñoño/日本語' ],
+	'dotted file'     => [ 'a.b.c.jpg.webp' ],
+] );
+
+test( 'is_lexically_safe agrees with resolve on the same hostile inputs', function ( string $hostile ): void {
+
+	// The lexical gate must never accept what the full guard rejects on lexical
+	// grounds: an input the full resolve() rejects (for a lexical reason, not a
+	// symlink escape) is also rejected by is_lexically_safe(), so the two are not a
+	// duplicated lint — resolve() reuses the lexical part.
+	$root = make_temp_root();
+	expect( ( new Path_Guard( $root ) )->resolve( $hostile ) )->toBeNull();
+	expect( Path_Guard::is_lexically_safe( $hostile ) )->toBeFalse();
+	remove_tree( $root );
+
+} )->with( [
+	'parent traversal' => [ '../secret' ],
+	'absolute'         => [ '/etc/passwd' ],
+	'backslash'        => [ 'a\\b' ],
+	'scheme'           => [ 'file:///x' ],
+	'encoded nul'      => [ 'album%00/x' ],
+	'double-encoded'   => [ '%252e%252e%252fx' ],
+] );
+
+// ---------------------------------------------------------------------------
 // Confinement invariant — every accepted path is inside the root
 // ---------------------------------------------------------------------------
 

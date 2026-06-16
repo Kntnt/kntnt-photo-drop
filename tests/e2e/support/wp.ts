@@ -51,22 +51,29 @@ export function uniqueSlug( label: string ): string {
 /**
  * Creates a collection with the suite's standard upload contract (1920 px, q80).
  *
- * The full and thumbnail renditions and the path-components template take their
- * documented defaults (ADR-0013, ADR-0014).
+ * The full and thumbnail renditions take their documented defaults (ADR-0013).
+ * The path-components template defaults too, unless a caller pins one — a Drop
+ * Zone placement test passes a deterministic `%uploader%` template so the stored
+ * path is fixed (no date folder) and assertable (ADR-0014).
  *
  * @since 0.2.0
  *
- * @param slug - The collection slug.
+ * @param slug           - The collection slug.
+ * @param pathComponents - An optional placement template, or '' for the default.
  */
-export function createCollection( slug: string ): void {
-	wpCli( [
+export function createCollection( slug: string, pathComponents = '' ): void {
+	const args = [
 		'kntnt-photo-drop',
 		'collection',
 		'create',
 		slug,
 		'--upload-width=1920',
 		'--upload-quality=80',
-	] );
+	];
+	if ( pathComponents !== '' ) {
+		args.push( `--path-components=${ pathComponents }` );
+	}
+	wpCli( args );
 }
 
 /**
@@ -152,11 +159,10 @@ export function siteUrl( pathname: string ): string {
  *
  * Collections live under `wp_upload_dir()` at
  * `uploads/kntnt-photo-drop/<slug>/`, and a stored main is the original
- * filename with `.webp` appended (ADR-0003). A Drop Zone upload lands at its
- * source-relative path; once the `pathComponents` template is expanded
- * server-side (issue #48) it will sit under a leading expanded segment, so the
- * caller may pass that segment to address the prefixed location (empty until
- * then).
+ * filename with `.webp` appended (ADR-0003). A Drop Zone upload sits under the
+ * expanded `pathComponents` prefix (ADR-0014), so the caller passes that prefix
+ * as `leadingFolder` to address the placed location; a CLI import writes flat at
+ * the root, so it passes ''.
  *
  * @since 0.2.0
  *

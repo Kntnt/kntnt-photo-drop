@@ -28,6 +28,7 @@ namespace Kntnt\Photo_Drop\Admin;
 
 use Kntnt\Photo_Drop\Cli\Collection_Input;
 use Kntnt\Photo_Drop\Collection\Image_Name;
+use Kntnt\Photo_Drop\Collection\Path_Template;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Plugin;
 use Kntnt\Photo_Drop\Storage\Descriptor;
@@ -87,6 +88,19 @@ final class Admin_Page {
 	 * @var string
 	 */
 	private const NOTICE_SLUG = 'kntnt_photo_drop_admin';
+
+	/**
+	 * The inline-only script handle for the live path-components preview.
+	 *
+	 * Registered with no source file (`false`) and carries only the preview's
+	 * config and body as inline scripts, so the create/edit Path components field's
+	 * expanded-path preview updates as the field is typed without shipping a
+	 * separate asset (ADR-0014).
+	 *
+	 * @since 0.7.0
+	 * @var string
+	 */
+	private const PREVIEW_HANDLE = 'kntnt-photo-drop-path-preview';
 
 	/**
 	 * The literal "Upload width" form value that maps to "source dimensions" (`null`).
@@ -190,13 +204,18 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Adds the page's small stylesheet on this admin screen only.
+	 * Adds the page's small stylesheet and the live path-preview script, scoped
+	 * to this admin screen only.
 	 *
-	 * Wired to `admin_enqueue_scripts`. The rules are the presentation the list
-	 * markup should not carry inline: the vertical gap between the page header
-	 * and the list table, and the right-aligned, non-wrapping actions column.
-	 * They ride the always-present `common` admin stylesheet as inline CSS, so
-	 * no extra stylesheet request is made for a few rules.
+	 * Wired to `admin_enqueue_scripts`. The CSS is the presentation the list markup
+	 * should not carry inline (the header gap and the right-aligned actions column),
+	 * riding the always-present `common` stylesheet so no extra request is made. The
+	 * script powers the create/edit Path components field's live expanded-path
+	 * preview (ADR-0014): it substitutes the four placeholders with the same sample
+	 * values the server-rendered initial preview uses (passed as config so PHP stays
+	 * the single source of truth), updating the preview as the field is typed. The
+	 * preview is presentational only — no safety logic — and the field renders a
+	 * correct preview even with the script absent.
 	 *
 	 * @since 0.4.0
 	 *
@@ -217,6 +236,80 @@ final class Admin_Page {
 			. ' .kntnt-photo-drop-actions { text-align: right; white-space: nowrap; }',
 		);
 
+		// Register an inline-only handle and attach the live path-preview script,
+		// fed the sample tokens and the default template so the JS substitution
+		// matches Path_Template::sample_expansion() exactly.
+		wp_register_script( self::PREVIEW_HANDLE, false, [], '0.7.0', true );
+		wp_enqueue_script( self::PREVIEW_HANDLE );
+		wp_add_inline_script( self::PREVIEW_HANDLE, $this->preview_config_script(), 'before' );
+		wp_add_inline_script( self::PREVIEW_HANDLE, $this->preview_script() );
+
+	}
+
+	/**
+	 * Builds the `var` config the preview script reads.
+	 *
+	 * Emits the sample placeholder values and the default template as a JSON object
+	 * so the client substitution mirrors `Path_Template::sample_expansion()` without
+	 * duplicating the sample tokens in JavaScript — PHP remains the single source of
+	 * truth for them.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @return string The `var kntntPhotoDropPathPreview = {…};` declaration.
+	 */
+	private function preview_config_script(): string {
+
+		// Mirror Path_Template's sample tokens and default so the JS preview matches
+		// the server-rendered one exactly.
+		$config = [
+			'defaultTemplate' => Descriptor::DEFAULT_PATH_COMPONENTS,
+			'samples'         => [
+				'year'     => Path_Template::SAMPLE_YEAR,
+				'month'    => Path_Template::SAMPLE_MONTH,
+				'day'      => Path_Template::SAMPLE_DAY,
+				'uploader' => Path_Template::SAMPLE_UPLOADER,
+			],
+		];
+
+		return 'var kntntPhotoDropPathPreview = ' . wp_json_encode( $config ) . ';';
+
+	}
+
+	/**
+	 * Returns the live path-preview script body.
+	 *
+	 * A small, dependency-free script: it finds the path-components input and its
+	 * preview element, and on each input event substitutes the four known
+	 * placeholders with the configured sample values (a blank field previews the
+	 * default template), leaving literals and unknown tokens verbatim — exactly as
+	 * the save-time validation will see them. It carries no safety logic; rejection
+	 * is the server's job.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @return string The preview script source.
+	 */
+	private function preview_script(): string {
+		return <<<'JS'
+			( function () {
+				var config = window.kntntPhotoDropPathPreview || { defaultTemplate: '', samples: {} };
+				var input = document.querySelector( '[data-kntnt-photo-drop-path-input]' );
+				var preview = document.querySelector( '[data-kntnt-photo-drop-path-preview]' );
+				if ( ! input || ! preview ) {
+					return;
+				}
+				var expand = function ( template ) {
+					var effective = template.trim() === '' ? config.defaultTemplate : template;
+					return effective.replace( /%(year|month|day|uploader)%/g, function ( match, name ) {
+						return config.samples[ name ];
+					} );
+				};
+				input.addEventListener( 'input', function () {
+					preview.textContent = expand( input.value );
+				}, { passive: true } );
+			} )();
+			JS;
 	}
 
 	/**
@@ -240,11 +333,13 @@ final class Admin_Page {
 		// are text; the six rendition fields are read as raw strings and parsed by
 		// the shared Collection_Input below. The upload-width radio picks between an
 		// explicit pixel ceiling and the "source dimensions" choice, mapped to the
-		// same `none` → null spelling the CLI uses. The nonce is verified in
+		// same `none` → null spelling the CLI uses. The path-components field is read
+		// raw for the placement-template gate. The nonce is verified in
 		// guard_request() above, before any field is read.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified in guard_request().
 		$slug              = $this->read_string( $_POST, 'slug' );
 		$name              = $this->read_string( $_POST, 'name' );
+		$path_components   = $this->read_string( $_POST, 'path_components' );
 		$upload_width_mode = $this->read_string( $_POST, 'upload_width_mode' );
 		$renditions        = [
 			'upload-width'      => $upload_width_mode === self::NO_LIMIT_VALUE
@@ -259,7 +354,7 @@ final class Admin_Page {
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		// Run the decision logic and redirect back to the list with its notice.
-		$this->create_collection( $slug, $name, $renditions );
+		$this->create_collection( $slug, $name, $renditions, $path_components );
 		$this->redirect_to_list();
 
 	}
@@ -279,11 +374,13 @@ final class Admin_Page {
 		// Authorise and verify before touching any field.
 		$this->guard_request( self::ACTION_UPDATE );
 
-		// Read and sanitise the slug and the only mutable field, the display name.
-		// The nonce is verified in guard_request() above, before any field is read.
+		// Read and sanitise the slug, the display name, and the mutable placement
+		// template. The nonce is verified in guard_request() above, before any field
+		// is read.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified in guard_request().
-		$slug = $this->read_string( $_POST, 'slug' );
-		$name = $this->read_string( $_POST, 'name' );
+		$slug            = $this->read_string( $_POST, 'slug' );
+		$name            = $this->read_string( $_POST, 'name' );
+		$path_components = $this->read_string( $_POST, 'path_components' );
 
 		// The raw POST keys are inspected so the handler can detect a tampered
 		// contract field and reject it server-side, even though the form renders
@@ -291,8 +388,10 @@ final class Admin_Page {
 		$tampered = $this->has_contract_field( array_keys( $_POST ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
-		// Run the decision logic and redirect back to the list with its notice.
-		$this->update_collection( $slug, $name, $tampered );
+		// Run the decision logic and redirect back to the list with its notice. The
+		// edit form always submits the template field, so it is passed (not null):
+		// a blank field resets it to the default.
+		$this->update_collection( $slug, $name, $tampered, $path_components );
 		$this->redirect_to_list();
 
 	}
@@ -329,21 +428,29 @@ final class Admin_Page {
 	 * The GUI counterpart of `collection create`. The slug must be a valid,
 	 * unused slug; the six rendition fields are parsed by the shared
 	 * `Collection_Input` (so the upload width's `none` → null form and the 0–100
-	 * quality bounds match the CLI). On success it creates the directory and writes
-	 * `collection.json` with the three-rendition shape and the default
-	 * path-components template (whose editing is a later issue). Each failure queues
-	 * a precise error notice and returns without a partial write. Returns whether
-	 * the collection was established, so a test can assert the effect without
-	 * reading the notice queue.
+	 * quality bounds match the CLI); the placement template is normalised and
+	 * validated by the shared `Descriptor::normalize_path_components()` gate (a
+	 * blank field means the default, a stray `%` or an unsafe template is rejected;
+	 * ADR-0014). On success it creates the directory and writes `collection.json`
+	 * with the three-rendition shape and the validated template. Each failure
+	 * queues a precise error notice and returns without a partial write. Returns
+	 * whether the collection was established, so a test can assert the effect
+	 * without reading the notice queue.
 	 *
 	 * @since 0.5.0
 	 *
-	 * @param string               $slug       The collection identity to create.
-	 * @param string               $name       The optional display name; humanised from the slug when empty.
-	 * @param array<string,string> $renditions The six raw rendition values keyed by flag name (e.g. `upload-width`).
+	 * @param string               $slug            The collection identity to create.
+	 * @param string               $name            The optional display name; humanised from the slug when empty.
+	 * @param array<string,string> $renditions      The six raw rendition values keyed by flag name.
+	 * @param string               $path_components The raw placement template; blank means the default (ADR-0014).
 	 * @return bool True when the collection was established.
 	 */
-	public function create_collection( string $slug, string $name, array $renditions ): bool {
+	public function create_collection(
+		string $slug,
+		string $name,
+		array $renditions,
+		string $path_components = ''
+	): bool {
 
 		// Reject a malformed slug up front so the user gets the same lexical
 		// contract the rest of the plugin enforces.
@@ -359,6 +466,14 @@ final class Admin_Page {
 		// any directory is made. Only the upload pair is the irreversible contract.
 		$renditions = $this->parse_renditions( $renditions );
 		if ( $renditions === null ) {
+			return false;
+		}
+
+		// Normalise and validate the placement template; a blank field means the
+		// default, and a stray `%` or an unsafe template queues an error and aborts
+		// before any directory is made (ADR-0014).
+		$template = $this->validate_path_components( $path_components );
+		if ( $template === null ) {
 			return false;
 		}
 
@@ -378,8 +493,7 @@ final class Admin_Page {
 		}
 
 		// Write the descriptor that turns the bare directory into a collection,
-		// carrying all three rendition tiers and the default path-components template
-		// (its editing is a later issue).
+		// carrying all three rendition tiers and the validated placement template.
 		$descriptor = new Descriptor(
 			$display_name,
 			$renditions['upload_width'],
@@ -388,7 +502,7 @@ final class Admin_Page {
 			$renditions['full_quality'],
 			$renditions['thumbnail_width'],
 			$renditions['thumbnail_quality'],
-			Descriptor::DEFAULT_PATH_COMPONENTS,
+			$template,
 		);
 		if ( ! $descriptor->write( $path ) ) {
 			$this->add_error(
@@ -554,29 +668,73 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Renames a collection, rewriting only the descriptor's mutable display name.
+	 * Normalises and validates the placement template, queuing an error on rejection.
 	 *
-	 * The GUI counterpart of `collection update`. The display name is the single
-	 * mutable field; the output contract is immutable, so a tampered request that
-	 * carries a contract field is rejected before anything is written — the user
-	 * must never believe a frozen contract was changed. The slug must resolve to
-	 * an existing collection with a readable descriptor; on success the descriptor
-	 * is rewritten with only `name` replaced. Returns whether the rename happened.
+	 * Thin wrapper over the shared `Descriptor::normalize_path_components()` gate so
+	 * the admin page rejects the same templates the CLI does: a blank field becomes
+	 * the default, a stray `%` (the `%`-reservation) or a template whose sample
+	 * expansion fails the `Path_Guard` lexical checks queues a precise error and
+	 * returns `null` so the caller aborts before any write (ADR-0014).
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $raw The raw placement template from the form field.
+	 * @return string|null The normalised template, or null when rejected.
+	 */
+	private function validate_path_components( string $raw ): ?string {
+
+		// Defer to the shared gate; a false return is a rejection the user must see
+		// named rather than have silently coerced.
+		$template = Descriptor::normalize_path_components( $raw );
+		if ( $template === false ) {
+			$this->add_error(
+				sprintf(
+					/* translators: %s: the comma-separated list of recognised placeholder tokens. */
+					__( 'Invalid path components: use only %s, and no “..” or absolute path.', 'kntnt-photo-drop' ),
+					'%year%, %month%, %day%, %uploader%',
+				),
+			);
+			return null;
+		}
+
+		return $template;
+
+	}
+
+	/**
+	 * Updates a collection's mutable fields — the display name and placement template.
+	 *
+	 * The GUI counterpart of `collection update`. The display name and the
+	 * placement template are the mutable fields; the output contract is immutable,
+	 * so a tampered request that carries a contract field is rejected before
+	 * anything is written — the user must never believe a frozen contract was
+	 * changed. An explicit `$path_components` is normalised and validated by the
+	 * shared gate (a stray `%` or an unsafe template is rejected; ADR-0014), while a
+	 * `null` carries the current template over so a plain rename never disturbs it.
+	 * The slug must resolve to an existing collection with a readable descriptor; on
+	 * success the descriptor is rewritten with the name and template replaced.
+	 * Returns whether the update happened.
 	 *
 	 * @since 0.5.0
 	 *
-	 * @param string $slug              The collection identity to rename.
-	 * @param string $name              The new, non-empty display name.
-	 * @param bool   $carries_contract  Whether the request tampered in a contract field.
-	 * @return bool True when the display name was rewritten.
+	 * @param string      $slug             The collection identity to update.
+	 * @param string      $name             The new, non-empty display name.
+	 * @param bool        $carries_contract Whether the request tampered in a contract field.
+	 * @param string|null $path_components  The raw placement template, or null to carry over.
+	 * @return bool True when the descriptor was rewritten.
 	 */
-	public function update_collection( string $slug, string $name, bool $carries_contract ): bool {
+	public function update_collection(
+		string $slug,
+		string $name,
+		bool $carries_contract,
+		?string $path_components = null
+	): bool {
 
 		// Refuse any immutable-contract field before doing anything else: the user
 		// must not walk away believing a frozen contract was altered.
 		if ( $carries_contract ) {
 			$this->add_error(
-				__( 'The output contract is immutable; only the display name can be changed.', 'kntnt-photo-drop' ),
+				__( 'The output contract is immutable; only the display name and path components can be changed.', 'kntnt-photo-drop' ), // phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 			);
 			return false;
 		}
@@ -598,7 +756,7 @@ final class Admin_Page {
 		}
 
 		// Read the current descriptor so the rewrite preserves the immutable
-		// contract values exactly and touches only the name.
+		// contract values exactly and touches only the mutable fields.
 		$current = Descriptor::read( $path );
 		if ( $current === null ) {
 			$this->add_error(
@@ -607,10 +765,21 @@ final class Admin_Page {
 			return false;
 		}
 
-		// Rewrite the descriptor with only the name replaced; the immutable upload
-		// contract, the re-derivable full/thumbnail pairs, and the path-components
-		// template all carry over untouched (their editable re-derive flow is a
-		// later issue).
+		// Resolve the placement template: an explicit value is normalised and
+		// validated (a rejection aborts before any write), while a null carries the
+		// current template over so a plain rename leaves it untouched (ADR-0014).
+		$template = $current->path_components;
+		if ( $path_components !== null ) {
+			$template = $this->validate_path_components( $path_components );
+			if ( $template === null ) {
+				return false;
+			}
+		}
+
+		// Rewrite the descriptor with the name and the (possibly mutated) placement
+		// template replaced; the immutable upload contract and the re-derivable
+		// full/thumbnail pairs carry over untouched (their editable re-derive flow is
+		// a later issue).
 		$updated = new Descriptor(
 			$name,
 			$current->upload_width,
@@ -619,7 +788,7 @@ final class Admin_Page {
 			$current->full_quality,
 			$current->thumbnail_width,
 			$current->thumbnail_quality,
-			$current->path_components,
+			$template,
 		);
 		if ( ! $updated->write( $path ) ) {
 			$this->add_error(
@@ -835,13 +1004,13 @@ final class Admin_Page {
 	 * Renders the create-collection form.
 	 *
 	 * The GUI counterpart of `collection create`: a slug, an optional display name,
-	 * and the six rendition fields — the immutable upload width/quality contract and
-	 * the re-derivable full and thumbnail width/quality pairs — each pre-filled from
-	 * its `kntnt_photo_drop_default_*` filter via `Rendition_Defaults`. The upload
-	 * width offers an explicit "Original dimensions" choice. There is deliberately no
-	 * format field (always WebP); the mutable path-components template is not on the
-	 * create form (its editing is a later issue). A prominent irreversibility warning
-	 * sits above the two upload-contract fields only.
+	 * the mutable placement template (with a live expanded-path preview), and the
+	 * six rendition fields — the immutable upload width/quality contract and the
+	 * re-derivable full and thumbnail width/quality pairs — each pre-filled from its
+	 * `kntnt_photo_drop_default_*` filter via `Rendition_Defaults`. The upload width
+	 * offers an explicit "Original dimensions" choice. There is deliberately no
+	 * format field (always WebP). A prominent irreversibility warning sits above the
+	 * two upload-contract fields only.
 	 *
 	 * @since 0.5.0
 	 */
@@ -873,6 +1042,11 @@ final class Admin_Page {
 		echo '<input name="name" id="kntnt-photo-drop-name" type="text" class="regular-text" />';
 		echo '<p class="description">' . esc_html( $name_help ) . '</p>';
 		echo '</td></tr>';
+
+		// Path components — optional placement template; blank uses the default. An
+		// empty value field lets the placeholder document the default, and the live
+		// preview shows the resulting path shape.
+		$this->render_path_components_field( '' );
 
 		echo '</tbody></table>';
 
@@ -1028,13 +1202,65 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Renders the edit (rename) form for one collection.
+	 * Renders the Path components field plus its live expanded-path preview.
 	 *
-	 * Only the display name is editable; the six rendition fields — the immutable
-	 * upload width/quality, the re-derivable full and thumbnail width/quality, and
-	 * the always-WebP format — are shown disabled with a note (their editable
-	 * re-derive flow is a later issue). An unknown slug shows an error and a link
-	 * back to the list.
+	 * Shared by the create and edit forms (ADR-0014). The text input carries the
+	 * stored value (blank on create, so the placeholder documents the default
+	 * template), and a sibling element shows the template expanded with sample
+	 * values so the builder sees the resulting path shape. The preview is
+	 * presentational only — it carries no safety logic; the save-time gate is what
+	 * accepts or rejects a template. The `data-kntnt-photo-drop-path-preview` and
+	 * `data-kntnt-photo-drop-path-input` hooks let the inline admin script update
+	 * the preview as the field is typed, and the field renders a correct initial
+	 * preview with no JS at all.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $value The stored template to pre-fill (empty on create).
+	 */
+	private function render_path_components_field( string $value ): void {
+
+		// Resolve the sample values and the initial preview: a blank field previews
+		// the default template, a present one previews itself, so the preview always
+		// reflects what would be stored.
+		$default = Descriptor::DEFAULT_PATH_COMPONENTS;
+		$preview = Path_Template::sample_expansion( $value === '' ? $default : $value );
+		$label   = __( 'Path components', 'kntnt-photo-drop' );
+		$help    = sprintf(
+			/* translators: %s: the comma-separated list of recognised placeholder tokens. */
+			__( 'Where Drop Zone uploads are placed. Blank uses the default. Placeholders: %s.', 'kntnt-photo-drop' ),
+			'%year%, %month%, %day%, %uploader%',
+		);
+
+		// Render the labelled text input carrying the sample-token list and the
+		// default as its placeholder, the live preview line, and the help text.
+		echo '<tr><th scope="row">';
+		echo '<label for="kntnt-photo-drop-path-components">' . esc_html( $label ) . '</label></th><td>';
+		printf(
+			'<input name="path_components" id="kntnt-photo-drop-path-components" type="text" class="regular-text code"'
+			. ' value="%s" placeholder="%s" data-kntnt-photo-drop-path-input />',
+			esc_attr( $value ),
+			esc_attr( $default ),
+		);
+		printf(
+			'<p class="description">%s <code data-kntnt-photo-drop-path-preview>%s</code></p>',
+			esc_html__( 'Example path:', 'kntnt-photo-drop' ),
+			esc_html( $preview ),
+		);
+		echo '<p class="description">' . esc_html( $help ) . '</p>';
+		echo '</td></tr>';
+
+	}
+
+	/**
+	 * Renders the edit form for one collection.
+	 *
+	 * The display name and the placement template are editable (the template
+	 * affects only future uploads, so it is safe to change; ADR-0014); the six
+	 * rendition fields — the immutable upload width/quality, the re-derivable full
+	 * and thumbnail width/quality, and the always-WebP format — are shown disabled
+	 * with a note (their editable re-derive flow is a later issue). An unknown slug
+	 * shows an error and a link back to the list.
 	 *
 	 * @since 0.5.0
 	 *
@@ -1066,12 +1292,17 @@ final class Admin_Page {
 		echo '<tr><th scope="row">' . esc_html__( 'Slug', 'kntnt-photo-drop' ) . '</th>';
 		echo '<td><code>' . esc_html( $slug ) . '</code></td></tr>';
 
-		// Display name — the only editable field.
+		// Display name — editable.
 		$name_label = __( 'Display name', 'kntnt-photo-drop' );
 		echo '<tr><th scope="row"><label for="kntnt-photo-drop-name">' . esc_html( $name_label ) . '</label></th><td>';
 		echo '<input name="name" id="kntnt-photo-drop-name" type="text" class="regular-text" value="';
 		echo esc_attr( $descriptor->name ) . '" required />';
 		echo '</td></tr>';
+
+		// Path components — editable; it affects only future uploads, so it is safe
+		// to change (ADR-0014). Pre-filled with the stored template and shown with
+		// the live preview.
+		$this->render_path_components_field( $descriptor->path_components );
 
 		echo '</tbody></table>';
 
@@ -1102,7 +1333,7 @@ final class Admin_Page {
 		$this->render_disabled_row( __( 'Format', 'kntnt-photo-drop' ), __( 'WebP', 'kntnt-photo-drop' ) );
 		echo '</tbody></table>';
 
-		submit_button( __( 'Save display name', 'kntnt-photo-drop' ) );
+		submit_button( __( 'Save changes', 'kntnt-photo-drop' ) );
 		$this->render_cancel_link();
 		echo '</form>';
 

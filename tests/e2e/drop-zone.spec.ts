@@ -35,8 +35,10 @@ test.describe( 'Drop Zone upload', () => {
 
 	test.beforeAll( async ( { requestUtils } ) => {
 		// Seed an empty collection and publish a page with the drop-zone
-		// block bound to it.
-		createCollection( slug );
+		// block bound to it. A deterministic `%uploader%`-only template keeps the
+		// uploaded file's placement fixed (no date folder), so the stored URL is
+		// assertable: the admin's uploads land under `<slug>/admin/` (ADR-0014).
+		createCollection( slug, '%uploader%' );
 		const created = await requestUtils.createPage( {
 			title: `E2E Drop Zone ${ slug }`,
 			content:
@@ -126,11 +128,11 @@ test.describe( 'Drop Zone upload', () => {
 			status.locator( '.kntnt-photo-drop-drop-zone__retry' )
 		).toHaveCount( 0 );
 
-		// Server truth: until the pathComponents template is expanded
-		// server-side (issue #48), the upload lands at its source-relative path
-		// beneath the collection root and is served from there, as WebP.
+		// Server truth: the pathComponents template is expanded server-side
+		// (ADR-0014), so with the `%uploader%` template the upload lands under
+		// `<slug>/admin/` and is served from there, as WebP.
 		const stored = await page.request.get(
-			storedImageUrl( slug, FIXTURE_ALPHA )
+			storedImageUrl( slug, FIXTURE_ALPHA, 'admin' )
 		);
 		expect( stored.ok() ).toBeTruthy();
 		expect( stored.headers()[ 'content-type' ] ).toContain( 'image/webp' );
