@@ -1,14 +1,16 @@
 <?php
 /**
- * Derives a main image's thumbnail(s) into the hidden artifacts directory.
+ * Derives a main image's full and thumbnail renditions into the hidden corral.
  *
- * For each configured thumbnail width, the thumbnailer downscales the stored
- * main and writes `<folder>/.kntnt-thumbnails/<width>/<name>.webp`, the path
- * convention the index and gallery already assume. Thumbnails are losslessly
- * re-derivable from the main, so this is pure derived-artifact work: it reads
- * the main, never the original, and writes nothing but thumbnails. A main whose
- * own width is at or below a configured width needs no thumbnail there — the
- * main already serves that role in the gallery's `srcset`.
+ * For each derived rendition the tier-skip matrix calls for, the deriver
+ * downscales the stored main and writes `<folder>/.kntnt-thumbnails/<width>/<name>.webp`,
+ * the path convention the index and gallery already assume — the **full image**
+ * and the **thumbnail** are each "just another width" there (ADR-0013). The
+ * derived renditions are losslessly re-derivable from the main, so this is pure
+ * derived-artifact work: it reads the main, never the original, and writes nothing
+ * but derived files. Which files to write — and at which quality — is the single
+ * `Rendition_Plan`'s decision, so the deriver never re-implements the tier-skip
+ * rules; it just realises the plan on disk.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.3.0
@@ -23,22 +25,23 @@ use Kntnt\Photo_Drop\Storage\Atomic_Writer;
 use Kntnt\Photo_Drop\Storage\Index;
 
 /**
- * Writes per-width thumbnails for one stored main image.
+ * Writes the full and thumbnail renditions for one stored main image.
  *
  * The external interface is a single deep method, `generate()`, that takes the
- * main's path and the descriptor's thumbnail widths and quality and returns the
- * thumbnail paths it wrote. The decode happens once; every width scales from the
- * same in-memory handle. The codec is injected (GD by default) so the same
- * mechanics back the optimiser and the thumbnailer, and a test can drive the
- * real GD codec end to end. Holds no per-call state; one instance serves any
- * number of mains.
+ * main's path and the collection's full/thumbnail width+quality settings and
+ * returns the derived paths it wrote. The decode happens once; every rendition
+ * scales from the same in-memory handle, and `Rendition_Plan` decides — from the
+ * decoded main's own width — which renditions exist and at which quality. The
+ * codec is injected (GD by default) so the same mechanics back the optimiser and
+ * the deriver, and a test can drive the real GD codec end to end. Holds no
+ * per-call state; one instance serves any number of mains.
  *
  * @since 0.3.0
  */
 final class Thumbnailer {
 
 	/**
-	 * The codec that decodes the main and encodes each thumbnail.
+	 * The codec that decodes the main and encodes each derived rendition.
 	 *
 	 * @since 0.3.0
 	 * @var Webp_Codec
@@ -46,7 +49,7 @@ final class Thumbnailer {
 	private readonly Webp_Codec $codec;
 
 	/**
-	 * Constructs the thumbnailer with a WebP codec.
+	 * Constructs the deriver with a WebP codec.
 	 *
 	 * Defaults to the GD codec, the tested production path, so production callers
 	 * construct it with no arguments; a test injects its own to exercise the
@@ -61,36 +64,43 @@ final class Thumbnailer {
 	}
 
 	/**
-	 * Generates every applicable thumbnail for a stored main image.
+	 * Generates every derived rendition the tier-skip matrix calls for.
 	 *
-	 * Decodes the main once, then for each configured width strictly below the
-	 * main's own width writes `.kntnt-thumbnails/<width>/<name>.webp` scaled to
-	 * that width and encoded at the descriptor's quality. A width at or above the
-	 * main's width is skipped — the main serves that role itself — and an empty
-	 * width list writes nothing. Returns the absolute paths actually written, so a
-	 * caller (the doctor) can reconcile against them. An unreadable or undecodable
-	 * main — including one whose declared dimensions exceed the megapixel input
-	 * ceiling, which is refused before any decode — yields an empty list rather
-	 * than an error: the next doctor run heals it.
+	 * Decodes the main once, reads its own width, then asks `Rendition_Plan` which
+	 * derived renditions should exist for that main under the given full/thumbnail
+	 * settings — a separate full only when the main is wider than the full width, a
+	 * thumbnail only when the full rendition is wider than the thumbnail width, and
+	 * degenerate equal widths collapsed to one file at the larger tier's quality.
+	 * Each planned rendition is scaled to its width and encoded at its quality into
+	 * `.kntnt-thumbnails/<width>/<name>.webp`. A main no wider than every tier has
+	 * an empty plan and writes nothing — it serves every role itself. Returns the
+	 * absolute paths actually written, so a caller (the doctor) can reconcile
+	 * against them. An unreadable or undecodable main — including one whose declared
+	 * dimensions exceed the megapixel input ceiling, refused before any decode —
+	 * yields an empty list rather than an error: the next doctor run heals it.
 	 *
 	 * @since 0.3.0
 	 *
-	 * @param string         $main_path        Absolute path to the stored main image.
-	 * @param string         $stored_name      The main's `<original>.webp` filename, used for each thumbnail.
-	 * @param array<int,int> $thumbnail_widths The descriptor's canonical thumbnail widths.
-	 * @param int            $quality          The WebP quality (0–100) from the descriptor.
-	 * @return array<int,string> Absolute paths of the thumbnails written, possibly empty.
+	 * @param string $main_path         Absolute path to the stored main image.
+	 * @param string $stored_name       The main's `<original>.webp` filename, used for each rendition.
+	 * @param int    $full_width        The collection's full-image width.
+	 * @param int    $full_quality      The collection's full-image quality.
+	 * @param int    $thumbnail_width   The collection's thumbnail width.
+	 * @param int    $thumbnail_quality The collection's thumbnail quality.
+	 * @return array<int,string> Absolute paths of the derived files written, possibly empty.
 	 */
-	public function generate( string $main_path, string $stored_name, array $thumbnail_widths, int $quality ): array {
+	public function generate(
+		string $main_path,
+		string $stored_name,
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): array {
 
-		// No configured widths means no thumbnails at all; return before any read.
-		if ( $thumbnail_widths === [] ) {
-			return [];
-		}
-
-		// Read and decode the main exactly once; every width scales from this same
-		// handle. A main that cannot be read or decoded leaves the next doctor run
-		// to heal, so an empty list is the right degraded answer here.
+		// Read and decode the main exactly once; every rendition scales from this
+		// same handle. A main that cannot be read or decoded leaves the next doctor
+		// run to heal, so an empty list is the right degraded answer here.
 		$bytes = $this->read_main( $main_path );
 		if ( $bytes === null ) {
 			return [];
@@ -106,29 +116,27 @@ final class Thumbnailer {
 		}
 		$image = $this->codec->decode( $bytes );
 		if ( $image === null ) {
-			Plugin::warning( "Cannot decode the main image at {$main_path} to derive thumbnails." );
+			Plugin::warning( "Cannot decode the main image at {$main_path} to derive its renditions." );
 			return [];
 		}
 
-		// The folder the main lives in is where the hidden thumbnails directory is
-		// rooted; the main's own width decides which configured widths apply.
-		$folder    = \dirname( $main_path );
-		$main_width = $this->codec->width( $image );
+		// The folder the main lives in is where the hidden corral is rooted; the
+		// main's own decoded width decides which renditions the plan calls for.
+		$folder = \dirname( $main_path );
+		$plan   = Rendition_Plan::derived(
+			$this->codec->width( $image ),
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			$thumbnail_quality,
+		);
 
-		// Write one thumbnail per configured width strictly below the main width,
-		// collecting the paths actually written for the caller to reconcile against.
+		// Write one file per planned rendition, collecting the paths actually written
+		// for the caller to reconcile against. A failure on one rendition is logged
+		// and skipped rather than aborting the others.
 		$written = [];
-		foreach ( $thumbnail_widths as $width ) {
-
-			// A width at or above the main's own width needs no separate thumbnail —
-			// the main already covers it in the gallery's srcset.
-			if ( $width >= $main_width ) {
-				continue;
-			}
-
-			// Scale and encode this width; a failure on one width is logged and
-			// skipped rather than aborting the remaining widths.
-			$path = $this->write_one( $image, $folder, $stored_name, $width, $quality );
+		foreach ( $plan as $rendition ) {
+			$path = $this->write_one( $image, $folder, $stored_name, $rendition['width'], $rendition['quality'] );
 			if ( $path !== null ) {
 				$written[] = $path;
 			}
@@ -139,39 +147,40 @@ final class Thumbnailer {
 	}
 
 	/**
-	 * Returns the absolute thumbnail path for a main name at a given width.
+	 * Returns the absolute derived-file path for a main name at a given width.
 	 *
-	 * Exposed so the doctor (#6) and any caller that must locate or remove a
-	 * derived thumbnail computes the same `.kntnt-thumbnails/<width>/<name>.webp`
-	 * path this class writes, keeping the convention in one place.
+	 * Exposed so the doctor and any caller that must locate or remove a derived
+	 * rendition computes the same `.kntnt-thumbnails/<width>/<name>.webp` path this
+	 * class writes, keeping the convention in one place. The full image and the
+	 * thumbnail share this convention — both are "just another width".
 	 *
 	 * @since 0.3.0
 	 *
 	 * @param string $folder      Absolute path to the content folder holding the main.
 	 * @param string $stored_name The main's stored `<original>.webp` filename.
-	 * @param int    $width       The thumbnail width.
-	 * @return string The absolute thumbnail path.
+	 * @param int    $width       The rendition width.
+	 * @return string The absolute derived-file path.
 	 */
 	public static function thumbnail_path( string $folder, string $stored_name, int $width ): string {
 		return rtrim( $folder, '/' ) . '/' . Index::THUMBNAILS_DIRNAME . '/' . $width . '/' . $stored_name;
 	}
 
 	/**
-	 * Scales and writes one thumbnail, returning its path or null on failure.
+	 * Scales and writes one derived rendition, returning its path or null on failure.
 	 *
 	 * Ensures the per-width directory exists, scales the shared main handle to the
-	 * width, encodes at the descriptor's quality, and writes the bytes. Any step
-	 * failing is a warning and a `null`, so the caller skips this width and tries
-	 * the next.
+	 * width, encodes at the rendition's quality, and writes the bytes. Any step
+	 * failing is a warning and a `null`, so the caller skips this rendition and
+	 * tries the next.
 	 *
 	 * @since 0.3.0
 	 *
-	 * @param object $image       The decoded main handle, shared across widths.
+	 * @param object $image       The decoded main handle, shared across renditions.
 	 * @param string $folder      Absolute path to the content folder.
 	 * @param string $stored_name The main's stored filename.
-	 * @param int    $width       The target thumbnail width.
-	 * @param int    $quality     The WebP quality from the descriptor.
-	 * @return string|null The written thumbnail path, or null on failure.
+	 * @param int    $width       The target rendition width.
+	 * @param int    $quality     The WebP quality for this rendition.
+	 * @return string|null The written rendition path, or null on failure.
 	 */
 	private function write_one(
 		object $image,
@@ -181,15 +190,15 @@ final class Thumbnailer {
 		int $quality,
 	): ?string {
 
-		// Ensure the `<width>/` directory under the hidden thumbnails dir exists.
+		// Ensure the `<width>/` directory under the hidden corral exists.
 		$path = self::thumbnail_path( $folder, $stored_name, $width );
 		if ( ! $this->ensure_dir( \dirname( $path ) ) ) {
-			Plugin::warning( "Could not create the thumbnail directory for width {$width} under {$folder}." );
+			Plugin::warning( "Could not create the rendition directory for width {$width} under {$folder}." );
 			return null;
 		}
 
-		// Scale a fresh copy to this width and encode it at the descriptor quality;
-		// a failure on either step skips just this width.
+		// Scale a fresh copy to this width and encode it at the rendition's quality;
+		// a failure on either step skips just this rendition.
 		$scaled = $this->codec->scale( $image, $width );
 		if ( $scaled === null ) {
 			return null;
@@ -199,11 +208,11 @@ final class Thumbnailer {
 			return null;
 		}
 
-		// Publish the thumbnail atomically so a concurrent reader (or a re-derive
-		// of the same name) never observes a torn file; a failed write leaves the
-		// doctor to heal it.
+		// Publish the rendition atomically so a concurrent reader (or a re-derive of
+		// the same name) never observes a torn file; a failed write leaves the doctor
+		// to heal it.
 		if ( ! Atomic_Writer::write( $path, $encoded ) ) {
-			Plugin::warning( "Failed to write the thumbnail at {$path}." );
+			Plugin::warning( "Failed to write the derived rendition at {$path}." );
 			return null;
 		}
 
@@ -234,7 +243,7 @@ final class Thumbnailer {
 	 * Creates a directory tree, preferring the WordPress helper when present.
 	 *
 	 * Uses `wp_mkdir_p()` inside WordPress and a recursive `mkdir()` otherwise, so
-	 * thumbnails can be written in a unit runtime without a WordPress install.
+	 * derived files can be written in a unit runtime without a WordPress install.
 	 *
 	 * @since 0.3.0
 	 *
