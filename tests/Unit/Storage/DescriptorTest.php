@@ -95,6 +95,46 @@ function make_descriptor( array $overrides = [] ): Descriptor {
 }
 
 // ---------------------------------------------------------------------------
+// with_renditions — the regenerate-then-flip primitive (ADR-0013)
+// ---------------------------------------------------------------------------
+
+test( 'with_renditions replaces the re-derivable pairs and keeps everything immutable', function (): void {
+	$original = make_descriptor( [
+		'name'            => 'Field Trip',
+		'upload_width'    => 4000,
+		'upload_quality'  => 92,
+		'path_components' => '%year%/%uploader%',
+	] );
+
+	// The flip primitive returns a new descriptor whose full and thumbnail pairs are
+	// the new target widths, while the immutable upload contract, the display name,
+	// and the placement template carry over untouched (ADR-0013): only the
+	// re-derivable settings change, never the irreversible upload pair.
+	$flipped = $original->with_renditions( 1280, 80, 320, 60 );
+
+	expect( $flipped->full_width )->toBe( 1280 );
+	expect( $flipped->full_quality )->toBe( 80 );
+	expect( $flipped->thumbnail_width )->toBe( 320 );
+	expect( $flipped->thumbnail_quality )->toBe( 60 );
+	expect( $flipped->name )->toBe( 'Field Trip' );
+	expect( $flipped->upload_width )->toBe( 4000 );
+	expect( $flipped->upload_quality )->toBe( 92 );
+	expect( $flipped->path_components )->toBe( '%year%/%uploader%' );
+} );
+
+test( 'with_renditions leaves the original descriptor unmutated', function (): void {
+	$original = make_descriptor( [ 'full_width' => 1920, 'thumbnail_width' => 640 ] );
+
+	// A readonly value object is never mutated in place; the flip produces a fresh
+	// instance and the source keeps its old widths, which is exactly what makes an
+	// interrupted regenerate safe (the live descriptor is never touched mid-flight).
+	$original->with_renditions( 1280, 80, 320, 60 );
+
+	expect( $original->full_width )->toBe( 1920 );
+	expect( $original->thumbnail_width )->toBe( 640 );
+} );
+
+// ---------------------------------------------------------------------------
 // Round-trip — all nine fields survive a write/read cycle
 // ---------------------------------------------------------------------------
 

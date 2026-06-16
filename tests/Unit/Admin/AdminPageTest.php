@@ -395,7 +395,7 @@ test( 'handle_create reads the path-components field from the POST', function ()
 	admin_remove_tree( $basedir );
 } );
 
-test( 'the edit form shows the renditions disabled and submits only the name', function (): void {
+test( 'the edit form makes the re-derivable renditions editable and the upload contract read-only', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_render_stubs( $basedir );
 	seed_admin_collection( $root, 'shown', 'Shown', 1440, 65 );
@@ -410,13 +410,51 @@ test( 'the edit form shows the renditions disabled and submits only the name', f
 	( new Admin_Page( new Repository() ) )->render_page();
 	$html = (string) ob_get_clean();
 
-	// The display name is editable; the rendition values are rendered as disabled
-	// inputs, and no editable upload-contract field name is present.
+	// The display name and the four re-derivable rendition fields are editable inputs
+	// (their re-derive flips via the browser-driven regenerate flow; ADR-0013), each
+	// pre-filled with the stored value.
 	expect( $html )->toContain( 'name="name"' );
+	expect( $html )->toContain( 'name="full_width"' );
+	expect( $html )->toContain( 'name="full_quality"' );
+	expect( $html )->toContain( 'name="thumbnail_width"' );
+	expect( $html )->toContain( 'name="thumbnail_quality"' );
+
+	// The immutable upload contract stays read-only: it is shown as a disabled value
+	// (1440 px) and never as an editable field name, so the page can never offer to
+	// change the irreversible pair.
 	expect( $html )->toContain( 'disabled' );
 	expect( $html )->toContain( '1440' );
 	expect( $html )->not->toContain( 'name="upload_width"' );
 	expect( $html )->not->toContain( 'name="upload_quality"' );
+
+	// The slug is shown read-only too — never as an editable text field — so a rename
+	// can never ride this form.
+	expect( $html )->not->toContain( 'name="slug" type="text"' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the edit form carries the regenerate progress region and the collection slug', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	seed_admin_collection( $root, 'regen', 'Regen', 1440, 65 );
+
+	$_GET = [
+		'page'       => Admin_Page::MENU_SLUG,
+		'action'     => 'edit',
+		'collection' => 'regen',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The browser-driven regenerate UI needs a host element the shared progress view
+	// writes into, and the collection slug so the regenerate script knows which
+	// collection's REST route to drive (ADR-0013).
+	expect( $html )->toContain( 'data-kntnt-photo-drop-regenerate' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-collection="regen"' );
 
 	$_GET = [];
 	admin_remove_tree( $basedir );

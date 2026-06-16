@@ -1032,6 +1032,92 @@ function admin_post( array $fields, string $jar ): array {
 }
 
 /**
+ * POSTs a JSON regenerate request to the plugin's re-derive endpoint.
+ *
+ * Drives `kntnt-photo-drop/v1/collections/<slug>/regenerate` exactly as the admin
+ * regenerate UI would: a JSON body carrying the target full/thumbnail widths plus
+ * a batch `index` (or a `finalize` flag), authenticated by the session cookie and
+ * the `wp_rest` nonce. The cookie jar and the nonce are independently optional so
+ * a test can model the forgery-gate rejection (no nonce). Returns the HTTP status
+ * and the decoded JSON body.
+ *
+ * @since 0.11.0
+ *
+ * @param string              $slug  The target collection slug.
+ * @param array<string,mixed> $body  The JSON body fields (target widths, index, finalize).
+ * @param string|null         $jar   A cookie-jar path, or null for an anonymous request.
+ * @param string|null         $nonce A `wp_rest` nonce, or null to omit the header.
+ * @return array{status:int,body:array<string,mixed>|null} The HTTP status and the decoded JSON body.
+ */
+function rest_regenerate( string $slug, array $body, ?string $jar, ?string $nonce ): array {
+
+	// Build the JSON POST against the collection's regenerate route, attaching the
+	// nonce header and the session cookie only when the caller supplied them.
+	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/regenerate';
+	$handle  = curl_init( $url );
+	$headers = [ 'Content-Type: application/json' ];
+	if ( $nonce !== null ) {
+		$headers[] = "X-WP-Nonce: {$nonce}";
+	}
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_POST           => true,
+			CURLOPT_POSTFIELDS     => (string) json_encode( $body ),
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 60,
+		],
+	);
+	if ( $jar !== null ) {
+		curl_setopt( $handle, CURLOPT_COOKIEFILE, $jar );
+	}
+
+	// Fire and decode; a non-JSON body decodes to null, which the test treats as its
+	// own failure signal.
+	$response = curl_exec( $handle );
+	$status   = (int) curl_getinfo( $handle, CURLINFO_RESPONSE_CODE );
+	$decoded  = is_string( $response ) ? json_decode( $response, true ) : null;
+
+	return [
+		'status' => $status,
+		'body'   => is_array( $decoded ) ? $decoded : null,
+	];
+
+}
+
+/**
+ * Returns the numeric width-bucket directory names under a collection's root folder.
+ *
+ * The derived renditions live at `<root>/.kntnt-thumbnails/<width>/`, so the set of
+ * numeric sub-directories there is exactly the set of derived widths present for the
+ * root folder's mains. A regenerate-then-flip test asserts on this set to prove the
+ * new widths were written and the old ones pruned. Only the root folder is
+ * inspected, which is where the integration fixture imports its single image.
+ *
+ * @since 0.11.0
+ *
+ * @param string $slug The collection slug.
+ * @return array<int,int> The numeric width-bucket names, unsorted.
+ */
+function width_buckets( string $slug ): array {
+
+	// Enumerate the hidden corral's immediate sub-directories and keep the numeric
+	// ones; a missing corral yields an empty set.
+	$corral  = collection_path( $slug ) . '/.kntnt-thumbnails';
+	$entries = is_dir( $corral ) ? scandir( $corral ) : false;
+	$widths  = [];
+	foreach ( $entries === false ? [] : $entries as $entry ) {
+		if ( ctype_digit( $entry ) && is_dir( $corral . '/' . $entry ) ) {
+			$widths[] = (int) $entry;
+		}
+	}
+
+	return $widths;
+
+}
+
+/**
  * Fetches a URL anonymously and returns the status and body.
  *
  * @since 0.3.0
