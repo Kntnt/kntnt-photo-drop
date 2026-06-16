@@ -263,6 +263,66 @@ test( 'create rejects an invalid slug before creating anything', function (): vo
 } );
 
 // ---------------------------------------------------------------------------
+// create — the path-components template is normalised and validated (ADR-0014)
+// ---------------------------------------------------------------------------
+
+test( 'create normalises the path-components template before storing it', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A template with edge and repeated separators is canonicalised at save, so the
+	// stored descriptor carries the normalised form (ADR-0014).
+	$command->create( [ 'normalised' ], [ 'path-components' => '/%year%//%uploader%/' ] );
+
+	expect( Descriptor::read( $root . 'normalised' )->path_components )->toBe( '%year%/%uploader%' );
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'create rejects a path-components template with a stray percent', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A mistyped placeholder leaves a stray `%`; `%` is reserved, so the create
+	// halts before any directory is made rather than storing a broken template
+	// (ADR-0014).
+	$threw = false;
+	try {
+		$command->create( [ 'stray' ], [ 'path-components' => '%year%/%moth%/%day%' ] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( WP_CLI::$errors )->toHaveCount( 1 );
+	expect( is_dir( $root . 'stray' ) )->toBeFalse();
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'create rejects a path-components template whose expansion is unsafe', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A template whose sample expansion carries a traversal is rejected at save, so
+	// it can never break a later upload (ADR-0014).
+	$threw = false;
+	try {
+		$command->create( [ 'unsafe' ], [ 'path-components' => '%year%/../../escape' ] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( is_dir( $root . 'unsafe' ) )->toBeFalse();
+
+	command_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
 // update — rewrites only the name, rejects upload-contract changes
 // ---------------------------------------------------------------------------
 
@@ -294,6 +354,78 @@ test( 'update rewrites only the name and preserves the rendition settings', func
 
 	command_remove_tree( $basedir );
 } );
+
+test( 'update mutates the path-components template, affecting only future uploads', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// The template is mutable (unlike the retired uploaderFolders boolean), so
+	// update rewrites it — normalised — while leaving the immutable upload contract
+	// untouched (ADR-0014).
+	$command->create( [ 'mutable' ], [ 'name' => 'Mutable' ] );
+	$before = Descriptor::read( $root . 'mutable' );
+
+	WP_CLI::reset();
+	$command->update( [ 'mutable' ], [
+		'name'            => 'Mutable',
+		'path-components' => '/events/%year%/',
+	] );
+	$after = Descriptor::read( $root . 'mutable' );
+
+	expect( $after->path_components )->toBe( 'events/%year%' );
+	expect( $after->upload_width )->toBe( $before->upload_width );
+	expect( $after->upload_quality )->toBe( $before->upload_quality );
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'update leaves the path-components template untouched when the flag is absent', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A `--path-components` not passed must carry the existing template over; only
+	// an explicit flag mutates it.
+	$command->create( [ 'kept-template' ], [ 'path-components' => '%year%/%uploader%' ] );
+
+	WP_CLI::reset();
+	$command->update( [ 'kept-template' ], [ 'name' => 'Renamed' ] );
+
+	expect( Descriptor::read( $root . 'kept-template' )->path_components )->toBe( '%year%/%uploader%' );
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'update rejects an invalid path-components template and writes nothing', function ( string $template ): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A stray-`%` or unsafe template is rejected at save, leaving the descriptor
+	// byte-identical (ADR-0014).
+	$command->create( [ 'guarded' ], [ 'name' => 'Guarded' ] );
+	$before = file_get_contents( $root . 'guarded/' . Descriptor::FILENAME );
+
+	WP_CLI::reset();
+	$threw = false;
+	try {
+		$command->update( [ 'guarded' ], [
+			'name'            => 'Guarded',
+			'path-components' => $template,
+		] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( file_get_contents( $root . 'guarded/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	command_remove_tree( $basedir );
+} )->with( [
+	'stray percent' => [ '%year%/%moth%' ],
+	'traversal'     => [ '%year%/../../x' ],
+] );
 
 test( 'update rejects an attempt to change an immutable upload-contract flag', function ( array $args ): void {
 	$basedir = fresh_command_basedir();
