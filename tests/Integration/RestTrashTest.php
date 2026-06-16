@@ -133,9 +133,14 @@ test(
 			expect( is_file( $full ) )->toBeFalse();
 			expect( is_file( $thumb ) )->toBeFalse();
 
-			// The next render rebuilds the index off the now-empty folder (the delete
-			// bumped the folder mtime), so the rebuilt index no longer lists the deleted
-			// image — the index self-heals on the next server render (ADR-0015).
+			// Wait past the second the delete bumped the folder mtime into, so the next
+			// render's rebuilt index is actually persisted rather than held in memory
+			// (the same-second persist guard of ADR-0003), then render again. That render
+			// rebuilds the index off the now-empty folder, so the rebuilt index no longer
+			// lists the deleted image — the index self-heals on the next server render
+			// (ADR-0015). The rewritten index reaches the host through the bind mount with
+			// a short writeback delay, so poll briefly rather than read once.
+			usleep( 1100000 );
 			$second = http_get( $page['url'] );
 			expect( $second['status'] )->toBe( 200 );
 			$deadline = microtime( true ) + 5.0;
