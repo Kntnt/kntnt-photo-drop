@@ -185,6 +185,25 @@ describe( 'createUploadQueue', () => {
 
 			expect( states[ states.length - 1 ] ).toBe( false );
 		} );
+
+		it( 're-arms the queue so a fresh batch after a cancel uploads', async () => {
+			const { process, uploads } = fakeProcessor();
+			const queue = createUploadQueue( process, () => undefined );
+
+			// Cancel the first batch: its in-flight upload aborts and settles, so
+			// the queue drains to idle exactly as it would for a real Cancel.
+			queue.enqueue( [ queued( 'a.jpg' ) ] );
+			expect( uploads ).toHaveLength( 1 );
+			queue.cancel();
+			uploads.forEach( ( upload ) => upload.settle() );
+			await flush();
+
+			// A brand-new drag-drop / folder-pick after the cancel must upload, not
+			// freeze at 0%: enqueue (not just retry) has to lift the cancel stop.
+			queue.enqueue( [ queued( 'b.jpg' ) ] );
+			expect( uploads ).toHaveLength( 2 );
+			expect( uploads[ 1 ]?.queued.relativePath ).toBe( 'b.jpg' );
+		} );
 	} );
 
 	describe( 'retry', () => {
@@ -201,6 +220,29 @@ describe( 'createUploadQueue', () => {
 
 			// Retry must run it again — the dedup set must not swallow it.
 			queue.retry( [ queued( 'a.jpg' ) ] );
+			expect( uploads ).toHaveLength( 2 );
+		} );
+
+		it( 'needs retry, not enqueue, to re-run a settled key — enqueue is swallowed', async () => {
+			const { process, uploads } = fakeProcessor();
+			const queue = createUploadQueue( process, () => undefined );
+
+			// First pass: the file uploads once and settles (a failure).
+			queue.enqueue( [ queued( 'a.jpg' ) ] );
+			expect( uploads ).toHaveLength( 1 );
+			uploads[ 0 ]?.settle();
+			await flush();
+
+			// A plain enqueue of the same key is swallowed by the dedup set — this
+			// is exactly why the Drop Zone's Retry must route through retry: an
+			// enqueue-based retry would silently upload nothing.
+			queue.enqueue( [ queued( 'a.jpg' ) ] );
+			await flush();
+			expect( uploads ).toHaveLength( 1 );
+
+			// retry re-admits the already-seen key, so the failure actually re-runs.
+			queue.retry( [ queued( 'a.jpg' ) ] );
+			await flush();
 			expect( uploads ).toHaveLength( 2 );
 		} );
 
