@@ -31,6 +31,7 @@ use function Tests\Integration\run_cli;
 use function Tests\Integration\to_container_path;
 use function Tests\Integration\unique_slug;
 use function Tests\Integration\width_buckets;
+use function Tests\Integration\write_corrupt_image;
 use function Tests\Integration\write_jpeg;
 
 require_once __DIR__ . '/helpers.php';
@@ -183,4 +184,90 @@ test( 'a regenerate without a nonce is rejected and the descriptor is untouched'
 
 	expect( $response['status'] )->toBe( 401 );
 	expect( read_descriptor( $slug )['fullWidth'] )->toBe( $descriptor['fullWidth'] );
+} );
+
+test( 'a regenerate where one main cannot produce its new renditions does not flip or prune', function (): void {
+
+	// Seed a second collection with the same 1500/1200/600 contract, import two wide
+	// mains so both derived buckets exist, then corrupt ONE stored main out-of-band so
+	// it can no longer be decoded — exactly a per-image re-derive failure that must
+	// abort the flip rather than be swallowed as success (ADR-0013, the silent-failure
+	// review). The fixture lives under the uploads bind mount so the import can read it.
+	$bad_slug = unique_slug();
+	$created  = run_cli( [
+		'kntnt-photo-drop',
+		'collection',
+		'create',
+		$bad_slug,
+		'--upload-width=1500',
+		'--upload-quality=80',
+		'--full-width=1200',
+		'--thumbnail-width=600',
+	] );
+	if ( $created['exit_code'] !== 0 ) {
+		throw new \RuntimeException( "Cannot seed collection '{$bad_slug}': {$created['output']}" );
+	}
+	$fixture = make_fixture_dir();
+
+	try {
+		// Import two distinct wide mains so both land at the 1500 ceiling with full and
+		// thumbnail buckets, then assert the precondition before the failure is injected.
+		write_jpeg( $fixture . '/keep.jpg', 1600, 900 );
+		write_jpeg( $fixture . '/broken.jpg', 1600, 900 );
+		import_images( $bad_slug, [
+			to_container_path( $fixture . '/keep.jpg' ),
+			to_container_path( $fixture . '/broken.jpg' ),
+		] );
+		expect( width_buckets( $bad_slug ) )->toEqualCanonicalizing( [ 600, 1200 ] );
+
+		// Overwrite one stored main with non-image bytes: its decode now fails, so the
+		// deriver can write none of its expected new-width renditions.
+		write_corrupt_image( collection_path( $bad_slug ) . '/broken.jpg.webp' );
+
+		// Drive the full regenerate-then-flip flow to new widths (full 800 / thumbnail
+		// 300): walk every batch, then attempt the finalise. A batch that re-derives the
+		// corrupt main must report a failure status (the driver would stop there), and the
+		// finalise must be refused outright — the flip is gated on completeness.
+		$session    = admin_session();
+		$target     = [
+			'fullWidth'        => 800,
+			'fullQuality'      => 85,
+			'thumbnailWidth'   => 300,
+			'thumbnailQuality' => 75,
+		];
+		$any_failed = false;
+		$index      = 0;
+		do {
+			$batch = rest_regenerate( $bad_slug, $target + [ 'index' => $index ], $session['jar'], $session['nonce'] );
+			if ( $batch['status'] !== 200 ) {
+				$any_failed = true;
+			}
+			$done = $batch['status'] !== 200 || ( $batch['body']['done'] ?? true );
+			++$index;
+		} while ( $done === false && $index < 50 );
+
+		// The corrupt main's batch surfaces a failure status (the per-batch outcome
+		// propagates), so the browser driver never reaches the finalise.
+		expect( $any_failed )->toBeTrue();
+
+		// Even when the finalise is attempted directly (defence in depth), the completeness
+		// sweep refuses it: the descriptor cannot flip onto renditions that were never
+		// written.
+		$final = rest_regenerate( $bad_slug, $target + [ 'finalize' => true ], $session['jar'], $session['nonce'] );
+		expect( $final['status'] )->not->toBe( 200 );
+
+		// The descriptor still records the OLD widths — no flip happened.
+		$descriptor = read_descriptor( $bad_slug );
+		expect( $descriptor['fullWidth'] )->toBe( 1200 );
+		expect( $descriptor['thumbnailWidth'] )->toBe( 600 );
+
+		// And the OLD buckets are still on disk — nothing was pruned, so the gallery keeps
+		// serving the renditions that exist rather than 404ing on deleted files.
+		$buckets = width_buckets( $bad_slug );
+		expect( $buckets )->toContain( 1200 );
+		expect( $buckets )->toContain( 600 );
+	} finally {
+		delete_collection( $bad_slug );
+		remove_tree( $fixture );
+	}
 } );
