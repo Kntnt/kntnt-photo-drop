@@ -164,6 +164,13 @@ export function createUploadQueue(
 			return;
 		}
 
+		// Lift any prior Cancel stop before pumping: a new batch with real work —
+		// whether a fresh drag-drop via enqueue or a Retry — re-arms the queue,
+		// the mirror of the cancel that drained it to idle. Without this, pump()
+		// stays gated off after a Cancel and the fresh batch freezes at 0% until a
+		// reload. An all-duplicate enqueue returns above, so it never re-arms.
+		cancelled = false;
+
 		pending.push( ...fresh );
 		if ( ! draining ) {
 			draining = true;
@@ -176,13 +183,12 @@ export function createUploadQueue(
 		enqueue: ( files ) => admit( files ),
 
 		retry: ( files ) => {
-			// Re-admit the failed keys and lift the cancel stop so the pump runs
-			// again; the dedup set would otherwise reject these already-seen
-			// files, which is exactly what Retry must override.
+			// Re-admit the failed keys so the dedup set does not reject these
+			// already-seen files — exactly what Retry must override; admit() then
+			// lifts the cancel stop and pumps.
 			for ( const queued of files ) {
 				seen.delete( queued.relativePath );
 			}
-			cancelled = false;
 			admit( files );
 		},
 

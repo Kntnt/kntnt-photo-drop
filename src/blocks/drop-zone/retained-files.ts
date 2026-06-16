@@ -63,12 +63,18 @@ export function createRetainedFiles(): RetainedFiles {
 		},
 
 		resolve: ( failed ) => {
-			// Fabricate an empty File per failed key from just its name — carries
-			// no bytes, which the server rejects or stores corrupt.
-			return failed.map( ( item ) => ( {
-				file: new File( [], item.fileName ),
-				relativePath: item.key,
-			} ) );
+			// Look each failed key up in the registry; a key with no retained
+			// file (a subtree recorded failed by path) is dropped, not fabricated,
+			// so Retry only ever re-sends real bytes.
+			const resolved: QueuedFile[] = [];
+			for ( const item of failed ) {
+				const queued = byKey.get( item.key );
+				if ( queued ) {
+					resolved.push( queued );
+				}
+			}
+
+			return resolved;
 		},
 	};
 }

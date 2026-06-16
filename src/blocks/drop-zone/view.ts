@@ -75,6 +75,7 @@ import {
 	type ProgressStrings,
 	type ProgressView,
 } from './progress-view';
+import { createRetainedFiles, type RetainedFiles } from './retained-files';
 
 /**
  * The pre-translated UI strings the module surfaces.
@@ -619,16 +620,22 @@ function processFile(
  * so the total grows the moment a file is queued. Used by every intake path (the
  * click/folder pickers, the loose-file drop, and the recursive folder drop).
  *
+ * Each accepted file is also retained by its relative path so Retry-failed can
+ * re-send its real bytes; the model only keeps a failed file's name, not its
+ * `File` (issue #44), so the source must be held here at intake.
+ *
  * @since 0.4.0
  *
  * @param files    - The files to consider, paired with their relative paths.
  * @param queue    - The upload queue.
  * @param progress - The progress wiring.
+ * @param retained - The registry that holds each accepted file for Retry.
  */
 function intakeFiles(
 	files: readonly QueuedFile[],
 	queue: UploadQueue,
-	progress: Progress
+	progress: Progress,
+	retained: RetainedFiles
 ): void {
 	const accepted: QueuedFile[] = [];
 
@@ -648,6 +655,10 @@ function intakeFiles(
 			progress.report( queued.relativePath, queued.file.name, 'skipped' );
 			continue;
 		}
+
+		// Retain the source bytes before queuing so a later Retry of this file
+		// re-sends the real File, not a fabricated empty one.
+		retained.retain( queued );
 		progress.report( queued.relativePath, queued.file.name, 'pending' );
 		accepted.push( queued );
 	}
@@ -758,6 +769,10 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			// eslint-disable-next-line prefer-const -- assigned once, but after the closures that capture it.
 			let queue: UploadQueue;
 			const model = createProgressModel();
+
+			// Holds every accepted file by its relative path so Retry re-sends the
+			// real bytes; the model keeps only a failed file's name, not its File.
+			const retained = createRetainedFiles();
 			const view = createProgressView(
 				{ progress: progressEl, status: statusEl, summary: summaryEl },
 				strings,
@@ -771,15 +786,16 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 						view.finalise( model.snapshot() );
 					},
 					onRetry: ( failed ) => {
-						// Re-queue exactly the failures; they re-enter as pending and
+						// Re-queue exactly the failures with their original bytes,
+						// looked up from the retained registry; a failure with no
+						// retained file (an unreadable dropped subtree) is dropped,
+						// never re-sent as an empty file. They re-enter as pending and
 						// the live bar resumes from the next render.
 						intakeFiles(
-							failed.map( ( item ) => ( {
-								file: new File( [], item.fileName ),
-								relativePath: item.key,
-							} ) ),
+							retained.resolve( failed ),
 							queue,
-							progress
+							progress,
+							retained
 						);
 					},
 				}
@@ -820,7 +836,8 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 						relativePath: relativePathForFile( file ),
 					} ) ),
 					queue,
-					progress
+					progress,
+					retained
 				);
 			};
 
@@ -952,7 +969,7 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 						for ( const path of unreadable ) {
 							progress.report( path, path, 'failed' );
 						}
-						intakeFiles( files, queue, progress );
+						intakeFiles( files, queue, progress, retained );
 					}
 				);
 			} );

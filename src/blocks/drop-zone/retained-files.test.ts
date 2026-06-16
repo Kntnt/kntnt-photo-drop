@@ -24,7 +24,7 @@ import type { FailedFile } from './progress-model';
  * Builds a queued file whose File carries a fixed number of real bytes.
  *
  * @param relativePath - The source-relative path that keys the file.
- * @param byteLength    - How many bytes the backing File should hold.
+ * @param byteLength   - How many bytes the backing File should hold.
  * @return The queued file with a non-empty File.
  */
 function queuedWithBytes(
@@ -66,7 +66,9 @@ describe( 'createRetainedFiles', () => {
 			{ key: 'b.jpg', fileName: 'b.jpg' },
 		] );
 
-		expect( resolved.map( ( q ) => q.relativePath ) ).toEqual( [ 'b.jpg' ] );
+		expect( resolved.map( ( q ) => q.relativePath ) ).toEqual( [
+			'b.jpg',
+		] );
 		expect( resolved[ 0 ]?.file.size ).toBe( 20 );
 	} );
 
@@ -81,6 +83,8 @@ describe( 'createRetainedFiles', () => {
 			{ key: 'ghost/unreadable', fileName: 'ghost/unreadable' },
 		] );
 
-		expect( resolved.map( ( q ) => q.relativePath ) ).toEqual( [ 'a.jpg' ] );
+		expect( resolved.map( ( q ) => q.relativePath ) ).toEqual( [
+			'a.jpg',
+		] );
 	} );
 } );
