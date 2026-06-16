@@ -338,12 +338,13 @@ final class Admin_Page {
 	 *
 	 * @since 0.5.0
 	 *
-	 * @param string               $slug       The collection identity to create.
-	 * @param string               $name       The optional display name; humanised from the slug when empty.
-	 * @param array<string,string> $renditions The six raw rendition values keyed by flag name (e.g. `upload-width`).
+	 * @param string               $slug            The collection identity to create.
+	 * @param string               $name            The optional display name; humanised from the slug when empty.
+	 * @param array<string,string> $renditions      The six raw rendition values keyed by flag name (e.g. `upload-width`).
+	 * @param string               $path_components The raw placement template; blank means the default (RED stub: ignored).
 	 * @return bool True when the collection was established.
 	 */
-	public function create_collection( string $slug, string $name, array $renditions ): bool {
+	public function create_collection( string $slug, string $name, array $renditions, string $path_components = '' ): bool {
 
 		// Reject a malformed slug up front so the user gets the same lexical
 		// contract the rest of the plugin enforces.
@@ -565,12 +566,18 @@ final class Admin_Page {
 	 *
 	 * @since 0.5.0
 	 *
-	 * @param string $slug              The collection identity to rename.
-	 * @param string $name              The new, non-empty display name.
-	 * @param bool   $carries_contract  Whether the request tampered in a contract field.
+	 * @param string      $slug             The collection identity to rename.
+	 * @param string      $name             The new, non-empty display name.
+	 * @param bool        $carries_contract Whether the request tampered in a contract field.
+	 * @param string|null $path_components  The raw placement template, or null to carry over (RED stub: ignored).
 	 * @return bool True when the display name was rewritten.
 	 */
-	public function update_collection( string $slug, string $name, bool $carries_contract ): bool {
+	public function update_collection(
+		string $slug,
+		string $name,
+		bool $carries_contract,
+		?string $path_components = null
+	): bool {
 
 		// Refuse any immutable-contract field before doing anything else: the user
 		// must not walk away believing a frozen contract was altered.
