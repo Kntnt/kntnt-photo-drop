@@ -337,9 +337,9 @@ final class Collection_Command {
 	 * changes, and the command exits non-zero when actionable findings exist so a
 	 * monitoring script can trip on drift. `--repair` acts: it creates missing
 	 * thumbnails, refreshes the index, and removes orphan thumbnails. `--repair
-	 * --force` re-derives everything (regenerates all thumbnails, rebuilds all
-	 * indexes, prunes the width directories of de-configured widths), the path to
-	 * take after a `kntnt_photo_drop_thumbnail_width` change. A main that violates the immutable
+	 * --force` re-derives everything (regenerates all derived renditions, rebuilds
+	 * all indexes, prunes the width directories of de-configured widths), the path
+	 * to take after a full/thumbnail rendition width changes. A main that violates the immutable
 	 * contract (over the ceiling, or not WebP — only arrivable by an out-of-band
 	 * copy) is warned about, never processed in place, never deleted; a foreign file
 	 * is warned about, never deleted — even with `--repair`. The built-in OS-junk

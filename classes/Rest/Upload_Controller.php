@@ -10,12 +10,12 @@
  * e.g. a self-registered Subscriber who holds a valid nonce) — then hands the
  * uploaded bytes and the attacker-controlled `relativePath` to the shared
  * `Ingestor`, which `Path_Guard`-confines the path, re-enforces the output
- * contract through the `Optimizer`, writes the main plus thumbnails, and never
- * touches the index. When the collection namespaces per uploader
- * (`uploaderFolders`), a first path segment derived server-side from the request
- * user's `user_nicename` is prepended ahead of the client path before
- * confinement, so each uploader's files land under their own folder (ADR-0008).
- * The per-file response carries the `Ingest_Outcome`
+ * contract through the `Optimizer`, writes the main plus the derived renditions,
+ * and never touches the index. The descriptor's mutable `pathComponents` template
+ * (ADR-0014) replaces the retired `uploaderFolders` boolean; its server-side
+ * expansion — the year/month/day/uploader prefix prepended ahead of the client
+ * path — is a separate concern (issue #48), so until then the client path is
+ * ingested as given. The per-file response carries the `Ingest_Outcome`
  * (`stored | skipped | reencoded | rejected`) so one bad file is a per-file
  * rejection, never a batch abort (ADR-0006).
  *
