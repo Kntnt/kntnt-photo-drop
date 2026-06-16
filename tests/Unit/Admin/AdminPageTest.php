@@ -58,8 +58,9 @@ function wire_admin_stubs( string $basedir ): string {
 	);
 
 	// apply_filters: pass every value through unchanged. The root default and the
-	// default-contract pre-fills therefore use their built-in defaults, and the
-	// thumbnail width defaults to a single 640 inside Descriptor::from_filter().
+	// six rendition defaults therefore resolve to their documented values via
+	// Rendition_Defaults (upload width null, upload 95, full 1920/85, thumbnail
+	// 640/75).
 	Functions\when( 'apply_filters' )->alias(
 		static fn ( string $hook, mixed $value ): mixed => $value
 	);
@@ -112,15 +113,29 @@ function admin_remove_tree( string $dir ): void {
  * Seeds a real collection on disk by establishing it through the repository and
  * descriptor, so an update/delete test starts from a genuine collection.
  *
- * @param string   $root      The trailing-slashed collection root.
- * @param string   $slug      The collection slug.
- * @param string   $name      The display name.
- * @param int|null $max_width The contract ceiling, or null for no limit.
- * @param int      $quality   The WebP quality.
+ * The full and thumbnail renditions take fixed defaults (full 1920/85, thumbnail
+ * 640/75); the tests that read them back only assert the upload contract and the
+ * display name, so the derived values are immaterial here.
+ *
+ * @param string   $root         The trailing-slashed collection root.
+ * @param string   $slug         The collection slug.
+ * @param string   $name         The display name.
+ * @param int|null $upload_width The upload ceiling, or null for the source's own dimensions.
+ * @param int      $quality      The upload WebP quality.
  */
-function seed_admin_collection( string $root, string $slug, string $name, ?int $max_width, int $quality ): void {
-	$path = ( new Repository() )->create_collection( $slug );
-	Descriptor::from_filter( $name, $max_width, $quality )->write( (string) $path );
+function seed_admin_collection( string $root, string $slug, string $name, ?int $upload_width, int $quality ): void {
+	$path       = ( new Repository() )->create_collection( $slug );
+	$descriptor = new Descriptor(
+		$name,
+		$upload_width,
+		$quality,
+		1920,
+		85,
+		640,
+		75,
+		Descriptor::DEFAULT_PATH_COMPONENTS,
+	);
+	$descriptor->write( (string) $path );
 }
 
 /**
@@ -169,15 +184,17 @@ function wire_admin_render_stubs( string $basedir ): string {
 }
 
 // ---------------------------------------------------------------------------
-// Create form — pre-fills from the default filters; no format/thumbnail field
+// Create form — the six rendition fields pre-filled from their default filters
 // ---------------------------------------------------------------------------
 
-test( 'the create form pre-fills width and quality from the default filters', function (): void {
+test( 'the create form pre-fills the six rendition fields from their default filters', function (): void {
 	$basedir = fresh_admin_basedir();
 	wire_admin_render_stubs( $basedir );
 
-	// The default filters return their built-in defaults (1920, 80) through the
-	// pass-through apply_filters stub.
+	// The six default filters resolve to their documented values through the
+	// pass-through apply_filters stub: upload width null (the "Original dimensions"
+	// radio is checked and the number input is blank), upload 95, full 1920/85,
+	// thumbnail 640/75.
 	$_GET = [
 		'page'   => Admin_Page::MENU_SLUG,
 		'action' => 'create',
@@ -187,19 +204,28 @@ test( 'the create form pre-fills width and quality from the default filters', fu
 	( new Admin_Page( new Repository() ) )->render_page();
 	$html = (string) ob_get_clean();
 
-	// Both contract inputs carry the default values, and the irreversibility
-	// warning is present.
-	expect( $html )->toContain( 'name="max_width"' );
+	// Every rendition field is present and carries its default; the upload-width
+	// radio defaults to "Original dimensions" (null) and the irreversibility
+	// warning sits above the upload pair.
+	expect( $html )->toContain( 'name="upload_width"' );
+	expect( $html )->toContain( 'name="upload_width_mode"' );
+	expect( $html )->toContain( 'name="upload_quality"' );
+	expect( $html )->toContain( 'value="95"' );
+	expect( $html )->toContain( 'name="full_width"' );
 	expect( $html )->toContain( 'value="1920"' );
-	expect( $html )->toContain( 'name="quality"' );
-	expect( $html )->toContain( 'value="80"' );
+	expect( $html )->toContain( 'name="full_quality"' );
+	expect( $html )->toContain( 'value="85"' );
+	expect( $html )->toContain( 'name="thumbnail_width"' );
+	expect( $html )->toContain( 'value="640"' );
+	expect( $html )->toContain( 'name="thumbnail_quality"' );
+	expect( $html )->toContain( 'value="75"' );
 	expect( $html )->toContain( 'notice-warning' );
 
 	$_GET = [];
 	admin_remove_tree( $basedir );
 } );
 
-test( 'the create form offers an uploader-folders checkbox checked by default', function (): void {
+test( 'the create form has no format field and no uploader-folders field', function (): void {
 	$basedir = fresh_admin_basedir();
 	wire_admin_render_stubs( $basedir );
 
@@ -212,39 +238,17 @@ test( 'the create form offers an uploader-folders checkbox checked by default', 
 	( new Admin_Page( new Repository() ) )->render_page();
 	$html = (string) ob_get_clean();
 
-	// The placement choice is a checkbox that opens ticked, so a create that
-	// leaves it alone namespaces per uploader (ADR-0008).
-	expect( $html )->toContain( 'name="uploader_folders"' );
-	expect( $html )->toContain( 'type="checkbox"' );
-	expect( $html )->toContain( 'checked' );
-
-	$_GET = [];
-	admin_remove_tree( $basedir );
-} );
-
-test( 'the create form has no format field and no thumbnail-width field', function (): void {
-	$basedir = fresh_admin_basedir();
-	wire_admin_render_stubs( $basedir );
-
-	$_GET = [
-		'page'   => Admin_Page::MENU_SLUG,
-		'action' => 'create',
-	];
-
-	ob_start();
-	( new Admin_Page( new Repository() ) )->render_page();
-	$html = (string) ob_get_clean();
-
-	// The contract never exposes a format choice (always WebP) or a thumbnail-width
-	// field (filter-driven), so neither input name appears in the create form.
+	// The renditions never expose a format choice (always WebP); the retired
+	// uploader-folders boolean is gone (replaced by the pathComponents template,
+	// not on the create form), so neither input name appears.
 	expect( $html )->not->toContain( 'name="format"' );
-	expect( $html )->not->toContain( 'name="thumbnail' );
+	expect( $html )->not->toContain( 'name="uploader_folders"' );
 
 	$_GET = [];
 	admin_remove_tree( $basedir );
 } );
 
-test( 'the edit form shows the contract disabled and submits only the name', function (): void {
+test( 'the edit form shows the renditions disabled and submits only the name', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_render_stubs( $basedir );
 	seed_admin_collection( $root, 'shown', 'Shown', 1440, 65 );
@@ -259,13 +263,13 @@ test( 'the edit form shows the contract disabled and submits only the name', fun
 	( new Admin_Page( new Repository() ) )->render_page();
 	$html = (string) ob_get_clean();
 
-	// The display name is editable; the contract values are rendered as disabled
-	// inputs, and the contract has no editable max_width/quality field name.
+	// The display name is editable; the rendition values are rendered as disabled
+	// inputs, and no editable upload-contract field name is present.
 	expect( $html )->toContain( 'name="name"' );
 	expect( $html )->toContain( 'disabled' );
 	expect( $html )->toContain( '1440' );
-	expect( $html )->not->toContain( 'name="max_width"' );
-	expect( $html )->not->toContain( 'name="quality"' );
+	expect( $html )->not->toContain( 'name="upload_width"' );
+	expect( $html )->not->toContain( 'name="upload_quality"' );
 
 	$_GET = [];
 	admin_remove_tree( $basedir );
@@ -472,63 +476,94 @@ test( 'the manage capability filter overrides the gate', function (): void {
 // create_collection — slug validation, required contract, "No limit", descriptor
 // ---------------------------------------------------------------------------
 
-test( 'create writes a valid collection.json from the form fields', function (): void {
+/**
+ * Builds the six raw rendition strings the create form submits.
+ *
+ * Lets a test pass only the fields it cares about; every omitted field takes a
+ * sensible valid value so a partial override never trips an unrelated parse.
+ *
+ * @param array<string,string> $overrides Field-name → raw value overrides.
+ * @return array<string,string> The full six-field rendition map.
+ */
+function admin_renditions( array $overrides = [] ): array {
+	return [
+		...[
+			'upload-width'      => '1920',
+			'upload-quality'    => '80',
+			'full-width'        => '1920',
+			'full-quality'      => '85',
+			'thumbnail-width'   => '640',
+			'thumbnail-quality' => '75',
+		],
+		...$overrides,
+	];
+}
+
+test( 'create writes a valid three-rendition collection.json from the form fields', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	$created = $page->create_collection( 'spring-2024', 'Spring 2024', '1920', '80' );
+	$created = $page->create_collection( 'spring-2024', 'Spring 2024', admin_renditions( [
+		'upload-width'      => '4000',
+		'upload-quality'    => '92',
+		'full-width'        => '1600',
+		'full-quality'      => '82',
+		'thumbnail-width'   => '480',
+		'thumbnail-quality' => '70',
+	] ) );
 
-	// A descriptor is on disk carrying the contract verbatim, format WebP implied,
-	// and the filter-derived thumbnail width.
+	// A descriptor is on disk carrying every rendition verbatim, format WebP
+	// implied, and the default path-components template.
 	expect( $created )->toBeTrue();
 	$descriptor = Descriptor::read( $root . 'spring-2024' );
 	expect( $descriptor )->not->toBeNull();
 	expect( $descriptor->name )->toBe( 'Spring 2024' );
-	expect( $descriptor->max_width )->toBe( 1920 );
-	expect( $descriptor->quality )->toBe( 80 );
-	expect( $descriptor->thumbnail_widths )->toBe( [ 640 ] );
+	expect( $descriptor->upload_width )->toBe( 4000 );
+	expect( $descriptor->upload_quality )->toBe( 92 );
+	expect( $descriptor->full_width )->toBe( 1600 );
+	expect( $descriptor->full_quality )->toBe( 82 );
+	expect( $descriptor->thumbnail_width )->toBe( 480 );
+	expect( $descriptor->thumbnail_quality )->toBe( 70 );
+	expect( $descriptor->path_components )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
 
 	admin_remove_tree( $basedir );
 } );
 
-test( 'create defaults the uploader-folders placement rule to on', function (): void {
+test( 'create defaults each blank rendition field from its filter', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	// The handler passes the checkbox-present boolean; create_collection's default
-	// keeps a caller that omits it namespacing per uploader (ADR-0008).
-	$page->create_collection( 'on-by-default', 'On', '1920', '80' );
+	// Every rendition field blank falls back to its documented default: upload
+	// width null (the source's own dimensions), upload 95, full 1920/85, thumbnail
+	// 640/75.
+	$page->create_collection( 'defaulted', 'Defaulted', [
+		'upload-width'      => '',
+		'upload-quality'    => '',
+		'full-width'        => '',
+		'full-quality'      => '',
+		'thumbnail-width'   => '',
+		'thumbnail-quality' => '',
+	] );
 
-	expect( Descriptor::read( $root . 'on-by-default' )->uploader_folders )->toBeTrue();
+	$descriptor = Descriptor::read( $root . 'defaulted' );
+	expect( $descriptor->upload_width )->toBeNull();
+	expect( $descriptor->upload_quality )->toBe( 95 );
+	expect( $descriptor->full_width )->toBe( 1920 );
+	expect( $descriptor->full_quality )->toBe( 85 );
+	expect( $descriptor->thumbnail_width )->toBe( 640 );
+	expect( $descriptor->thumbnail_quality )->toBe( 75 );
 
 	admin_remove_tree( $basedir );
 } );
 
-test( 'create persists the chosen uploader-folders placement rule', function ( bool $choice ): void {
-	$basedir = fresh_admin_basedir();
-	$root    = wire_admin_stubs( $basedir );
-	$page    = new Admin_Page( new Repository() );
-
-	// An unchecked box reaches create_collection as false (no $_POST key), a
-	// checked one as true; both must be written verbatim to the descriptor.
-	$page->create_collection( 'chosen', 'Chosen', '1920', '80', $choice );
-
-	expect( Descriptor::read( $root . 'chosen' )->uploader_folders )->toBe( $choice );
-
-	admin_remove_tree( $basedir );
-} )->with( [
-	'checked'   => [ true ],
-	'unchecked' => [ false ],
-] );
-
-test( 'handle_create persists uploader-folders off when the box is unchecked', function (): void {
+test( 'handle_create writes the descriptor from the six posted rendition fields', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 
-	// The handler needs the request guard, nonce, and redirect stubs; an
-	// unchecked checkbox submits no uploader_folders key, so its absence is "off".
+	// The handler needs the request guard, nonce, and redirect stubs; it reads the
+	// six rendition fields from $_POST and the upload-width radio mode.
 	Functions\when( 'current_user_can' )->justReturn( true );
 	Functions\when( 'check_admin_referer' )->justReturn( true );
 	Functions\when( 'wp_unslash' )->returnArg( 1 );
@@ -539,9 +574,6 @@ test( 'handle_create persists uploader-folders off when the box is unchecked', f
 		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
 	);
 	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
-	Functions\when( 'wp_safe_redirect' )->justReturn( true );
-
-	// wp_safe_redirect is followed by exit in the handler; stub exit by throwing.
 	Functions\when( 'wp_safe_redirect' )->alias(
 		static function (): void {
 			throw new Admin_Page_Halt();
@@ -550,11 +582,15 @@ test( 'handle_create persists uploader-folders off when the box is unchecked', f
 
 	$page  = new Admin_Page( new Repository() );
 	$_POST = [
-		'slug'           => 'bare',
-		'name'           => 'Bare',
-		'max_width_mode' => 'limit',
-		'max_width'      => '1920',
-		'quality'        => '80',
+		'slug'              => 'posted',
+		'name'              => 'Posted',
+		'upload_width_mode' => 'limit',
+		'upload_width'      => '3000',
+		'upload_quality'    => '90',
+		'full_width'        => '1600',
+		'full_quality'      => '82',
+		'thumbnail_width'   => '480',
+		'thumbnail_quality' => '70',
 	];
 
 	try {
@@ -564,8 +600,59 @@ test( 'handle_create persists uploader-folders off when the box is unchecked', f
 		$noop = true;
 	}
 
-	// With no uploader_folders key in $_POST the placement rule is written off.
-	expect( Descriptor::read( $root . 'bare' )->uploader_folders )->toBeFalse();
+	// The posted rendition fields are written verbatim to the descriptor.
+	$descriptor = Descriptor::read( $root . 'posted' );
+	expect( $descriptor->upload_width )->toBe( 3000 );
+	expect( $descriptor->upload_quality )->toBe( 90 );
+	expect( $descriptor->full_width )->toBe( 1600 );
+	expect( $descriptor->thumbnail_width )->toBe( 480 );
+
+	$_POST = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'handle_create maps the "Original dimensions" upload-width radio to null', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( 'check_admin_referer' )->justReturn( true );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'set_transient' )->justReturn( true );
+	Functions\when( 'get_settings_errors' )->justReturn( [] );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
+	);
+	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
+	Functions\when( 'wp_safe_redirect' )->alias(
+		static function (): void {
+			throw new Admin_Page_Halt();
+		}
+	);
+
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'              => 'sourced',
+		'name'              => 'Sourced',
+		'upload_width_mode' => 'none',
+		'upload_width'      => '1234',
+		'upload_quality'    => '95',
+		'full_width'        => '1920',
+		'full_quality'      => '85',
+		'thumbnail_width'   => '640',
+		'thumbnail_quality' => '75',
+	];
+
+	try {
+		$page->handle_create();
+	} catch ( Admin_Page_Halt ) {
+		$noop = true;
+	}
+
+	// With the radio on "Original dimensions" the typed pixel value is ignored and
+	// the upload width is stored as null.
+	expect( Descriptor::read( $root . 'sourced' )->upload_width )->toBeNull();
 
 	$_POST = [];
 	admin_remove_tree( $basedir );
@@ -576,21 +663,21 @@ test( 'create defaults the display name to a humanised slug when left blank', fu
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	$page->create_collection( 'autumn-walk', '', '1600', '75' );
+	$page->create_collection( 'autumn-walk', '', admin_renditions() );
 
 	expect( Descriptor::read( $root . 'autumn-walk' )->name )->toBe( 'Autumn Walk' );
 
 	admin_remove_tree( $basedir );
 } );
 
-test( 'create maps the "No limit" choice to a null ceiling', function (): void {
+test( 'create maps the "Original dimensions" upload width to a null ceiling', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	$page->create_collection( 'archive', 'Full Archive', 'none', '90' );
+	$page->create_collection( 'archive', 'Full Archive', admin_renditions( [ 'upload-width' => 'none' ] ) );
 
-	expect( Descriptor::read( $root . 'archive' )->max_width )->toBeNull();
+	expect( Descriptor::read( $root . 'archive' )->upload_width )->toBeNull();
 
 	admin_remove_tree( $basedir );
 } );
@@ -601,7 +688,7 @@ test( 'create rejects an invalid slug and writes nothing', function ( string $ho
 	( new Repository() )->get_root();
 	$page = new Admin_Page( new Repository() );
 
-	$created = $page->create_collection( $hostile, 'X', '1920', '80' );
+	$created = $page->create_collection( $hostile, 'X', admin_renditions() );
 
 	expect( $created )->toBeFalse();
 	expect( glob( $root . '*', GLOB_ONLYDIR ) )->toBe( [] );
@@ -615,25 +702,26 @@ test( 'create rejects an invalid slug and writes nothing', function ( string $ho
 	'empty'          => [ '' ],
 ] );
 
-test( 'create rejects a malformed contract value', function ( string $width, string $quality ): void {
+test( 'create rejects a malformed rendition value', function ( array $overrides ): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	( new Repository() )->get_root();
 	$page = new Admin_Page( new Repository() );
 
-	$created = $page->create_collection( 'incomplete', 'X', $width, $quality );
+	$created = $page->create_collection( 'incomplete', 'X', admin_renditions( $overrides ) );
 
-	// A malformed contract value halts before any directory is made.
+	// A malformed rendition value halts before any directory is made.
 	expect( $created )->toBeFalse();
 	expect( glob( $root . '*', GLOB_ONLYDIR ) )->toBe( [] );
 
 	admin_remove_tree( $basedir );
 } )->with( [
-	'empty width'       => [ '', '80' ],
-	'zero width'        => [ '0', '80' ],
-	'non-numeric width' => [ 'wide', '80' ],
-	'empty quality'     => [ '1920', '' ],
-	'quality over 100'  => [ '1920', '101' ],
+	'zero upload width'    => [ [ 'upload-width' => '0' ] ],
+	'non-numeric upload'   => [ [ 'upload-width' => 'wide' ] ],
+	'upload quality 101'   => [ [ 'upload-quality' => '101' ] ],
+	'zero full width'      => [ [ 'full-width' => '0' ] ],
+	'negative thumb width' => [ [ 'thumbnail-width' => '-5' ] ],
+	'thumb quality over'   => [ [ 'thumbnail-quality' => '200' ] ],
 ] );
 
 test( 'create refuses a duplicate slug and leaves the first descriptor untouched', function (): void {
@@ -641,10 +729,10 @@ test( 'create refuses a duplicate slug and leaves the first descriptor untouched
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	$page->create_collection( 'dupe', 'First', '1920', '80' );
+	$page->create_collection( 'dupe', 'First', admin_renditions() );
 	$first = file_get_contents( $root . 'dupe/' . Descriptor::FILENAME );
 
-	$created = $page->create_collection( 'dupe', 'Second', '800', '50' );
+	$created = $page->create_collection( 'dupe', 'Second', admin_renditions( [ 'upload-width' => '800' ] ) );
 
 	expect( $created )->toBeFalse();
 	expect( file_get_contents( $root . 'dupe/' . Descriptor::FILENAME ) )->toBe( $first );
@@ -664,12 +752,13 @@ test( 'update rewrites only the display name and preserves the contract', functi
 
 	$updated = $page->update_collection( 'trip', 'Field Trip 2024', false );
 
-	// Only the name changed; max-width, quality and thumbnail widths carry over.
+	// Only the name changed; the upload contract and the derived renditions carry
+	// over untouched.
 	expect( $updated )->toBeTrue();
 	$descriptor = Descriptor::read( $root . 'trip' );
 	expect( $descriptor->name )->toBe( 'Field Trip 2024' );
-	expect( $descriptor->max_width )->toBe( 1280 );
-	expect( $descriptor->quality )->toBe( 70 );
+	expect( $descriptor->upload_width )->toBe( 1280 );
+	expect( $descriptor->upload_quality )->toBe( 70 );
 
 	admin_remove_tree( $basedir );
 } );
@@ -766,11 +855,11 @@ test( 'an un-capable user is refused before any collection is created', function
 
 	$page                 = new Admin_Page( new Repository() );
 	$_POST                = [
-		'slug'           => 'sneaky',
-		'name'           => 'Sneaky',
-		'max_width_mode' => 'limit',
-		'max_width'      => '1920',
-		'quality'        => '80',
+		'slug'              => 'sneaky',
+		'name'              => 'Sneaky',
+		'upload_width_mode' => 'limit',
+		'upload_width'      => '1920',
+		'upload_quality'    => '80',
 	];
 	$_REQUEST['_wpnonce'] = 'x';
 
