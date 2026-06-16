@@ -1,17 +1,18 @@
 /**
- * Project webpack config: the @wordpress/scripts default plus one admin entry.
+ * Project webpack config: the @wordpress/scripts default plus the admin entries.
  *
  * Block sources stay entirely on the @wordpress/scripts happy path — this file
- * imports the bundled default config unchanged and only *adds* the admin
- * regenerate script (`src/admin/regenerate.ts` → `build/admin/regenerate.js`) to
- * the **scripts** config's entry map. That script is not a block, so the default
- * block-entry resolver would never pick it up, yet it must share the Drop Zone's
- * progress view rather than duplicate it (ADR-0013); a one-entry extension is the
- * minimal way to build it through the same bundler.
+ * imports the bundled default config unchanged and only *adds* the admin scripts
+ * (`src/admin/regenerate.ts` → `build/admin/regenerate.js`, the regenerate UI that
+ * shares the Drop Zone's progress view per ADR-0013; and `src/admin/slug.ts` →
+ * `build/admin/slug.js`, the Create-form slug on-blur default) to the **scripts**
+ * config's entry map. Neither is a block, so the default block-entry resolver would
+ * never pick them up; a small entry extension is the minimal way to build them
+ * through the same bundler.
  *
  * Under `WP_EXPERIMENTAL_MODULES` the default export is an array
  * `[ scriptsConfig, modulesConfig ]` (the second builds the block view modules);
- * the admin script is a classic script, so the entry is added to the scripts
+ * the admin scripts are classic scripts, so the entries are added to the scripts
  * config only and the modules config — and every loader, plugin, and preset —
  * passes through untouched.
  *
@@ -22,9 +23,13 @@
 const defaultConfig = require( '@wordpress/scripts/config/webpack.config' );
 const path = require( 'path' );
 
-// The admin regenerate entry, added to whichever config builds classic scripts.
+// The admin entries, added to whichever config builds classic scripts: the
+// regenerate UI (src/admin/regenerate.ts) and the Create-form slug on-blur default
+// (src/admin/slug.ts). Neither is a block, so the default block-entry resolver would
+// never pick them up.
 const adminEntry = {
 	'admin/regenerate': path.resolve( __dirname, 'src/admin/regenerate.ts' ),
+	'admin/slug': path.resolve( __dirname, 'src/admin/slug.ts' ),
 };
 
 /**
