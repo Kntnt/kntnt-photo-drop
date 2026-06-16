@@ -358,11 +358,12 @@ test( 'the emitted context carries the ajax URL for nonce refresh', function ():
 	render_remove_tree( $basedir );
 } );
 
-test( 'the markup carries the summary line and the translated status strings', function (): void {
+test( 'the markup carries the three feedback regions and the aggregate i18n strings', function (): void {
 
-	// The keyed status report needs the summary element, and the i18n map must
-	// carry the runtime status strings so the visible uploader UI is
-	// translatable; FilePond's own labels are gone with the native surface.
+	// The aggregate progress UI (issue #44) needs three regions — the __summary
+	// live announcer, the __progress bar, and the __status result list — and the
+	// i18n map must carry the strings the progress bar, the live announcer, and
+	// the three-bucket summary render so the visible uploader UI is translatable.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
 	seed_render_collection( $basedir, 'photos', render_descriptor() );
@@ -370,8 +371,20 @@ test( 'the markup carries the summary line and the translated status strings', f
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
 
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__summary' );
-	expect( $html )->toContain( '"statusUploading"' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__progress' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__status' );
+	expect( $html )->toContain( '"countTemplate"' );
+	expect( $html )->toContain( '"cancel"' );
+	expect( $html )->toContain( '"retryFailed"' );
 	expect( $html )->toContain( '"summaryTemplate"' );
+	expect( $html )->toContain( '"bucketUploaded"' );
+	expect( $html )->toContain( '"bucketSkipped"' );
+	expect( $html )->toContain( '"bucketFailed"' );
+
+	// The per-file status/outcome labels gave way to the aggregate model, so the
+	// old runtime status strings must no longer be emitted.
+	expect( $html )->not->toContain( '"statusUploading"' );
+	expect( $html )->not->toContain( '"outcomeStored"' );
 
 	// The folder warning/consent flow is gone (ADR-0008): a drop now walks the
 	// tree recursively like the picker, so its i18n string must not be emitted.

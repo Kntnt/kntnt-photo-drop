@@ -19,8 +19,10 @@
  * encode (`canvas-webp.ts`), the safe-canvas-area cap (`canvas-limit.ts`), the
  * `webkitRelativePath` mapping (`relative-path.ts`), the recursive dragged-folder
  * walk (`folder-detect.ts`), the type pre-filter (`file-filter.ts`), the
- * response-interpretation rules (`upload-response.ts`), and the keyed status list
- * (`status-list.ts`) — and this module is the thin DOM/upload wiring around them.
+ * response-interpretation rules (`upload-response.ts`), the bucket-accounting
+ * model (`progress-model.ts`), the bounded cancellable upload queue
+ * (`upload-queue.ts`), and the progress/summary DOM view (`progress-view.ts`) —
+ * and this module is the thin DOM/upload wiring around them.
  *
  * Each file is decoded with `createImageBitmap` (EXIF-oriented), drawn downscaled
  * to the collection's max width onto a canvas, re-encoded to WebP via
@@ -29,8 +31,12 @@
  * watchdog, and a one-shot automatic retry with a refreshed `wp_rest` nonce when
  * the session's nonce has expired. A bounded number of uploads run concurrently
  * so a several-hundred-file batch keeps the link busy without opening hundreds of
- * sockets at once. A `beforeunload` guard holds the page while uploads are queued
- * or in flight.
+ * sockets at once. The aggregate progress bar tracks files reaching a terminal
+ * state ÷ total; a Cancel button aborts the in-flight uploads and stops the queue
+ * (uploaded files persist); on completion or cancel a three-bucket summary lists
+ * the skipped and failed files by name with a Retry-failed button that re-queues
+ * only the failures. A `beforeunload` guard holds the page while uploads are
+ * queued or in flight.
  *
  * The client optimisation is a bandwidth optimisation only; the server
  * re-enforces the contract on every file (ADR-0006), so any client-side decode
@@ -52,38 +58,35 @@ import {
 } from './folder-detect';
 import { shouldUploadFile } from './file-filter';
 import { isHiddenFile } from './hidden-file';
+import { isNonceRejection, readOutcome } from './upload-response';
 import {
-	errorLabelFor,
-	isNonceRejection,
-	labelForOutcome,
-	readOutcome,
-} from './upload-response';
-import { createStatusList, type StatusList } from './status-list';
-import { formatUploadingLabel } from './uploading-label';
+	createProgressModel,
+	type FileState,
+	type ProgressModel,
+} from './progress-model';
+import {
+	createUploadQueue,
+	type QueuedFile,
+	type UploadHandle,
+	type UploadQueue,
+} from './upload-queue';
+import {
+	createProgressView,
+	type ProgressStrings,
+	type ProgressView,
+} from './progress-view';
 
 /**
  * The pre-translated UI strings the module surfaces.
  *
  * View-script modules cannot import `@wordpress/i18n`, so `Render_Drop_Zone`
  * translates every runtime string server-side and passes them through the
- * Interactivity context. The keys mirror `Render_Drop_Zone::translations()`.
+ * Interactivity context. The keys mirror `Render_Drop_Zone::translations()` and
+ * the progress view's {@link ProgressStrings}.
  *
  * @since 0.4.0
  */
-interface DropZoneStrings {
-	readonly outcomeStored: string;
-	readonly outcomeReencoded: string;
-	readonly outcomeSkipped: string;
-	readonly outcomeRejected: string;
-	readonly uploadFailed: string;
-	readonly uploadStalled: string;
-	readonly skippedNotImage: string;
-	readonly fileUnreadable: string;
-	readonly statusQueued: string;
-	readonly statusConverting: string;
-	readonly statusUploading: string;
-	readonly statusUploadingPercent: string;
-	readonly summaryTemplate: string;
+interface DropZoneStrings extends ProgressStrings {
 	readonly [ key: string ]: string;
 }
 
@@ -111,19 +114,6 @@ interface DropZoneContext {
 }
 
 /**
- * One file queued for upload, paired with the relative path to send for it.
- *
- * The relative path is the file's status-row key and the `relativePath` field the
- * server recreates sub-directories from; a loose file's path is its plain name.
- *
- * @since 0.4.0
- */
-interface QueuedFile {
-	readonly file: File;
-	readonly relativePath: string;
-}
-
-/**
  * The mutable per-mount upload session.
  *
  * The nonce rendered into the context expires after 12–24 hours; when an
@@ -137,6 +127,26 @@ interface UploadSession {
 }
 
 /**
+ * The per-mount progress wiring the upload paths report a file's state to.
+ *
+ * `report` records one file's state into the bucket-accounting model and
+ * redraws the view — the live bar while the batch runs, the three-bucket
+ * summary once it settles. The model, view, and queue are the three pieces the
+ * `init` callback assembles and every upload path closes over.
+ *
+ * @since 0.11.0
+ */
+interface Progress {
+	readonly model: ProgressModel;
+	readonly view: ProgressView;
+	readonly report: (
+		key: string,
+		fileName: string,
+		state: FileState
+	) => void;
+}
+
+/**
  * Milliseconds of upload silence before a request is treated as stalled.
  *
  * An *inactivity* timeout, not a total-duration one: a slow link that keeps
@@ -146,17 +156,6 @@ interface UploadSession {
  * @since 0.4.0
  */
 const INACTIVITY_TIMEOUT_MS = 60_000;
-
-/**
- * The number of uploads allowed in flight at once.
- *
- * Each file is still one request; this only bounds how many of those requests
- * overlap. Four keeps a fast link busy through the per-file convert→encode
- * latency without opening a socket per file in a several-hundred-file batch.
- *
- * @since 0.4.0
- */
-const MAX_CONCURRENT_UPLOADS = 4;
 
 /**
  * The shape of a plausible `wp_rest` nonce — ten lower-case hex characters.
@@ -185,15 +184,17 @@ const DRAGOVER_CLASS = 'kntnt-photo-drop-drop-zone--dragover';
  *
  * The whole wrapper is the click-to-browse surface, but a click that lands on an
  * interactive child (a link, button, input, label, select, or textarea — which
- * covers the builder's tokened upload-control links), or on the live summary or the
- * per-file status list, must keep its own behaviour rather than opening the
- * loose-file picker. A click anywhere else on the wrapper opens it.
+ * covers the builder's tokened upload-control links and the module's own Cancel
+ * and Retry buttons), or on the live summary, the progress region, or the status
+ * region, must keep its own behaviour rather than opening the loose-file picker.
+ * A click anywhere else on the wrapper opens it.
  *
  * @since 0.5.0
  */
 const NON_BROWSE_SELECTOR =
 	'a, button, input, label, select, textarea,' +
 	' .kntnt-photo-drop-drop-zone__summary,' +
+	' .kntnt-photo-drop-drop-zone__progress,' +
 	' .kntnt-photo-drop-drop-zone__status';
 
 /**
@@ -353,7 +354,7 @@ async function optimiseToWebp(
  * The action (core since WP 5.3) answers a cookie-authenticated GET with the
  * bare nonce as plain text. Resolves to the nonce when the response is a 200
  * carrying a plausible nonce, null on any failure — the caller then surfaces
- * the server's original error instead of retrying.
+ * the failure as a failed file instead of retrying.
  *
  * @since 0.4.0
  *
@@ -379,91 +380,114 @@ async function refreshNonce( ajaxUrl: string ): Promise< string | null > {
 }
 
 /**
- * Uploads one already-optimised blob to the REST endpoint via `XMLHttpRequest`.
+ * Maps a parsed REST outcome to the file state the bucket model records.
+ *
+ * `skipped` is its own bucket (a server-side duplicate); every other written
+ * outcome — `stored` or `reencoded` — is an upload. The display name prefers
+ * the server's canonical name over the client's relative-path-derived one.
+ *
+ * @since 0.11.0
+ *
+ * @param outcome - The validated outcome from the REST response.
+ * @return The file state for the bucket model.
+ */
+function stateForOutcome(
+	outcome: NonNullable< ReturnType< typeof readOutcome > >
+): FileState {
+	return outcome.outcome === 'skipped' ? 'skipped' : 'uploaded';
+}
+
+/**
+ * Uploads one already-optimised blob, returning an abortable handle.
  *
  * POSTs the blob plus its `relativePath` with the session's `X-WP-Nonce`, one
- * request per file. Real upload progress drives the status row's "Uploading…"
- * label and the inactivity watchdog; the watchdog aborts a request after 60 s of
- * silence so a dead connection cannot block the queue. A 401/403 carrying a nonce
- * error code triggers one automatic retry with a freshly fetched nonce. A file is
- * reported successful only on a 2xx response with a parsed outcome; every failure
- * path surfaces the most informative label available — the server's own `message`
- * first — in the status row. The promise always resolves (never rejects), so one
- * failed file never aborts the batch (ADR-0006).
+ * request per file. Real upload progress feeds the inactivity watchdog; the
+ * watchdog aborts a request after 60 s of silence so a dead connection cannot
+ * block the queue. A 401/403 carrying a nonce error code triggers one automatic
+ * retry with a freshly fetched nonce. The returned handle's `abort()` is what
+ * Cancel calls; the `settled` promise always resolves (never rejects), so one
+ * failed file never aborts the batch (ADR-0006). A file is recorded `uploaded`
+ * or `skipped` only on a 2xx with a parsed outcome; a stall or any other failure
+ * is recorded `failed`; a *cancel* abort records nothing, leaving the file
+ * pending so the model's `finalise()` drops it (it was never given a chance).
  *
  * @since 0.4.0
  *
- * @param blob    - The optimised (or raw fallback) bytes to upload.
- * @param queued  - The source file and its relative path.
- * @param context - The per-block context with the URLs and strings.
- * @param session - The mutable session holding the current nonce.
- * @param status  - The keyed status list the row is reported to.
- * @return A promise that resolves when the file has settled (uploaded or failed).
+ * @param blob     - The optimised (or raw fallback) bytes to upload.
+ * @param queued   - The source file and its relative path.
+ * @param context  - The per-block context with the URLs and strings.
+ * @param session  - The mutable session holding the current nonce.
+ * @param progress - The progress wiring the file's state is reported to.
+ * @return A handle to abort the upload, plus a promise that settles when it ends.
  */
 function uploadBlob(
 	blob: Blob,
 	queued: QueuedFile,
 	context: DropZoneContext,
 	session: UploadSession,
-	status: StatusList
-): Promise< void > {
+	progress: Progress
+): UploadHandle {
 	const { file, relativePath } = queued;
 
-	return new Promise< void >( ( resolve ) => {
-		let watchdog: number | undefined;
+	// The active request and the watchdog are captured so the handle's abort()
+	// can stop them; `cancelling` flags a cancel-initiated abort apart from a
+	// stall so the file is left pending rather than recorded failed.
+	let request: XMLHttpRequest | null = null;
+	let watchdog: number | undefined;
+	let cancelling = false;
 
+	const settled = new Promise< void >( ( resolve ) => {
 		const clearWatchdog = (): void => {
 			window.clearTimeout( watchdog );
 		};
 
-		// Every failure path funnels here so the status row always shows one
-		// truth and the queue's slot is always released.
-		const fail = ( label: string ): void => {
+		// Every failure path funnels here so the file is recorded failed once
+		// and the queue's slot is released.
+		const fail = (): void => {
 			clearWatchdog();
-			status.update( relativePath, file.name, label, 'failed' );
+			progress.report( relativePath, file.name, 'failed' );
 			resolve();
 		};
 
 		// One upload attempt; `allowNonceRetry` is spent on the single
 		// automatic nonce-refresh retry.
 		const send = ( allowNonceRetry: boolean ): void => {
-			const request = new XMLHttpRequest();
+			const xhr = new XMLHttpRequest();
+			request = xhr;
 			let stalled = false;
 
 			// Re-arm the inactivity watchdog on every sign of life; when it
 			// fires, the abort is flagged as a stall so the handler can tell
-			// it apart from a settled response.
+			// it apart from a settled response or a cancel.
 			const touch = (): void => {
 				clearWatchdog();
 				watchdog = window.setTimeout( () => {
 					stalled = true;
-					request.abort();
+					xhr.abort();
 				}, INACTIVITY_TIMEOUT_MS );
 			};
 
-			// Interpret the settled response: only a 2xx with a parsed
-			// outcome may report success; a nonce rejection gets its one
-			// refresh-and-retry; everything else fails with the best label.
-			const settle = (): void => {
+			// Interpret the settled response: only a 2xx with a parsed outcome
+			// records a success; a nonce rejection gets its one
+			// refresh-and-retry; everything else is a failure.
+			const settleResponse = (): void => {
 				clearWatchdog();
 				let payload: unknown = null;
 				try {
-					payload = JSON.parse( request.responseText );
+					payload = JSON.parse( xhr.responseText );
 				} catch {
 					payload = null;
 				}
 
 				// The honest-success gate: 2xx and a validated outcome, or it
 				// is not a success at all.
-				const ok = request.status >= 200 && request.status < 300;
+				const ok = xhr.status >= 200 && xhr.status < 300;
 				const outcome = readOutcome( payload );
 				if ( ok && outcome !== null ) {
-					const displayName = outcome.name ?? file.name;
-					status.update(
+					progress.report(
 						relativePath,
-						displayName,
-						labelForOutcome( outcome.outcome, context.i18n ),
-						outcome.outcome === 'skipped' ? 'skipped' : 'uploaded'
+						outcome.name ?? file.name,
+						stateForOutcome( outcome )
 					);
 					resolve();
 					return;
@@ -473,7 +497,7 @@ function uploadBlob(
 				// nonce; the fresh nonce is kept for the rest of the batch.
 				if (
 					allowNonceRetry &&
-					isNonceRejection( request.status, payload )
+					isNonceRejection( xhr.status, payload )
 				) {
 					void refreshNonce( context.ajaxUrl ).then( ( fresh ) => {
 						if ( fresh !== null ) {
@@ -481,53 +505,36 @@ function uploadBlob(
 							send( false );
 							return;
 						}
-						fail( errorLabelFor( payload, context.i18n ) );
+						fail();
 					} );
 					return;
 				}
 
-				fail( errorLabelFor( payload, context.i18n ) );
+				fail();
 			};
 
-			// Open and wire the request: real upload progress feeds the
-			// status row and the watchdog; response activity only feeds the
-			// watchdog.
-			request.open( 'POST', context.uploadUrl );
-			request.setRequestHeader( 'X-WP-Nonce', session.nonce );
-			request.upload.onprogress = ( event: ProgressEvent ): void => {
-				// Re-arm the watchdog on every byte, and — when the length is known —
-				// surface the live percentage on the row so a large file shows real
-				// progress instead of a static "Uploading…". The row stays 'pending'.
-				touch();
-				if ( event.lengthComputable ) {
-					status.update(
-						relativePath,
-						file.name,
-						formatUploadingLabel(
-							context.i18n.statusUploadingPercent,
-							event.loaded,
-							event.total
-						),
-						'pending'
-					);
-				}
-			};
-			request.onreadystatechange = (): void => {
-				if ( request.readyState !== XMLHttpRequest.DONE ) {
+			// Open and wire the request: upload progress and response activity
+			// only feed the watchdog now (the aggregate bar tracks terminal
+			// files, not per-file bytes).
+			xhr.open( 'POST', context.uploadUrl );
+			xhr.setRequestHeader( 'X-WP-Nonce', session.nonce );
+			xhr.upload.onprogress = touch;
+			xhr.onreadystatechange = (): void => {
+				if ( xhr.readyState !== XMLHttpRequest.DONE ) {
 					touch();
 				}
 			};
-			request.onload = settle;
-			request.onerror = (): void => {
-				fail( context.i18n.uploadFailed );
-			};
-			request.onabort = (): void => {
-				// A stall is this module's own abort, surfaced as an
-				// actionable failure; the watchdog is the only thing that
-				// aborts, so any abort is a stall.
+			xhr.onload = settleResponse;
+			xhr.onerror = fail;
+			xhr.onabort = (): void => {
+				// A stall is a real, retryable failure; a cancel abort records
+				// nothing so the file stays pending and the model's finalise()
+				// drops it. The watchdog and Cancel are the only abort sources.
 				clearWatchdog();
 				if ( stalled ) {
-					fail( context.i18n.uploadStalled );
+					fail();
+				} else if ( cancelling ) {
+					resolve();
 				}
 			};
 
@@ -536,154 +543,92 @@ function uploadBlob(
 			const body = new FormData();
 			body.append( 'file', blob, file.name );
 			body.append( 'relativePath', relativePath );
-			status.update(
-				relativePath,
-				file.name,
-				context.i18n.statusUploading,
-				'pending'
-			);
 			touch();
-			request.send( body );
+			xhr.send( body );
 		};
 
 		send( true );
 	} );
+
+	return {
+		abort: () => {
+			cancelling = true;
+			request?.abort();
+		},
+		settled,
+	};
 }
 
 /**
- * Converts then uploads one queued file, settling its status row either way.
+ * Converts then uploads one queued file, returning its abortable handle.
  *
- * Marks the row "Converting…", optimises the file to WebP (falling back to the
- * raw bytes on any client-side failure), then uploads it. The returned promise
- * resolves when the file has settled; it never rejects, so the queue runner can
- * treat every file uniformly.
+ * Optimises the file to WebP (falling back to the raw bytes on any client-side
+ * failure), then uploads it. The conversion is awaited inside the handle's
+ * settled promise so the queue still gets a single handle synchronously; the
+ * returned `abort()` stops the upload once it has started (a file aborted during
+ * its brief conversion phase simply finishes converting and then uploads, which
+ * Cancel's pending-drain and the model's finalise() tidy up).
  *
  * @since 0.4.0
  *
- * @param queued  - The file and its relative path.
- * @param context - The per-block context.
- * @param session - The mutable nonce session.
- * @param status  - The keyed status list.
- * @return A promise resolving once the file is uploaded or failed.
+ * @param queued   - The file and its relative path.
+ * @param context  - The per-block context.
+ * @param session  - The mutable nonce session.
+ * @param progress - The progress wiring the file's state is reported to.
+ * @return A handle to abort the upload, plus a promise that settles when it ends.
  */
-async function processFile(
+function processFile(
 	queued: QueuedFile,
 	context: DropZoneContext,
 	session: UploadSession,
-	status: StatusList
-): Promise< void > {
-	status.update(
-		queued.relativePath,
-		queued.file.name,
-		context.i18n.statusConverting,
-		'pending'
-	);
-	const blob = await optimiseToWebp(
+	progress: Progress
+): UploadHandle {
+	let inner: UploadHandle | null = null;
+	let cancelling = false;
+
+	const settled = optimiseToWebp(
 		queued.file,
 		context.uploadWidth,
 		context.uploadQuality
-	);
-	await uploadBlob( blob, queued, context, session, status );
-}
-
-/**
- * Drains a queue of files through a bounded number of concurrent uploads.
- *
- * Holds at most `MAX_CONCURRENT_UPLOADS` files in flight, pulling the next file
- * the moment a slot frees, so a several-hundred-file batch keeps the link busy
- * without opening a socket per file. Newly enqueued files (a second drop while
- * the first batch is still running) are picked up by the same drain. A file is
- * deduped by its source relative path — the status-row key — so a path already
- * seen this mount is never queued twice; two files sharing a basename in
- * different sub-folders carry distinct relative paths and both upload. The
- * `busy` callback flips true while any file is queued or in flight and false
- * once the queue empties, so the caller can arm and disarm the `beforeunload`
- * guard.
- *
- * @since 0.4.0
- *
- * @param context - The per-block context.
- * @param session - The mutable nonce session.
- * @param status  - The keyed status list.
- * @param onBusy  - Called with the busy state as the queue starts and empties.
- * @return An enqueue function the intake paths push files to.
- */
-function createUploadQueue(
-	context: DropZoneContext,
-	session: UploadSession,
-	status: StatusList,
-	onBusy: ( busy: boolean ) => void
-): ( files: readonly QueuedFile[] ) => void {
-	const pending: QueuedFile[] = [];
-	const seen = new Set< string >();
-	let inFlight = 0;
-	let draining = false;
-
-	// Pull the next file into a free slot; when the queue and the in-flight set
-	// are both empty, the batch is done and the guard can stand down.
-	const pump = (): void => {
-		while ( inFlight < MAX_CONCURRENT_UPLOADS && pending.length > 0 ) {
-			const next = pending.shift();
-			if ( ! next ) {
-				break;
-			}
-			inFlight += 1;
-			void processFile( next, context, session, status ).finally( () => {
-				inFlight -= 1;
-				if ( pending.length === 0 && inFlight === 0 ) {
-					draining = false;
-					onBusy( false );
-				} else {
-					pump();
-				}
-			} );
-		}
-	};
-
-	return ( files: readonly QueuedFile[] ): void => {
-		// Drop any file whose relative path was already queued this mount; the
-		// path is the status-row key, so a duplicate would otherwise clobber the
-		// in-flight row and double-upload the same bytes.
-		const fresh = files.filter( ( queued ) => {
-			if ( seen.has( queued.relativePath ) ) {
-				return false;
-			}
-			seen.add( queued.relativePath );
-			return true;
-		} );
-		if ( fresh.length === 0 ) {
+	).then( ( blob ) => {
+		// A Cancel during conversion is honoured the moment conversion ends:
+		// the file is left pending (the model's finalise() drops it) rather
+		// than starting a doomed upload.
+		if ( cancelling ) {
 			return;
 		}
+		inner = uploadBlob( blob, queued, context, session, progress );
+		return inner.settled;
+	} );
 
-		pending.push( ...fresh );
-		if ( ! draining ) {
-			draining = true;
-			onBusy( true );
-		}
-		pump();
+	return {
+		abort: () => {
+			cancelling = true;
+			inner?.abort();
+		},
+		settled,
 	};
 }
 
 /**
  * Filters a batch and enqueues the survivors, keying each by its relative path.
  *
- * Applies the type pre-filter before any bytes move — a denied file gets an
- * immediate "skipped" row instead of a doomed multi-hundred-MB upload — then
- * hands the accepted files to the upload queue. Used by every intake path (the
+ * Applies the type pre-filter before any bytes move — a denied file is recorded
+ * `skipped` immediately instead of starting a doomed multi-hundred-MB upload —
+ * then hands the accepted files to the upload queue, recording each as `pending`
+ * so the total grows the moment a file is queued. Used by every intake path (the
  * click/folder pickers, the loose-file drop, and the recursive folder drop).
  *
  * @since 0.4.0
  *
- * @param files   - The files to consider, paired with their relative paths.
- * @param enqueue - The upload queue's enqueue function.
- * @param status  - The keyed status list.
- * @param strings - The pre-translated string map.
+ * @param files    - The files to consider, paired with their relative paths.
+ * @param queue    - The upload queue.
+ * @param progress - The progress wiring.
  */
 function intakeFiles(
 	files: readonly QueuedFile[],
-	enqueue: ( files: readonly QueuedFile[] ) => void,
-	status: StatusList,
-	strings: DropZoneStrings
+	queue: UploadQueue,
+	progress: Progress
 ): void {
 	const accepted: QueuedFile[] = [];
 
@@ -691,33 +636,23 @@ function intakeFiles(
 		// Silently drop hidden OS bookkeeping a folder pick/drop sweeps up — macOS
 		// AppleDouble sidecars (`._<name>`), `.DS_Store`, and the like. These never
 		// belong to the photographer and are invisible in Finder, so they get no
-		// status row at all: a "ghost file" the photographer cannot account for is
+		// bucket entry at all: a "ghost file" the photographer cannot account for is
 		// as confusing skipped as uploaded.
 		if ( isHiddenFile( queued.file.name ) ) {
 			continue;
 		}
 
-		// Deny RAW and video before upload; the row tells the photographer
+		// Deny RAW and video before upload; the file is recorded skipped
 		// immediately instead of after a wasted transfer.
 		if ( ! shouldUploadFile( queued.file.name, queued.file.type ) ) {
-			status.update(
-				queued.relativePath,
-				queued.file.name,
-				strings.skippedNotImage,
-				'skipped'
-			);
+			progress.report( queued.relativePath, queued.file.name, 'skipped' );
 			continue;
 		}
-		status.update(
-			queued.relativePath,
-			queued.file.name,
-			strings.statusQueued,
-			'pending'
-		);
+		progress.report( queued.relativePath, queued.file.name, 'pending' );
 		accepted.push( queued );
 	}
 
-	enqueue( accepted );
+	queue.enqueue( accepted );
 }
 
 /**
@@ -761,8 +696,10 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 		 * drag-drop + click-to-browse zone, hooks the two hidden file inputs to the
 		 * builder's tokened upload-control links (ADR-0010), walks dropped folders
 		 * recursively (every image at every level, paths preserved), and arms the
-		 * `beforeunload` guard. Idempotent via `mountedZones` so a re-run never
-		 * double-wires.
+		 * `beforeunload` guard. Assembles the bucket-accounting model, the
+		 * progress/summary view (its Cancel stops the queue, its Retry re-queues the
+		 * failures), and the bounded upload queue the intake paths push files to.
+		 * Idempotent via `mountedZones` so a re-run never double-wires.
 		 *
 		 * @since 0.4.0
 		 */
@@ -782,13 +719,16 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			const fileInput = ref.querySelector< HTMLInputElement >(
 				'.kntnt-photo-drop-drop-zone__file-input'
 			);
-			const statusListEl = ref.querySelector< HTMLElement >(
+			const progressEl = ref.querySelector< HTMLElement >(
+				'.kntnt-photo-drop-drop-zone__progress'
+			);
+			const statusEl = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-drop-zone__status'
 			);
 			const summaryEl = ref.querySelector< HTMLElement >(
 				'.kntnt-photo-drop-drop-zone__summary'
 			);
-			if ( ! fileInput || ! statusListEl || ! summaryEl ) {
+			if ( ! fileInput || ! progressEl || ! statusEl || ! summaryEl ) {
 				return;
 			}
 
@@ -802,22 +742,68 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 				'.kntnt-photo-drop-drop-zone__folder-input'
 			);
 
-			// Read the per-block context and assemble the per-mount state: the
-			// keyed status list, the mutable nonce session, the beforeunload
-			// guard, and the bounded upload queue the intake paths push to.
+			// Read the per-block context and assemble the per-mount state. The
+			// bucket model owns the accounting; the view projects it; the queue,
+			// the nonce session, and the beforeunload guard are wired below.
 			const context = getContext< DropZoneContext >();
 			const strings = context.i18n;
-			const status = createStatusList(
-				statusListEl,
-				summaryEl,
-				strings.summaryTemplate
-			);
 			const session: UploadSession = { nonce: context.nonce };
 			const setUnloadGuard = installUnloadGuard();
-			const enqueue = createUploadQueue(
-				context,
-				session,
-				status,
+
+			// The model, the view, the report path, and the queue form a cycle —
+			// the view's Cancel/Retry call the queue, the queue's processor reports
+			// through `progress`, and `progress` redraws the view — so the queue is
+			// forward-declared and the closures below capture it before it is
+			// assigned, which is legal because none of them runs during init.
+			// eslint-disable-next-line prefer-const -- assigned once, but after the closures that capture it.
+			let queue: UploadQueue;
+			const model = createProgressModel();
+			const view = createProgressView(
+				{ progress: progressEl, status: statusEl, summary: summaryEl },
+				strings,
+				{
+					onCancel: () => {
+						// Stop the queue (aborts in-flight, clears pending), then
+						// finalise: drop the now-pending files and show the summary
+						// of what actually settled. Uploaded files persist on disk.
+						queue.cancel();
+						model.finalise();
+						view.finalise( model.snapshot() );
+					},
+					onRetry: ( failed ) => {
+						// Re-queue exactly the failures; they re-enter as pending and
+						// the live bar resumes from the next render.
+						intakeFiles(
+							failed.map( ( item ) => ( {
+								file: new File( [], item.fileName ),
+								relativePath: item.key,
+							} ) ),
+							queue,
+							progress
+						);
+					},
+				}
+			);
+
+			// One report path: record the file's state, then redraw — the live
+			// bar while files remain pending, the three-bucket summary the
+			// moment every tracked file has settled.
+			const progress: Progress = {
+				model,
+				view,
+				report: ( key, fileName, fileState ) => {
+					model.record( key, fileName, fileState );
+					const snapshot = model.snapshot();
+					if ( snapshot.complete ) {
+						view.finalise( snapshot );
+					} else {
+						view.render( snapshot );
+					}
+				},
+			};
+
+			queue = createUploadQueue(
+				( queued ) => processFile( queued, context, session, progress ),
 				setUnloadGuard
 			);
 
@@ -833,19 +819,19 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 						file,
 						relativePath: relativePathForFile( file ),
 					} ) ),
-					enqueue,
-					status,
-					strings
+					queue,
+					progress
 				);
 			};
 
 			// The whole wrapper is a click-to-browse trigger for pointer users: a
 			// click that does not land on an interactive child opens the hidden
 			// loose-file input. A click on a link, button, or input inside the
-			// builder's markup — including the tokened upload-control links — or on the
-			// summary or the status list is left to do its own thing. The keyboard/AT
-			// browse path is the tokened links themselves, so the wrapper carries no
-			// role or tabindex and answers no keys.
+			// builder's markup — including the tokened upload-control links and the
+			// module's own Cancel/Retry buttons — or on the summary, progress, or
+			// status regions is left to do its own thing. The keyboard/AT browse path
+			// is the tokened links themselves, so the wrapper carries no role or
+			// tabindex and answers no keys.
 			ref.addEventListener( 'click', ( event: MouseEvent ) => {
 				const target = event.target;
 				if (
@@ -935,7 +921,7 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 			// is walked recursively so every image at every level uploads with
 			// its source-relative path preserved — the same on-disk placement
 			// as the folder picker (ADR-0008), with no warning step.
-			// Entries that cannot be read get an honest failed row instead of
+			// Entries that cannot be read are recorded failed instead of
 			// vanishing.
 			ref.addEventListener( 'drop', ( event: DragEvent ): void => {
 				event.preventDefault();
@@ -957,21 +943,16 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 					return;
 				}
 
-				// A folder is present: walk the whole tree, surface any
-				// unreadable file or subtree by its relative path, and intake
-				// the walked files with their paths carried explicitly (a
+				// A folder is present: walk the whole tree, record any
+				// unreadable file or subtree as failed by its relative path, and
+				// intake the walked files with their paths carried explicitly (a
 				// `File` from `entry.file()` has no `webkitRelativePath`).
 				void walkDroppedEntries( entries ).then(
 					( { files, unreadable } ) => {
 						for ( const path of unreadable ) {
-							status.update(
-								path,
-								path,
-								strings.fileUnreadable,
-								'failed'
-							);
+							progress.report( path, path, 'failed' );
 						}
-						intakeFiles( files, enqueue, status, strings );
+						intakeFiles( files, queue, progress );
 					}
 				);
 			} );
