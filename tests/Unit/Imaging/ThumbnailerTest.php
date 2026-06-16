@@ -1,13 +1,14 @@
 <?php
 /**
- * Tests for thumbnail derivation — the `.kntnt-thumbnails/<width>/<name>.webp`
- * convention and the "no thumbnail at or above the main's width" rule.
+ * Tests for derived-rendition generation — the full and thumbnail files written
+ * under `.kntnt-thumbnails/<width>/<name>.webp` (ADR-0013).
  *
  * Each test writes a real WebP main into a temp folder and drives the real GD
- * codec, then asserts which thumbnail files appear and at what width. It covers
- * the per-width path convention, the rule that an image at or below a width gets
- * no separate thumbnail there, the empty-widths short-circuit, and that the main
- * folder's content is untouched apart from the hidden artifacts directory.
+ * codec, then asserts which derived files appear and at what width. It covers the
+ * per-width path convention, the tier-skip rules realised on disk (a separate
+ * full only when the main is wider than the full width; a thumbnail only when the
+ * full rendition is wider than the thumbnail width), the degenerate-collapse case,
+ * the input-ceiling guard, and atomic publication.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.3.0
@@ -69,6 +70,18 @@ function webp_width( string $path ): int {
 }
 
 /**
+ * Returns the absolute derived-file path for a width in a folder.
+ *
+ * @param string $folder The content folder.
+ * @param string $name   The stored main filename.
+ * @param int    $width  The rendition width.
+ * @return string The absolute derived file path.
+ */
+function derived_path( string $folder, string $name, int $width ): string {
+	return $folder . '/' . Index::THUMBNAILS_DIRNAME . '/' . $width . '/' . $name;
+}
+
+/**
  * Removes a directory tree used as a temp content folder.
  *
  * @param string $dir The directory to remove.
@@ -98,74 +111,120 @@ function gd_thumbnailer(): Thumbnailer {
 }
 
 // ---------------------------------------------------------------------------
-// The per-width path convention and the at-or-above-width skip rule
+// A wide main writes both a full and a thumbnail
 // ---------------------------------------------------------------------------
 
-test( 'a thumbnail is written per configured width below the main width', function (): void {
+test( 'a main wider than both tiers writes a full and a thumbnail at their widths', function (): void {
 	$folder = fresh_thumb_dir();
-	$main   = write_main_image( $folder, 'photo.jpg.webp', 2000, 1200 );
+	$main   = write_main_image( $folder, 'photo.jpg.webp', 4000, 2400 );
 
-	$written = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', [ 320, 640 ], 80 );
+	// Full 1920/85, thumbnail 640/75: the main (4000) is wider than both, so both
+	// derived files are written, each at exactly its configured width.
+	$written = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', 1920, 85, 640, 75 );
 
-	// Both widths are below the main's 2000px, so both thumbnails appear at the
-	// conventional path and at exactly their configured widths.
-	$small = $folder . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp';
-	$large = $folder . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp';
+	$full  = derived_path( $folder, 'photo.jpg.webp', 1920 );
+	$thumb = derived_path( $folder, 'photo.jpg.webp', 640 );
 	expect( $written )->toHaveCount( 2 );
-	expect( is_file( $small ) )->toBeTrue();
-	expect( is_file( $large ) )->toBeTrue();
-	expect( webp_width( $small ) )->toBe( 320 );
-	expect( webp_width( $large ) )->toBe( 640 );
+	expect( is_file( $full ) )->toBeTrue();
+	expect( is_file( $thumb ) )->toBeTrue();
+	expect( webp_width( $full ) )->toBe( 1920 );
+	expect( webp_width( $thumb ) )->toBe( 640 );
 
 	thumb_remove_tree( $folder );
 } );
 
-test( 'an image at or below a width gets no separate thumbnail at that width', function (): void {
+// ---------------------------------------------------------------------------
+// A main no wider than the full skips the full tier
+// ---------------------------------------------------------------------------
+
+test( 'a main no wider than the full width writes only the thumbnail', function (): void {
+	$folder = fresh_thumb_dir();
+	$main   = write_main_image( $folder, 'mid.jpg.webp', 1500, 1000 );
+
+	// The main (1500) is the full rendition itself (no separate full file), but it
+	// is still wider than the 640 thumbnail, so only the thumbnail is written.
+	$written = gd_thumbnailer()->generate( $main, 'mid.jpg.webp', 1920, 85, 640, 75 );
+
+	expect( $written )->toHaveCount( 1 );
+	expect( is_file( derived_path( $folder, 'mid.jpg.webp', 1920 ) ) )->toBeFalse();
+	expect( is_file( derived_path( $folder, 'mid.jpg.webp', 640 ) ) )->toBeTrue();
+	expect( webp_width( derived_path( $folder, 'mid.jpg.webp', 640 ) ) )->toBe( 640 );
+
+	thumb_remove_tree( $folder );
+} );
+
+// ---------------------------------------------------------------------------
+// A small main collapses every tier into itself
+// ---------------------------------------------------------------------------
+
+test( 'a main no wider than the thumbnail writes nothing', function (): void {
 	$folder = fresh_thumb_dir();
 	$main   = write_main_image( $folder, 'small.jpg.webp', 500, 400 );
 
-	$written = gd_thumbnailer()->generate( $main, 'small.jpg.webp', [ 320, 640, 500 ], 80 );
+	// The main (500) is no wider than either tier, so it serves every role and no
+	// derived file is written — the hidden directory is never even created.
+	$written = gd_thumbnailer()->generate( $main, 'small.jpg.webp', 1920, 85, 640, 75 );
 
-	// 320 is below the main width so it is derived; 640 (above) and 500 (equal to
-	// the main width) are not — the main serves both of those roles itself.
-	expect( $written )->toHaveCount( 1 );
-	expect( is_file( $folder . '/' . Index::THUMBNAILS_DIRNAME . '/320/small.jpg.webp' ) )->toBeTrue();
-	expect( is_file( $folder . '/' . Index::THUMBNAILS_DIRNAME . '/640/small.jpg.webp' ) )->toBeFalse();
-	expect( is_file( $folder . '/' . Index::THUMBNAILS_DIRNAME . '/500/small.jpg.webp' ) )->toBeFalse();
-
-	thumb_remove_tree( $folder );
-} );
-
-test( 'an empty widths list writes no thumbnails at all', function (): void {
-	$folder = fresh_thumb_dir();
-	$main   = write_main_image( $folder, 'none.jpg.webp', 2000, 1200 );
-
-	$written = gd_thumbnailer()->generate( $main, 'none.jpg.webp', [], 80 );
-
-	// The empty list short-circuits before any read, so the hidden directory is
-	// never even created by the thumbnailer.
 	expect( $written )->toBe( [] );
 	expect( is_dir( $folder . '/' . Index::THUMBNAILS_DIRNAME ) )->toBeFalse();
 
 	thumb_remove_tree( $folder );
 } );
 
-test( 'thumbnails carry the same stored name as the main', function (): void {
+// ---------------------------------------------------------------------------
+// Equal full and thumbnail widths collapse to one file at the full quality
+// ---------------------------------------------------------------------------
+
+test( 'equal full and thumbnail widths write one file at the full quality', function (): void {
 	$folder = fresh_thumb_dir();
-	$main   = write_main_image( $folder, 'a.b.c.jpg.webp', 1500, 1000 );
+	$main   = write_main_image( $folder, 'photo.jpg.webp', 2000, 1200 );
 
-	gd_thumbnailer()->generate( $main, 'a.b.c.jpg.webp', [ 320 ], 80 );
+	// Full and thumbnail both at 800: only one file lives at .kntnt-thumbnails/800/,
+	// and the contrasting qualities (90 vs 40) must collapse to the larger tier's
+	// — the full — so the single file is the higher-quality one (ADR-0013).
+	$collapsed = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', 800, 90, 800, 40 );
+	$at_collapse = filesize( derived_path( $folder, 'photo.jpg.webp', 800 ) );
+	expect( $collapsed )->toHaveCount( 1 );
 
-	// The multi-dot stored name is reproduced verbatim inside the width directory.
-	expect( is_file( $folder . '/' . Index::THUMBNAILS_DIRNAME . '/320/a.b.c.jpg.webp' ) )->toBeTrue();
+	// Re-derive the same main with the *thumbnail* quality raised to the full's: a
+	// genuine quality-40 thumbnail would be far smaller, so proving the file matches
+	// the high-quality encode proves the collapse used the full quality, not 40.
+	$folder2 = fresh_thumb_dir();
+	$main2   = write_main_image( $folder2, 'photo.jpg.webp', 2000, 1200 );
+	gd_thumbnailer()->generate( $main2, 'photo.jpg.webp', 800, 90, 800, 90 );
+	$at_explicit_full = filesize( derived_path( $folder2, 'photo.jpg.webp', 800 ) );
+
+	expect( $at_collapse )->toBe( $at_explicit_full );
+
+	thumb_remove_tree( $folder );
+	thumb_remove_tree( $folder2 );
+} );
+
+// ---------------------------------------------------------------------------
+// The full and thumbnail carry the main's stored name
+// ---------------------------------------------------------------------------
+
+test( 'derived files carry the same stored name as the main', function (): void {
+	$folder = fresh_thumb_dir();
+	$main   = write_main_image( $folder, 'a.b.c.jpg.webp', 3000, 2000 );
+
+	gd_thumbnailer()->generate( $main, 'a.b.c.jpg.webp', 1920, 85, 640, 75 );
+
+	// The multi-dot stored name is reproduced verbatim inside both width directories.
+	expect( is_file( derived_path( $folder, 'a.b.c.jpg.webp', 1920 ) ) )->toBeTrue();
+	expect( is_file( derived_path( $folder, 'a.b.c.jpg.webp', 640 ) ) )->toBeTrue();
 
 	thumb_remove_tree( $folder );
 } );
 
-test( 'an unreadable main yields no thumbnails rather than an error', function (): void {
+// ---------------------------------------------------------------------------
+// An unreadable main is healed later, not an error now
+// ---------------------------------------------------------------------------
+
+test( 'an unreadable main yields no derived files rather than an error', function (): void {
 	$folder = fresh_thumb_dir();
 
-	$written = gd_thumbnailer()->generate( $folder . '/missing.webp', 'missing.webp', [ 320 ], 80 );
+	$written = gd_thumbnailer()->generate( $folder . '/missing.webp', 'missing.webp', 1920, 85, 640, 75 );
 
 	expect( $written )->toBe( [] );
 
@@ -178,37 +237,37 @@ test( 'an unreadable main yields no thumbnails rather than an error', function (
 
 test( 'the static thumbnail_path helper matches the written location', function (): void {
 	$folder = fresh_thumb_dir();
-	$main   = write_main_image( $folder, 'photo.jpg.webp', 2000, 1200 );
+	$main   = write_main_image( $folder, 'photo.jpg.webp', 4000, 2400 );
 
-	$written  = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', [ 640 ], 80 );
+	$written  = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', 1920, 85, 640, 75 );
 	$computed = Thumbnailer::thumbnail_path( $folder, 'photo.jpg.webp', 640 );
 
-	// The path the caller would compute to locate or remove a thumbnail is exactly
-	// the one generate() wrote, keeping the convention in one place.
-	expect( $written )->toBe( [ $computed ] );
+	// The path the caller would compute to locate or remove a derived file is one of
+	// the paths generate() wrote, keeping the convention in one place.
+	expect( $written )->toContain( $computed );
 	expect( is_file( $computed ) )->toBeTrue();
 
 	thumb_remove_tree( $folder );
 } );
 
 // ---------------------------------------------------------------------------
-// The megapixel input ceiling guards the thumbnailer's decode too
+// The megapixel input ceiling guards the deriver's decode too
 // ---------------------------------------------------------------------------
 
 test( 'a main over the megapixel input ceiling is refused before decode', function (): void {
 	$folder = fresh_thumb_dir();
 	$main   = write_main_image( $folder, 'big.jpg.webp', 200, 200 );
 
-	// Filter the ceiling down to 0.01 MP (10 000 px) so the 40 000 px main is
-	// over it: the thumbnailer must refuse to decode — a foreign or tampered
-	// main this large would OOM the worker — and derive nothing.
+	// Filter the ceiling down to 0.01 MP (10 000 px) so the 40 000 px main is over
+	// it: the deriver must refuse to decode — a foreign or tampered main this large
+	// would OOM the worker — and derive nothing.
 	Functions\when( 'apply_filters' )->alias(
 		static function ( string $hook, mixed $value ): mixed {
 			return $hook === 'kntnt_photo_drop_max_input_megapixels' ? 0.01 : $value;
 		}
 	);
 
-	$written = gd_thumbnailer()->generate( $main, 'big.jpg.webp', [ 100 ], 80 );
+	$written = gd_thumbnailer()->generate( $main, 'big.jpg.webp', 1920, 85, 640, 75 );
 
 	expect( $written )->toBe( [] );
 	expect( is_dir( $folder . '/' . Index::THUMBNAILS_DIRNAME ) )->toBeFalse();
@@ -217,17 +276,17 @@ test( 'a main over the megapixel input ceiling is refused before decode', functi
 } );
 
 // ---------------------------------------------------------------------------
-// Thumbnails are published atomically
+// Derived files are published atomically
 // ---------------------------------------------------------------------------
 
-test( 'thumbnail writes leave no staging files behind', function (): void {
+test( 'derived writes leave no staging files behind', function (): void {
 	$folder = fresh_thumb_dir();
-	$main   = write_main_image( $folder, 'photo.jpg.webp', 2000, 1200 );
+	$main   = write_main_image( $folder, 'photo.jpg.webp', 4000, 2400 );
 
-	$written = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', [ 320, 640 ], 80 );
+	$written = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', 1920, 85, 640, 75 );
 
-	// The atomic writer stages under `<target>.tmp-<random>` beside the target;
-	// a clean run publishes both thumbnails and removes every staging file.
+	// The atomic writer stages under `<target>.tmp-<random>` beside the target; a
+	// clean run publishes both derived files and removes every staging file.
 	expect( $written )->toHaveCount( 2 );
 	expect( glob( $folder . '/' . Index::THUMBNAILS_DIRNAME . '/*/*.tmp-*' ) )->toBe( [] );
 
