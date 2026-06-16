@@ -1,16 +1,18 @@
 <?php
 /**
- * Tests for the doctor's reconciliation of derived artifacts to main images.
+ * Tests for the doctor's reconciliation of derived renditions to main images
+ * under the three-rendition model (ADR-0013).
  *
  * Each test builds a *real* on-disk collection in a temp directory with *real*
  * GD WebP images and drives the real `Doctor` service end to end (real codec,
- * real thumbnailer, real index store). It covers the design's Doctor contract:
- * report-only lists every drift and changes nothing; `--repair` creates missing
- * thumbnails, refreshes the index, and removes orphans; `--repair --force`
- * re-derives everything after a thumbnail-width change and prunes the buckets of
- * de-configured widths; an image below a width is not flagged; a
- * contract-violating main is warned but never processed or deleted; foreign
- * files honour the ignore list, `--ignore`, and `--show-ignored` (and a
+ * real deriver, real index store). It covers the design's Doctor contract: which
+ * derived files should exist is computed from the main width and the descriptor's
+ * full/thumbnail settings (`Rendition_Plan`); report-only lists every drift and
+ * changes nothing; `--repair` creates missing renditions, refreshes the index,
+ * and removes orphans; `--repair --force` re-derives everything after a width
+ * change and prunes the buckets of de-configured widths; an image below a width is
+ * not flagged; a contract-violating main is warned but never processed or deleted;
+ * foreign files honour the ignore list, `--ignore`, and `--show-ignored` (and a
  * `.thumbnails` dir is foreign); a caller glob never de-classifies a main; mains
  * are never altered, foreign files never deleted (hashed before/after); and a
  * planted symlink is never followed, written through, or unlinked.
@@ -25,7 +27,6 @@ use Brain\Monkey\Functions;
 use Kntnt\Photo_Drop\Doctor\Doctor;
 use Kntnt\Photo_Drop\Doctor\Finding_Kind;
 use Kntnt\Photo_Drop\Doctor\Ignore_Matcher;
-use Kntnt\Photo_Drop\Imaging\Thumbnailer;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
 use Kntnt\Photo_Drop\Storage\Index_Store;
@@ -118,31 +119,34 @@ function doctor_remove_tree( string $dir ): void {
 }
 
 /**
- * Builds a descriptor with a fixed contract and given thumbnail widths.
+ * Builds a descriptor with a fixed contract and given full/thumbnail widths.
  *
- * Constructed directly (not via the filter) so each test pins the contract and
- * the widths it needs without wiring apply_filters.
+ * Constructed directly so each test pins the upload ceiling and the
+ * full/thumbnail widths the tier-skip matrix reads (ADR-0013). The full width
+ * defaults high (1920) so a typical 1600px main has no separate full and the only
+ * derived rendition is the thumbnail; a test exercising the full tier lowers it.
  *
- * @param array<int,int> $widths    The thumbnail widths.
- * @param int|null       $max_width The contract ceiling, or null for no limit.
+ * @param int      $full_width      The full-image width.
+ * @param int      $thumbnail_width The thumbnail width.
+ * @param int|null $upload_width    The upload ceiling, or null for no limit.
  * @return Descriptor The descriptor under test.
  */
-function doctor_descriptor( array $widths, ?int $max_width = 1920 ): Descriptor {
-	return new Descriptor( 'Test', $max_width, 80, $widths );
+function doctor_descriptor( int $full_width = 1920, int $thumbnail_width = 320, ?int $upload_width = 1920 ): Descriptor {
+	return new Descriptor( 'Test', $upload_width, 80, $full_width, 80, $thumbnail_width, 75, '%year%' );
 }
 
 /**
  * Builds a doctor for a root and descriptor with no extra ignore globs.
  *
- * Uses the production GD-backed engine end to end (default codec, thumbnailer)
- * so the tests exercise real pixel work and a real index rebuild. The index
- * store gets a future clock: its same-second persist guard would otherwise make
- * "was the index written?" assertions racy, since a whole test runs inside one
- * mtime second (and APFS can stamp a directory mtime a full second ahead of
- * `time()`, so the margin is generous).
+ * Uses the production GD-backed engine end to end (default codec, deriver) so the
+ * tests exercise real pixel work and a real index rebuild. The index store gets a
+ * future clock: its same-second persist guard would otherwise make "was the index
+ * written?" assertions racy, since a whole test runs inside one mtime second (and
+ * APFS can stamp a directory mtime a full second ahead of `time()`, so the margin
+ * is generous).
  *
  * @param string      $root         The collection root.
- * @param Descriptor  $descriptor   The collection's contract and widths.
+ * @param Descriptor  $descriptor   The collection's contract and rendition settings.
  * @param string|null $ignore_globs The raw --ignore value, or null.
  * @return Doctor The doctor under test.
  */
@@ -168,38 +172,56 @@ function finding_paths( \Kntnt\Photo_Drop\Doctor\Doctor_Report $report, Finding_
 // Report-only: lists every drift and changes nothing on disk
 // ---------------------------------------------------------------------------
 
-test( 'report-only lists missing thumbnails for a present main and changes nothing', function (): void {
+test( 'report-only lists a missing thumbnail for a present main and changes nothing', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	$main = write_doctor_main( $root, 'photo.jpg.webp', 1600 );
 
-	// A 2000px main with no thumbnails: the 320 thumbnail is missing-derived, and the
-	// index entry is missing too (no index has been built yet).
+	// A 1600px main (≤ the 1920 full, so no separate full) with no derived files: the
+	// 320 thumbnail is missing-derived, and the index entry is missing too (no index
+	// has been built yet).
 	$before = md5_file( $main );
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	$missing = finding_paths( $report, Finding_Kind::Missing_Derived );
 	expect( $missing )->toContain( '.kntnt-thumbnails/320/photo.jpg.webp' );
 	expect( $missing )->toContain( 'photo.jpg.webp' );
 	expect( $report->repaired )->toBeFalse();
 
-	// The report is the dry run: the main is untouched and no thumbnail was written.
+	// The report is the dry run: the main is untouched and no derived file was written.
 	expect( md5_file( $main ) )->toBe( $before );
 	expect( is_dir( $root . '/' . Index::THUMBNAILS_DIRNAME ) )->toBeFalse();
 
 	doctor_remove_tree( $root );
 } );
 
-test( 'report-only lists an orphan thumbnail whose main is gone', function (): void {
+test( 'report-only lists a missing full and thumbnail for a wide main', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
 
-	// Plant a thumbnail with no corresponding main — an orphan derived artifact.
+	// A 4000px main with a 1280 full and a 320 thumbnail: the main is wider than both
+	// tiers, so both derived files are missing-derived.
+	doctor_descriptor( 1280, 320, null )->write( $root );
+	write_doctor_main( $root, 'wide.jpg.webp', 4000, 2400 );
+
+	$report = make_doctor( $root, doctor_descriptor( 1280, 320, null ) )->run( false, false );
+
+	$missing = finding_paths( $report, Finding_Kind::Missing_Derived );
+	expect( $missing )->toContain( '.kntnt-thumbnails/320/wide.jpg.webp' );
+	expect( $missing )->toContain( '.kntnt-thumbnails/1280/wide.jpg.webp' );
+
+	doctor_remove_tree( $root );
+} );
+
+test( 'report-only lists an orphan derived file whose main is gone', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor()->write( $root );
+
+	// Plant a derived file with no corresponding main — an orphan derived artifact.
 	$orphan_dir = $root . '/' . Index::THUMBNAILS_DIRNAME . '/320';
 	mkdir( $orphan_dir, 0700, true );
 	write_doctor_main( $orphan_dir, 'ghost.jpg.webp', 320 );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Orphan_Derived ) )
 		->toBe( [ '.kntnt-thumbnails/320/ghost.jpg.webp' ] );
@@ -210,15 +232,15 @@ test( 'report-only lists an orphan thumbnail whose main is gone', function (): v
 
 test( 'report-only lists a contract-violating main and a foreign file', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ], 1000 )->write( $root );
+	doctor_descriptor( 1920, 320, 1000 )->write( $root );
 
-	// An over-ceiling WebP main (1600 > 1000) and a non-WebP main (JPEG) both arrived
-	// out of band; a loose text file is foreign.
+	// An over-ceiling WebP main (1600 > the 1000 upload ceiling) and a non-WebP main
+	// (JPEG) both arrived out of band; a loose text file is foreign.
 	write_doctor_main( $root, 'too-wide.jpg.webp', 1600 );
 	write_doctor_jpeg( $root . '/raw.webp', 800 );
 	file_put_contents( $root . '/notes.txt', 'hello' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ], 1000 ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor( 1920, 320, 1000 ) )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Contract_Violation ) )->toBe( [ 'raw.webp', 'too-wide.jpg.webp' ] );
 	expect( finding_paths( $report, Finding_Kind::Foreign ) )->toBe( [ 'notes.txt' ] );
@@ -227,15 +249,15 @@ test( 'report-only lists a contract-violating main and a foreign file', function
 } );
 
 // ---------------------------------------------------------------------------
-// --repair: creates missing thumbnails, refreshes the index, removes orphans
+// --repair: creates missing renditions, refreshes the index, removes orphans
 // ---------------------------------------------------------------------------
 
 test( 'repair creates the missing thumbnail and refreshes the index', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	$main = write_doctor_main( $root, 'photo.jpg.webp', 1600 );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( true, false );
 
 	// The thumbnail now exists at the conventional path and at exactly 320px, and the
 	// index records the main.
@@ -252,14 +274,31 @@ test( 'repair creates the missing thumbnail and refreshes the index', function (
 	doctor_remove_tree( $root );
 } );
 
-test( 'repair removes an orphan thumbnail', function (): void {
+test( 'repair creates both the full and the thumbnail for a wide main', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor( 1280, 320, null )->write( $root );
+	write_doctor_main( $root, 'wide.jpg.webp', 4000, 2400 );
+
+	$report = make_doctor( $root, doctor_descriptor( 1280, 320, null ) )->run( true, false );
+
+	// Both derived files are written at exactly their widths.
+	$full  = $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280/wide.jpg.webp';
+	$thumb = $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/wide.jpg.webp';
+	expect( doctor_webp_width( $full ) )->toBe( 1280 );
+	expect( doctor_webp_width( $thumb ) )->toBe( 320 );
+	expect( $report->created )->toBeGreaterThanOrEqual( 2 );
+
+	doctor_remove_tree( $root );
+} );
+
+test( 'repair removes an orphan derived file', function (): void {
+	$root = doctor_fresh_root();
+	doctor_descriptor()->write( $root );
 	$orphan_dir = $root . '/' . Index::THUMBNAILS_DIRNAME . '/320';
 	mkdir( $orphan_dir, 0700, true );
 	$orphan = write_doctor_main( $orphan_dir, 'ghost.jpg.webp', 320 );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( true, false );
 
 	expect( is_file( $orphan ) )->toBeFalse();
 	expect( $report->removed )->toBe( 1 );
@@ -269,11 +308,11 @@ test( 'repair removes an orphan thumbnail', function (): void {
 
 test( 'a second repair run finds nothing left to do', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
 
-	make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
-	$second = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+	make_doctor( $root, doctor_descriptor() )->run( true, false );
+	$second = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	// After a clean repair there is no missing or orphan derived artifact left.
 	expect( $second->of_kind( Finding_Kind::Missing_Derived ) )->toBe( [] );
@@ -283,45 +322,48 @@ test( 'a second repair run finds nothing left to do', function (): void {
 } );
 
 // ---------------------------------------------------------------------------
-// --repair --force: re-derives everything after a thumbnail-width change
+// --repair --force: re-derives everything after a rendition-width change
 // ---------------------------------------------------------------------------
 
-test( 'force regenerates all thumbnails after a thumbnail-width change', function (): void {
+test( 'force regenerates the full set after a full-width change adds a tier', function (): void {
 	$root = doctor_fresh_root();
 
-	// Establish at width 320 and repair so the 320 thumbnail exists.
-	doctor_descriptor( [ 320 ] )->write( $root );
+	// Establish with a high full (1920, so a 1600 main has only the 320 thumbnail)
+	// and repair so that thumbnail exists.
+	doctor_descriptor( 1920, 320 )->write( $root );
 	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
-	make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	make_doctor( $root, doctor_descriptor( 1920, 320 ) )->run( true, false );
 
-	// Now the width filter has changed to [320, 640]; a forced repair re-derives the
-	// full set, so the new 640 thumbnail appears (and 320 is regenerated).
-	$wider  = doctor_descriptor( [ 320, 640 ] );
-	$wider->write( $root );
-	$report = make_doctor( $root, $wider )->run( true, true );
+	// Now the full width drops to 1280: the 1600 main is wider than it, so a forced
+	// repair re-derives the full set — the new 1280 full appears and the 320 thumbnail
+	// is regenerated.
+	$changed = doctor_descriptor( 1280, 320 );
+	$changed->write( $root );
+	$report = make_doctor( $root, $changed )->run( true, true );
 
-	$thumb_320 = $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp';
-	$thumb_640 = $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp';
-	expect( doctor_webp_width( $thumb_320 ) )->toBe( 320 );
-	expect( doctor_webp_width( $thumb_640 ) )->toBe( 640 );
+	$full  = $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280/photo.jpg.webp';
+	$thumb = $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp';
+	expect( doctor_webp_width( $full ) )->toBe( 1280 );
+	expect( doctor_webp_width( $thumb ) )->toBe( 320 );
 	expect( $report->created )->toBe( 2 );
 
 	doctor_remove_tree( $root );
 } );
 
 // ---------------------------------------------------------------------------
-// An image smaller than the thumbnail width is not flagged
+// An image smaller than a rendition width is not flagged
 // ---------------------------------------------------------------------------
 
-test( 'an image at or below a thumbnail width is not flagged', function (): void {
+test( 'an image at or below a derived width needs no separate file there', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320, 640 ] )->write( $root );
 
-	// A 500px main: 320 is below it (a thumbnail is wanted), but 640 (above) and any
-	// width equal to its own need no separate thumbnail — the main serves those roles.
+	// A 500px main with a 640 full and a 320 thumbnail: the main is the full
+	// rendition itself (no separate 640 full), and it is still wider than the 320
+	// thumbnail, so only the 320 thumbnail is wanted.
+	doctor_descriptor( 640, 320 )->write( $root );
 	write_doctor_main( $root, 'small.jpg.webp', 500 );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320, 640 ] ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor( 640, 320 ) )->run( false, false );
 
 	$missing = finding_paths( $report, Finding_Kind::Missing_Derived );
 	expect( $missing )->toContain( '.kntnt-thumbnails/320/small.jpg.webp' );
@@ -330,15 +372,15 @@ test( 'an image at or below a thumbnail width is not flagged', function (): void
 	doctor_remove_tree( $root );
 } );
 
-test( 'force never derives a thumbnail at or above the main width', function (): void {
+test( 'force never derives a rendition at or above the main width', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320, 640 ] )->write( $root );
+	doctor_descriptor( 640, 320 )->write( $root );
 	write_doctor_main( $root, 'small.jpg.webp', 500 );
 
-	make_doctor( $root, doctor_descriptor( [ 320, 640 ] ) )->run( true, true );
+	make_doctor( $root, doctor_descriptor( 640, 320 ) )->run( true, true );
 
-	// Only the 320 thumbnail (below 500) exists; the 640 width directory has no
-	// thumbnail for this main.
+	// Only the 320 thumbnail (below 500) exists; the 640 full width directory has no
+	// file for this main — the main serves that role itself.
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/small.jpg.webp' ) )->toBeTrue();
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/small.jpg.webp' ) )->toBeFalse();
 
@@ -351,7 +393,7 @@ test( 'force never derives a thumbnail at or above the main width', function ():
 
 test( 'a contract-violating main is never processed in place or deleted, even with repair', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ], 1000 )->write( $root );
+	doctor_descriptor( 1920, 320, 1000 )->write( $root );
 
 	// An over-ceiling WebP main and a non-WebP main, both placed out of band.
 	$too_wide = write_doctor_main( $root, 'too-wide.jpg.webp', 1600 );
@@ -359,10 +401,10 @@ test( 'a contract-violating main is never processed in place or deleted, even wi
 	$wide_hash = md5_file( $too_wide );
 	$jpeg_hash = md5_file( $non_webp );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ], 1000 ) )->run( true, true );
+	$report = make_doctor( $root, doctor_descriptor( 1920, 320, 1000 ) )->run( true, true );
 
 	// Both are reported as violations, both remain on disk, both byte-identical, and
-	// neither got a thumbnail derived (a violating main is never processed in place).
+	// neither got a derived file (a violating main is never processed in place).
 	expect( finding_paths( $report, Finding_Kind::Contract_Violation ) )->toBe( [ 'raw.webp', 'too-wide.jpg.webp' ] );
 	expect( is_file( $too_wide ) )->toBeTrue();
 	expect( is_file( $non_webp ) )->toBeTrue();
@@ -380,7 +422,7 @@ test( 'a contract-violating main is never processed in place or deleted, even wi
 
 test( 'foreign warnings honour the built-in ignore list', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 
 	// OS junk on the built-in list is not warned about; an ordinary loose file is.
 	file_put_contents( $root . '/.DS_Store', 'junk' );
@@ -388,7 +430,7 @@ test( 'foreign warnings honour the built-in ignore list', function (): void {
 	file_put_contents( $root . '/._photo.jpg.webp', 'junk' );
 	file_put_contents( $root . '/notes.txt', 'real' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Foreign ) )->toBe( [ 'notes.txt' ] );
 	expect( finding_paths( $report, Finding_Kind::Ignored ) )
@@ -399,7 +441,7 @@ test( 'foreign warnings honour the built-in ignore list', function (): void {
 
 test( 'the root listing guard is a plugin file, not a foreign file', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 
 	// The repository seeds index.php into every collection root; the doctor
 	// must treat it like the descriptor. A same-named file in a sub-folder is
@@ -408,7 +450,7 @@ test( 'the root listing guard is a plugin file, not a foreign file', function ()
 	mkdir( $root . '/trip' );
 	file_put_contents( $root . '/trip/index.php', '<?php echo "user content";' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Foreign ) )->toBe( [ 'trip/index.php' ] );
 
@@ -417,11 +459,11 @@ test( 'the root listing guard is a plugin file, not a foreign file', function ()
 
 test( 'a --ignore glob extends the ignore list', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	file_put_contents( $root . '/scratch.tmp', 'x' );
 	file_put_contents( $root . '/keep.txt', 'x' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ), '*.tmp' )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor(), '*.tmp' )->run( false, false );
 
 	// The .tmp file is now ignored; the .txt remains foreign.
 	expect( finding_paths( $report, Finding_Kind::Foreign ) )->toBe( [ 'keep.txt' ] );
@@ -432,14 +474,14 @@ test( 'a --ignore glob extends the ignore list', function (): void {
 
 test( "a user's own .thumbnails directory is treated as foreign", function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 
 	// A bare `.thumbnails` (not our namespaced `.kntnt-thumbnails`) is a foreign
 	// directory's content, warned about, not skipped.
 	mkdir( $root . '/.thumbnails', 0700, true );
 	file_put_contents( $root . '/.thumbnails/cache.dat', 'x' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Foreign ) )->toContain( '.thumbnails/cache.dat' );
 
@@ -452,15 +494,16 @@ test( "a user's own .thumbnails directory is treated as foreign", function (): v
 
 test( 'repair never alters a main image and never deletes a foreign file', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320, 640 ] )->write( $root );
+	doctor_descriptor( 1280, 320 )->write( $root );
 
-	// A conforming main (which will get thumbnails), plus a foreign file.
+	// A conforming wide main (which will get a full and a thumbnail), plus a foreign
+	// file.
 	$main = write_doctor_main( $root, 'photo.jpg.webp', 1600 );
 	file_put_contents( $root . '/notes.txt', 'keep me' );
 	$main_hash    = md5_file( $main );
 	$foreign_hash = md5_file( $root . '/notes.txt' );
 
-	make_doctor( $root, doctor_descriptor( [ 320, 640 ] ) )->run( true, true );
+	make_doctor( $root, doctor_descriptor( 1280, 320 ) )->run( true, true );
 
 	// The main is byte-identical (only derived artifacts were written) and the
 	// foreign file still exists, byte-identical — even after a forced repair.
@@ -477,13 +520,13 @@ test( 'repair never alters a main image and never deletes a foreign file', funct
 
 test( 'repair deletes and writes nothing through a symlinked width directory', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
 
-	// Plant a symlinked configured width bucket pointing at an outside directory
-	// holding a file with no surviving main — pre-fix, the orphan scan would walk
-	// through the link and --repair would delete the outside file; the missing
-	// 320 thumbnail would be written through the link too.
+	// Plant a symlinked configured width bucket (the 320 thumbnail) pointing at an
+	// outside directory holding a file with no surviving main — pre-fix, the orphan
+	// scan would walk through the link and --repair would delete the outside file;
+	// the missing 320 thumbnail would be written through the link too.
 	$outside = doctor_fresh_root();
 	$victim  = write_doctor_main( $outside, 'victim.jpg.webp', 320 );
 	$victim_hash = md5_file( $victim );
@@ -496,7 +539,7 @@ test( 'repair deletes and writes nothing through a symlinked width directory', f
 	$stale_victim  = write_doctor_main( $outside_stale, 'stale.jpg.webp', 320 );
 	symlink( $outside_stale, $root . '/' . Index::THUMBNAILS_DIRNAME . '/640' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, true );
+	$report = make_doctor( $root, doctor_descriptor() )->run( true, true );
 
 	// Nothing behind either link was deleted or altered, nothing was written into
 	// the outside directories, no orphan was flagged, and both links survive.
@@ -516,19 +559,19 @@ test( 'repair deletes and writes nothing through a symlinked width directory', f
 
 test( 'repair writes nothing through a symlinked content directory', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 
 	// Plant a symlinked content directory pointing at an outside directory with a
 	// main-shaped file — pre-fix, the walk would descend through the link and a
-	// forced repair would write thumbnails and an index *outside* the collection.
+	// forced repair would write derived files and an index *outside* the collection.
 	$outside = doctor_fresh_root();
 	write_doctor_main( $outside, 'victim.jpg.webp', 1600 );
 	$before = array_values( array_diff( scandir( $outside ), [ '.', '..' ] ) );
 	symlink( $outside, $root . '/away' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, true );
+	$report = make_doctor( $root, doctor_descriptor() )->run( true, true );
 
-	// The outside directory gained no artifacts dir, no index, no thumbnails —
+	// The outside directory gained no artifacts dir, no index, no derived files —
 	// its contents are exactly what they were — and no finding references the
 	// linked path at all.
 	expect( is_dir( $outside . '/' . Index::THUMBNAILS_DIRNAME ) )->toBeFalse();
@@ -542,7 +585,7 @@ test( 'repair writes nothing through a symlinked content directory', function ()
 
 test( 'repair never unlinks a planted symlink file nor writes through a dangling one', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
 
 	// Plant, inside a *real* width bucket, a dangling symlink at the exact path
@@ -556,7 +599,7 @@ test( 'repair never unlinks a planted symlink file nor writes through a dangling
 	symlink( $outside . '/spawned.webp', $bucket . '/photo.jpg.webp' );
 	symlink( $victim, $bucket . '/ghost.jpg.webp' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( true, false );
 
 	// Nothing was written through the dangling link, the orphan-shaped link was
 	// neither flagged nor removed, and the outside file is untouched.
@@ -574,20 +617,20 @@ test( 'repair never unlinks a planted symlink file nor writes through a dangling
 // A caller --ignore glob never de-classifies a stored main
 // ---------------------------------------------------------------------------
 
-test( 'a caller --ignore glob matching a main leaves it a main and its thumbnails intact', function (): void {
+test( 'a caller --ignore glob matching a main leaves it a main and its derived files intact', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	mkdir( $root . '/raw', 0700, true );
 	$main = write_doctor_main( $root . '/raw', 'photo.jpg.webp', 1600 );
 
 	// Establish the derived artifacts first, then doctor with a glob covering the
 	// whole sub-tree — pre-fix, the glob de-classified the main and its thumbnail
 	// became a deletable orphan.
-	make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	make_doctor( $root, doctor_descriptor() )->run( true, false );
 	$thumb = $root . '/raw/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp';
 	expect( is_file( $thumb ) )->toBeTrue();
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ), 'raw/*' )->run( true, false );
+	$report = make_doctor( $root, doctor_descriptor(), 'raw/*' )->run( true, false );
 
 	// The main is still classified as a main (not foreign, not ignored), nothing
 	// was flagged orphan, and the thumbnail survived the repair.
@@ -602,14 +645,14 @@ test( 'a caller --ignore glob matching a main leaves it a main and its thumbnail
 
 test( 'the built-in list still pre-empts a main-shaped AppleDouble under a caller glob', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	mkdir( $root . '/raw', 0700, true );
 	file_put_contents( $root . '/raw/._photo.jpg.webp', 'junk' );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ), 'raw/*' )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor(), 'raw/*' )->run( false, false );
 
 	// The AppleDouble lookalike is OS junk before it could ever look like a main:
-	// it is ignored, demands no thumbnail, and violates no contract.
+	// it is ignored, demands no derived file, and violates no contract.
 	expect( finding_paths( $report, Finding_Kind::Ignored ) )->toBe( [ 'raw/._photo.jpg.webp' ] );
 	expect( $report->of_kind( Finding_Kind::Missing_Derived ) )->toBe( [] );
 	expect( $report->of_kind( Finding_Kind::Contract_Violation ) )->toBe( [] );
@@ -621,18 +664,18 @@ test( 'the built-in list still pre-empts a main-shaped AppleDouble under a calle
 // --repair --force prunes the width buckets of de-configured widths
 // ---------------------------------------------------------------------------
 
-test( 'force prunes the width directories a thumbnail-width change de-configured', function (): void {
+test( 'force prunes the width directories a rendition-width change de-configured', function (): void {
 	$root = doctor_fresh_root();
 
-	// Establish at width 640 and repair so the 640 bucket holds a thumbnail.
-	doctor_descriptor( [ 640 ] )->write( $root );
+	// Establish with a 640 thumbnail and repair so the 640 bucket holds a thumbnail.
+	doctor_descriptor( 1920, 640 )->write( $root );
 	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
-	make_doctor( $root, doctor_descriptor( [ 640 ] ) )->run( true, false );
+	make_doctor( $root, doctor_descriptor( 1920, 640 ) )->run( true, false );
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
 
-	// The width filter changed to [320]; a forced repair re-derives everything —
+	// The thumbnail width changed to 320; a forced repair re-derives everything —
 	// which includes retiring the now-unconfigured 640 bucket, not just adding 320.
-	$narrower = doctor_descriptor( [ 320 ] );
+	$narrower = doctor_descriptor( 1920, 320 );
 	$narrower->write( $root );
 	$report = make_doctor( $root, $narrower )->run( true, true );
 
@@ -646,13 +689,13 @@ test( 'force prunes the width directories a thumbnail-width change de-configured
 
 test( 'a repair without force never prunes a de-configured width directory', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 640 ] )->write( $root );
+	doctor_descriptor( 1920, 640 )->write( $root );
 	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
-	make_doctor( $root, doctor_descriptor( [ 640 ] ) )->run( true, false );
+	make_doctor( $root, doctor_descriptor( 1920, 640 ) )->run( true, false );
 
 	// A plain repair under the new widths adds what is missing but retires
 	// nothing — pruning is --force's documented job.
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	$report = make_doctor( $root, doctor_descriptor( 1920, 320 ) )->run( true, false );
 
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
 	expect( $report->pruned )->toBe( 0 );
@@ -666,17 +709,17 @@ test( 'a repair without force never prunes a de-configured width directory', fun
 
 test( 'mains in a sub-folder are reconciled like the root', function (): void {
 	$root = doctor_fresh_root();
-	doctor_descriptor( [ 320 ] )->write( $root );
+	doctor_descriptor()->write( $root );
 	mkdir( $root . '/2024', 0700, true );
 	write_doctor_main( $root . '/2024', 'trip.jpg.webp', 1500 );
 
-	$report = make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( false, false );
+	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Missing_Derived ) )
 		->toContain( '2024/.kntnt-thumbnails/320/trip.jpg.webp' );
 
 	// And a repair derives the sub-folder thumbnail at its conventional path.
-	make_doctor( $root, doctor_descriptor( [ 320 ] ) )->run( true, false );
+	make_doctor( $root, doctor_descriptor() )->run( true, false );
 	expect( is_file( $root . '/2024/.kntnt-thumbnails/320/trip.jpg.webp' ) )->toBeTrue();
 
 	doctor_remove_tree( $root );
