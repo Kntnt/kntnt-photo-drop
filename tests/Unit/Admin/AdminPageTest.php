@@ -174,8 +174,11 @@ function wire_admin_render_stubs( string $basedir ): string {
 	Functions\when( 'current_user_can' )->justReturn( true );
 
 	// Output helpers the page calls but whose output the assertions do not inspect
-	// are no-ops, so the markup under test is only what the page itself echoes.
+	// are no-ops, so the markup under test is only what the page itself echoes. The
+	// regenerate section mints a wp_rest nonce for its host element; a fixed token
+	// keeps the captured markup deterministic.
 	Functions\when( 'wp_nonce_field' )->justReturn( '' );
+	Functions\when( 'wp_create_nonce' )->justReturn( 'regen-nonce' );
 	Functions\when( 'submit_button' )->justReturn( '' );
 	Functions\when( 'settings_errors' )->justReturn( null );
 	Functions\when( 'get_transient' )->justReturn( false );

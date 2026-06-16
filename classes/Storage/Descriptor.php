@@ -153,6 +153,46 @@ final readonly class Descriptor {
 	) {}
 
 	/**
+	 * Returns a copy with the re-derivable rendition pairs replaced — the flip.
+	 *
+	 * The "flip" half of regenerate-then-flip (ADR-0013): once a browser-driven
+	 * batch has written every main's full and thumbnail at the new widths, the
+	 * descriptor's active widths are switched to those targets so the gallery starts
+	 * serving them. Only the four re-derivable values change; the immutable upload
+	 * contract (`upload_width` + `upload_quality`), the display name, and the mutable
+	 * placement template carry over untouched, because the flip never touches the
+	 * irreversible pair. Being a fresh value object rather than an in-place mutation
+	 * is what makes an interrupted run safe: the live descriptor on disk is never
+	 * altered until the caller chooses to `write()` this copy, so a crash before the
+	 * write leaves the old renditions serving and a re-run reconciles.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param int $full_width        The new full-image width.
+	 * @param int $full_quality      The new full-image WebP quality (0–100).
+	 * @param int $thumbnail_width   The new thumbnail width.
+	 * @param int $thumbnail_quality The new thumbnail WebP quality (0–100).
+	 * @return self A new descriptor carrying the new re-derivable settings.
+	 */
+	public function with_renditions(
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): self {
+		return new self(
+			$this->name,
+			$this->upload_width,
+			$this->upload_quality,
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			$thumbnail_quality,
+			$this->path_components,
+		);
+	}
+
+	/**
 	 * Reads and decodes a `collection.json` from a collection root.
 	 *
 	 * Returns a typed descriptor, or `null` when the file is missing, unreadable,

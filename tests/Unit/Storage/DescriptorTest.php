@@ -123,7 +123,10 @@ test( 'with_renditions replaces the re-derivable pairs and keeps everything immu
 } );
 
 test( 'with_renditions leaves the original descriptor unmutated', function (): void {
-	$original = make_descriptor( [ 'full_width' => 1920, 'thumbnail_width' => 640 ] );
+	$original = make_descriptor( [
+		'full_width'      => 1920,
+		'thumbnail_width' => 640,
+	] );
 
 	// A readonly value object is never mutated in place; the flip produces a fresh
 	// instance and the source keeps its old widths, which is exactly what makes an

@@ -35,6 +35,8 @@ use function Tests\Integration\write_jpeg;
 
 require_once __DIR__ . '/helpers.php';
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This suite runs on the host with no WordPress loaded (esc_html() does not exist); a seed-failure message surfaces only in the Pest console, never in HTML.
+
 // Seed one collection whose upload ceiling (1500) leaves room for a separate full
 // (1200) and thumbnail (600) bucket, then import one wide image so the derived
 // buckets actually exist on disk. The full/thumbnail widths are fixed at create
@@ -84,14 +86,19 @@ test( 'the seed collection starts with the old-width buckets on disk', function 
 	expect( $descriptor['thumbnailWidth'] )->toBe( 600 );
 } );
 
-test( 'an interrupted regenerate leaves the old descriptor active and the old buckets serving', function () use ( $slug ): void {
+test( 'an interrupted regenerate leaves the old descriptor and buckets serving', function () use ( $slug ): void {
 
 	// Regenerate every main at the new widths (full 800 / thumbnail 300) but stop
 	// before finalising — exactly an interrupted run. The new buckets are written
 	// alongside the old ones, but because the descriptor was never flipped the gallery
 	// keeps reading 1200/600.
 	$session = admin_session();
-	$target  = [ 'fullWidth' => 800, 'fullQuality' => 85, 'thumbnailWidth' => 300, 'thumbnailQuality' => 75 ];
+	$target  = [
+		'fullWidth'        => 800,
+		'fullQuality'      => 85,
+		'thumbnailWidth'   => 300,
+		'thumbnailQuality' => 75,
+	];
 	$batch   = rest_regenerate( $slug, $target + [ 'index' => 0 ], $session['jar'], $session['nonce'] );
 	expect( $batch['status'] )->toBe( 200 );
 
@@ -106,12 +113,17 @@ test( 'an interrupted regenerate leaves the old descriptor active and the old bu
 	expect( width_buckets( $slug ) )->toContain( 600 );
 } );
 
-test( 'a full regenerate then finalise flips the descriptor and prunes the old buckets', function () use ( $slug ): void {
+test( 'a full regenerate then finalise flips the descriptor and prunes old buckets', function () use ( $slug ): void {
 
 	// Run the whole flow to completion: regenerate the one main at the new widths, then
 	// finalise. Only on the successful finalise does the descriptor flip.
 	$session = admin_session();
-	$target  = [ 'fullWidth' => 800, 'fullQuality' => 85, 'thumbnailWidth' => 300, 'thumbnailQuality' => 75 ];
+	$target  = [
+		'fullWidth'        => 800,
+		'fullQuality'      => 85,
+		'thumbnailWidth'   => 300,
+		'thumbnailQuality' => 75,
+	];
 
 	// Walk the batch cursor until the endpoint reports the collection is done, mirroring
 	// the browser's one-per-request loop.
@@ -158,7 +170,13 @@ test( 'a regenerate without a nonce is rejected and the descriptor is untouched'
 	$descriptor = read_descriptor( $slug );
 	$response   = rest_regenerate(
 		$slug,
-		[ 'fullWidth' => 999, 'fullQuality' => 85, 'thumbnailWidth' => 222, 'thumbnailQuality' => 75, 'finalize' => true ],
+		[
+			'fullWidth'        => 999,
+			'fullQuality'      => 85,
+			'thumbnailWidth'   => 222,
+			'thumbnailQuality' => 75,
+			'finalize'         => true,
+		],
 		$session['jar'],
 		null,
 	);
