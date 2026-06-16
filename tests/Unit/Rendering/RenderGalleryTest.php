@@ -969,7 +969,10 @@ test( 'a thumbnail breadcrumb renders the collection name, the humanised path, a
 
 	$descriptor = gallery_descriptor( [ 'name' => 'Holiday Photos' ] );
 	$html       = render_seeded_gallery(
-		[ 'breadcrumbsVisibility' => 'thumbnail' ],
+		[
+			'breadcrumbsVisibility' => 'thumbnail',
+			'breadcrumbsSeparator'  => '›',
+		],
 		[
 			[
 				'path'   => 'day-one/IMG_5.jpg.webp',
@@ -983,7 +986,8 @@ test( 'a thumbnail breadcrumb renders the collection name, the humanised path, a
 	);
 
 	// The breadcrumb leads with the collection display name, then each humanised
-	// folder, then the humanised filename, joined by the default separator.
+	// folder, then the humanised filename, joined by the separator (WordPress fills
+	// the `›` default before the render callback; the unit test passes it directly).
 	expect( $html )->toContain( 'kntnt-photo-drop-gallery__breadcrumbs' );
 	expect( $html )->toContain( 'Holiday Photos › day one › IMG 5' );
 
@@ -997,6 +1001,7 @@ test( 'the breadcrumb hide-count drops that many leading crumbs, the collection 
 		[
 			'breadcrumbsVisibility' => 'thumbnail',
 			'breadcrumbsHideCount'  => 1,
+			'breadcrumbsSeparator'  => '›',
 		],
 		[
 			[
@@ -1072,7 +1077,10 @@ test( 'the breadcrumb text is mirrored onto the anchor so the lightbox shows the
 
 	$descriptor = gallery_descriptor( [ 'name' => 'Trip' ] );
 	$html       = render_seeded_gallery(
-		[ 'breadcrumbsVisibility' => 'thumbnail' ],
+		[
+			'breadcrumbsVisibility' => 'thumbnail',
+			'breadcrumbsSeparator'  => '›',
+		],
 		[
 			[
 				'path'   => 'a.jpg.webp',
@@ -1148,7 +1156,7 @@ test( 'custom overlay colour and typography land on the breadcrumb, not the wrap
 
 	// The Colour and Typography panels are skip-serialized onto the breadcrumb's
 	// inline style; the block wrapper carries none of them.
-	expect( $html )->toMatch( '/<figcaption[^>]*kntnt-photo-drop-gallery__breadcrumbs[^>]*style="[^"]*color:#112233;/' );
+	expect( $html )->toMatch( '/<figcaption[^>]*__breadcrumbs[^>]*style="[^"]*color:#112233;/' );
 	expect( $html )->toMatch( '/<figcaption[^>]*style="[^"]*background-color:rgba\(0,0,0,0\.6\);/' );
 	expect( $html )->toMatch( '/<figcaption[^>]*style="[^"]*line-height:1\.8;/' );
 	expect( $html )->not->toMatch( '/<div class="kntnt-photo-drop-gallery"[^>]*color:#112233/' );

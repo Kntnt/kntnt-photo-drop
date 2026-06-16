@@ -2,18 +2,20 @@
 /**
  * Unit tests for the block-support style projection helper.
  *
- * Issue #33 moved the gallery's caption colour/typography and the per-image
- * border/shadow off bespoke attributes and onto WordPress block-support panels,
- * serialised onto the right sub-element with `__experimentalSkipSerialization`
- * (the core Image-block pattern). `Block_Style_Support` is the server side of
- * that move: it reads the block's `style` subtree (and the preset shorthand
- * attributes a palette/preset choice writes at the top level) and projects them
- * into the inline `style` declarations and preset classnames for one
- * sub-element — the `<figcaption>` (colour + typography) or each `<img>`
- * (border + shadow). The projection delegates the CSS assembly to the core
- * style engine (`wp_style_engine_get_styles`), so these tests stub that seam to
- * the shape core returns and pin only the slicing logic this helper owns: which
- * style subtree and which preset attributes feed each sub-element.
+ * The gallery's overlay colour/typography and the per-image border/shadow live
+ * on WordPress block-support panels, serialised onto the right sub-element with
+ * `__experimentalSkipSerialization` (the core Image-block pattern).
+ * `Block_Style_Support` is the server side of that: it reads the block's `style`
+ * subtree (and the preset shorthand attributes a palette/preset choice writes at
+ * the top level) and projects them into the inline `style` declarations and
+ * preset classnames for one sub-element — the breadcrumb `<figcaption>`
+ * (`overlay()`: colour + typography) or each `<img>` (`image()`: border +
+ * shadow). It also resolves the shared foreground/background as raw values for
+ * the icon-cluster custom properties (`overlay_colors()`). The projection
+ * delegates the CSS assembly to the core style engine
+ * (`wp_style_engine_get_styles`), so these tests stub that seam to the shape core
+ * returns and pin only the slicing logic this helper owns: which style subtree
+ * and which preset attributes feed each sub-element.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.7.0
@@ -152,13 +154,13 @@ function style_engine_preset_class( string $value, string $key ): ?string {
 }
 
 // ---------------------------------------------------------------------------
-// caption() — colour + typography only, from the style subtree
+// overlay() — colour + typography only, projected onto the breadcrumb
 // ---------------------------------------------------------------------------
 
-test( 'a custom caption text colour becomes an inline color declaration', function (): void {
+test( 'a custom overlay text colour becomes an inline color declaration', function (): void {
 
 	stub_style_engine();
-	$result = Block_Style_Support::caption(
+	$result = Block_Style_Support::overlay(
 		[ 'style' => [ 'color' => [ 'text' => '#ff0000' ] ] ],
 	);
 
@@ -172,7 +174,7 @@ test( 'a custom caption text colour becomes an inline color declaration', functi
 test( 'a custom overlay background becomes an inline background-color declaration', function (): void {
 
 	stub_style_engine();
-	$result = Block_Style_Support::caption(
+	$result = Block_Style_Support::overlay(
 		[ 'style' => [ 'color' => [ 'background' => 'rgba(0,0,0,0.6)' ] ] ],
 	);
 
@@ -183,7 +185,7 @@ test( 'a custom overlay background becomes an inline background-color declaratio
 test( 'a preset text colour becomes a custom-property declaration plus the preset classname', function (): void {
 
 	stub_style_engine();
-	$result = Block_Style_Support::caption(
+	$result = Block_Style_Support::overlay(
 		[ 'textColor' => 'vivid-red' ],
 	);
 
@@ -199,7 +201,7 @@ test( 'a preset text colour becomes a custom-property declaration plus the prese
 test( 'a preset font size becomes its custom property plus the preset classname', function (): void {
 
 	stub_style_engine();
-	$result = Block_Style_Support::caption(
+	$result = Block_Style_Support::overlay(
 		[ 'fontSize' => 'large' ],
 	);
 
@@ -211,7 +213,7 @@ test( 'a preset font size becomes its custom property plus the preset classname'
 test( 'a custom typography value is projected to the figcaption', function (): void {
 
 	stub_style_engine();
-	$result = Block_Style_Support::caption(
+	$result = Block_Style_Support::overlay(
 		[ 'style' => [ 'typography' => [ 'lineHeight' => '1.8' ] ] ],
 	);
 
@@ -219,10 +221,10 @@ test( 'a custom typography value is projected to the figcaption', function (): v
 
 } );
 
-test( 'caption ignores border and shadow — those belong to the image', function (): void {
+test( 'overlay ignores border and shadow — those belong to the image', function (): void {
 
 	stub_style_engine();
-	$result = Block_Style_Support::caption(
+	$result = Block_Style_Support::overlay(
 		[
 			'style'  => [
 				'color'  => [ 'text' => '#fff' ],
@@ -232,7 +234,7 @@ test( 'caption ignores border and shadow — those belong to the image', functio
 		],
 	);
 
-	// The caption sub-element carries colour/typography only; border and shadow
+	// The breadcrumb sub-element carries colour/typography only; border and shadow
 	// must not leak onto it (they are projected onto each image instead).
 	expect( $result['style'] )->toContain( 'color:#fff;' );
 	expect( $result['style'] )->not->toContain( 'border-width' );
@@ -240,13 +242,65 @@ test( 'caption ignores border and shadow — those belong to the image', functio
 
 } );
 
-test( 'caption with no colour or typography yields empty style and class', function (): void {
+test( 'overlay with no colour or typography yields empty style and class', function (): void {
 
 	stub_style_engine();
-	$result = Block_Style_Support::caption( [] );
+	$result = Block_Style_Support::overlay( [] );
 
 	expect( $result['style'] )->toBe( '' );
 	expect( $result['class'] )->toBe( '' );
+
+} );
+
+// ---------------------------------------------------------------------------
+// overlay_colors() — the shared foreground/background for the icon cluster
+// ---------------------------------------------------------------------------
+
+test( 'a custom text and background colour resolve to the icon foreground and background', function (): void {
+
+	$result = Block_Style_Support::overlay_colors(
+		[
+			'style' => [
+				'color' => [
+					'text'       => '#ffeedd',
+					'background' => '#10203040',
+				],
+			],
+		],
+	);
+
+	// The Colour support's text is the icon glyph foreground and its background is
+	// the icon badge background — the same shared pair the breadcrumb uses, but as
+	// raw values for the icon-cluster custom properties.
+	expect( $result['fg'] )->toBe( '#ffeedd' );
+	expect( $result['bg'] )->toBe( '#10203040' );
+
+} );
+
+test( 'a preset text and background colour resolve to their custom-property references', function (): void {
+
+	$result = Block_Style_Support::overlay_colors(
+		[
+			'textColor'       => 'vivid-red',
+			'backgroundColor' => 'pale-sky',
+		],
+	);
+
+	// A palette choice resolves to the CSS custom-property reference, so the icon
+	// custom properties carry a valid length rather than the raw preset slug.
+	expect( $result['fg'] )->toBe( 'var(--wp--preset--color--vivid-red)' );
+	expect( $result['bg'] )->toBe( 'var(--wp--preset--color--pale-sky)' );
+
+} );
+
+test( 'unset overlay colours yield empty foreground and background', function (): void {
+
+	$result = Block_Style_Support::overlay_colors( [] );
+
+	// Nothing set means empty strings, so the renderer omits the custom properties
+	// and the stylesheet's own default overlay colours apply.
+	expect( $result['fg'] )->toBe( '' );
+	expect( $result['bg'] )->toBe( '' );
 
 } );
 
