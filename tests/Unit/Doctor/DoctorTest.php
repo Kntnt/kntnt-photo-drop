@@ -131,7 +131,11 @@ function doctor_remove_tree( string $dir ): void {
  * @param int|null $upload_width    The upload ceiling, or null for no limit.
  * @return Descriptor The descriptor under test.
  */
-function doctor_descriptor( int $full_width = 1920, int $thumbnail_width = 320, ?int $upload_width = 1920 ): Descriptor {
+function doctor_descriptor(
+	int $full_width = 1920,
+	int $thumbnail_width = 320,
+	?int $upload_width = 1920,
+): Descriptor {
 	return new Descriptor( 'Test', $upload_width, 80, $full_width, 80, $thumbnail_width, 75, '%year%' );
 }
 

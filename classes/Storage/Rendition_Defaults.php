@@ -115,13 +115,13 @@ final class Rendition_Defaults {
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param non-empty-string $hook    The width filter name.
-	 * @param int              $default The documented default width.
+	 * @param non-empty-string $hook     The width filter name.
+	 * @param int              $fallback The documented default width.
 	 * @return int The resolved width.
 	 */
-	private static function width( string $hook, int $default ): int {
-		$filtered = apply_filters( $hook, $default );
-		return is_int( $filtered ) && $filtered > 0 ? $filtered : $default;
+	private static function width( string $hook, int $fallback ): int {
+		$filtered = apply_filters( $hook, $fallback );
+		return is_int( $filtered ) && $filtered > 0 ? $filtered : $fallback;
 	}
 
 	/**
@@ -132,13 +132,13 @@ final class Rendition_Defaults {
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param non-empty-string $hook    The quality filter name.
-	 * @param int              $default The documented default quality.
+	 * @param non-empty-string $hook     The quality filter name.
+	 * @param int              $fallback The documented default quality.
 	 * @return int The resolved quality.
 	 */
-	private static function quality( string $hook, int $default ): int {
-		$filtered = apply_filters( $hook, $default );
-		return is_int( $filtered ) && $filtered >= 0 && $filtered <= 100 ? $filtered : $default;
+	private static function quality( string $hook, int $fallback ): int {
+		$filtered = apply_filters( $hook, $fallback );
+		return is_int( $filtered ) && $filtered >= 0 && $filtered <= 100 ? $filtered : $fallback;
 	}
 
 }
