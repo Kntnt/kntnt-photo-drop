@@ -90,11 +90,16 @@ export interface ProgressView {
 }
 
 /**
- * The block-element class roots the stylesheet targets.
+ * The default block-element class that roots the stylesheet targets.
+ *
+ * The Drop Zone is the original consumer, so its block-element class is the
+ * default; the admin regenerate UI passes its own class
+ * (`kntnt-photo-drop-regenerate`) so the same view drives a second surface without
+ * the logic being duplicated (ADR-0013).
  *
  * @since 0.11.0
  */
-const BLOCK = 'kntnt-photo-drop-drop-zone';
+const DEFAULT_BLOCK = 'kntnt-photo-drop-drop-zone';
 
 /**
  * Fills a `{processed}`/`{total}` template with the snapshot's counts.
@@ -116,12 +121,14 @@ function fillCounts( template: string, snapshot: ProgressSnapshot ): string {
  * as inert text. An empty bucket yields no element so the summary shows only the
  * buckets that have members.
  *
+ * @param block    - The block-element class prefix the section's classes are rooted on.
  * @param modifier - The bucket name, used as the element-class modifier.
  * @param heading  - The pre-translated bucket heading.
  * @param names    - The filenames in the bucket, in queue order.
  * @return The section element, or null when the bucket is empty.
  */
 function bucketSection(
+	block: string,
 	modifier: string,
 	heading: string,
 	names: readonly string[]
@@ -133,9 +140,9 @@ function bucketSection(
 	// Heading plus a plain list; every name is set via textContent so a hostile
 	// filename lands as inert text, never markup.
 	const section = document.createElement( 'div' );
-	section.className = `${ BLOCK }__bucket ${ BLOCK }__bucket--${ modifier }`;
+	section.className = `${ block }__bucket ${ block }__bucket--${ modifier }`;
 	const title = document.createElement( 'p' );
-	title.className = `${ BLOCK }__bucket-heading`;
+	title.className = `${ block }__bucket-heading`;
 	title.textContent = heading;
 	const list = document.createElement( 'ul' );
 	for ( const name of names ) {
@@ -151,18 +158,30 @@ function bucketSection(
 /**
  * Creates the progress view over the given regions, strings, and callbacks.
  *
+ * The `blockClass` parameter lets a second surface reuse this view without
+ * duplicating its DOM logic: the Drop Zone keeps the default block-element class,
+ * while the admin regenerate UI passes `kntnt-photo-drop-regenerate` so the bar,
+ * the read-out, the buckets, and the buttons carry that surface's classes instead
+ * (ADR-0013).
+ *
  * @since 0.11.0
  *
- * @param elements  - The three regions the view writes into.
- * @param strings   - The pre-translated strings.
- * @param callbacks - The Cancel and Retry handlers.
+ * @param elements   - The three regions the view writes into.
+ * @param strings    - The pre-translated strings.
+ * @param callbacks  - The Cancel and Retry handlers.
+ * @param blockClass - The block-element class the rendered classes are rooted on.
  * @return The progress view handle.
  */
 export function createProgressView(
 	elements: ProgressElements,
 	strings: ProgressStrings,
-	callbacks: ProgressCallbacks
+	callbacks: ProgressCallbacks,
+	blockClass: string = DEFAULT_BLOCK
 ): ProgressView {
+	// Root every rendered class on the caller's block-element prefix so one view
+	// serves the Drop Zone and the admin regenerate surface alike.
+	const BLOCK = blockClass;
+
 	return {
 		render: ( snapshot ) => {
 			// Redraw the bar from scratch each tick: a progressbar element
@@ -235,6 +254,7 @@ export function createProgressView(
 			);
 			elements.status.appendChild( uploaded );
 			const skipped = bucketSection(
+				BLOCK,
 				'skipped',
 				strings.bucketSkipped,
 				snapshot.skipped
@@ -246,6 +266,7 @@ export function createProgressView(
 				( file ) => file.fileName
 			);
 			const failed = bucketSection(
+				BLOCK,
 				'failed',
 				strings.bucketFailed,
 				failedNames

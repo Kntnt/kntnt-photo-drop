@@ -21,6 +21,7 @@ use Kntnt\Photo_Drop\Cli\Image_Command;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Imaging\Optimizer;
 use Kntnt\Photo_Drop\Rest\Collections_Controller;
+use Kntnt\Photo_Drop\Rest\Regenerate_Controller;
 use Kntnt\Photo_Drop\Rest\Upload_Controller;
 
 /**
@@ -315,6 +316,14 @@ final class Plugin {
 		// write surface.
 		$collections_controller = new Collections_Controller( $repository );
 		add_action( 'rest_api_init', [ $collections_controller, 'register_routes' ] );
+
+		// Register the manage-gated regenerate endpoint — the browser-driven half of
+		// regenerate-then-flip (ADR-0013). The admin Edit page drives it to re-derive a
+		// collection's full/thumbnail renditions at new widths and flip the descriptor
+		// only on success; it is gated by a nonce plus the manage capability in its own
+		// permission callback, so wiring it on every request is safe.
+		$regenerate_controller = new Regenerate_Controller( $repository );
+		add_action( 'rest_api_init', [ $regenerate_controller, 'register_routes' ] );
 
 		// Register the collection-lifecycle admin page — the GUI mirror of the CLI's
 		// create/update/delete verbs, and one of the two deliberate, trusted contexts

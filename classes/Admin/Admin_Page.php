@@ -103,6 +103,19 @@ final class Admin_Page {
 	private const PREVIEW_HANDLE = 'kntnt-photo-drop-path-preview';
 
 	/**
+	 * The script handle for the Edit page's browser-driven regenerate UI.
+	 *
+	 * Enqueued on the Edit view only and built by `@wordpress/scripts` into
+	 * `build/admin/regenerate.js`. It drives the batched re-derive against the
+	 * manage-gated REST endpoint and renders progress through the shared Drop Zone
+	 * progress view, so the regenerate-then-flip logic is not duplicated (ADR-0013).
+	 *
+	 * @since 0.11.0
+	 * @var string
+	 */
+	private const REGENERATE_HANDLE = 'kntnt-photo-drop-regenerate';
+
+	/**
 	 * The literal "Upload width" form value that maps to "source dimensions" (`null`).
 	 *
 	 * The upload contract is irreversible, so the width must be stated explicitly;
@@ -204,18 +217,20 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Adds the page's small stylesheet and the live path-preview script, scoped
-	 * to this admin screen only.
+	 * Adds the page's stylesheet, the live path-preview script, and — on the Edit
+	 * view — the regenerate script, scoped to this admin screen only.
 	 *
 	 * Wired to `admin_enqueue_scripts`. The CSS is the presentation the list markup
 	 * should not carry inline (the header gap and the right-aligned actions column),
 	 * riding the always-present `common` stylesheet so no extra request is made. The
-	 * script powers the create/edit Path components field's live expanded-path
+	 * preview script powers the create/edit Path components field's live expanded-path
 	 * preview (ADR-0014): it substitutes the four placeholders with the same sample
 	 * values the server-rendered initial preview uses (passed as config so PHP stays
-	 * the single source of truth), updating the preview as the field is typed. The
-	 * preview is presentational only — no safety logic — and the field renders a
-	 * correct preview even with the script absent.
+	 * the single source of truth), updating the preview as the field is typed. On the
+	 * Edit view it additionally enqueues the browser-driven regenerate script that
+	 * drives the manage-gated re-derive endpoint and the shared progress view
+	 * (ADR-0013). Both scripts are presentational/operational on top of a server that
+	 * re-validates everything, so the page degrades gracefully when either is absent.
 	 *
 	 * @since 0.4.0
 	 *
@@ -228,12 +243,22 @@ final class Admin_Page {
 			return;
 		}
 
-		// The spacing rule separates the header row from the list table; the
-		// actions rule pins the Edit/Delete buttons to the row's right-hand end.
+		// The spacing rule separates the header row from the list table; the actions
+		// rule pins the Edit/Delete buttons to the row's right-hand end; the regenerate
+		// rules give the shared progress view a visible bar and a readable read-out on
+		// the Edit view (the same block-element classes the Drop Zone bar uses, under
+		// this page's own prefix).
 		wp_add_inline_style(
 			'common',
 			'.kntnt-photo-drop-collections { margin-top: 1em; }'
-			. ' .kntnt-photo-drop-actions { text-align: right; white-space: nowrap; }',
+			. ' .kntnt-photo-drop-actions { text-align: right; white-space: nowrap; }'
+			. ' .kntnt-photo-drop-regenerate__progress-bar { position: relative; height: 1.5em; max-width: 30em;'
+			. ' margin: 0.5em 0; background: #f0f0f1; border: 1px solid #c3c4c7; border-radius: 2px;'
+			. ' overflow: hidden; }'
+			. ' .kntnt-photo-drop-regenerate__progress-fill { display: block; height: 100%; background: #2271b1;'
+			. ' transition: width 0.2s ease; }'
+			. ' .kntnt-photo-drop-regenerate__progress-count { display: flex; justify-content: space-between;'
+			. ' max-width: 30em; margin: 0.25em 0; }',
 		);
 
 		// Register an inline-only handle and attach the live path-preview script,
@@ -243,6 +268,65 @@ final class Admin_Page {
 		wp_enqueue_script( self::PREVIEW_HANDLE );
 		wp_add_inline_script( self::PREVIEW_HANDLE, $this->preview_config_script(), 'before' );
 		wp_add_inline_script( self::PREVIEW_HANDLE, $this->preview_script() );
+
+		// On the Edit view only, enqueue the browser-driven regenerate script that
+		// drives the manage-gated re-derive endpoint (ADR-0013); other views never need
+		// it. The action is a read-only navigational query var (the state-changing POSTs
+		// are nonce-checked in their own handlers).
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only view routing; no state change.
+		if ( $this->read_string( $_GET, 'action' ) === 'edit' ) {
+			$this->enqueue_regenerate_script();
+		}
+
+	}
+
+	/**
+	 * Enqueues the built regenerate script and hands it the REST root.
+	 *
+	 * Loads `build/admin/regenerate.js` (built by `@wordpress/scripts`) with the
+	 * dependencies its generated asset manifest records, then localises the REST root
+	 * onto the page so the script can address the regenerate route under any permalink
+	 * structure (the per-collection `wp_rest` nonce travels on the host element's data
+	 * attribute, not here). A missing build file (an un-built checkout) simply enqueues
+	 * nothing, so the page degrades to read-only rendition fields rather than erroring.
+	 *
+	 * @since 0.11.0
+	 */
+	private function enqueue_regenerate_script(): void {
+
+		// Resolve the built asset and its manifest; an un-built checkout has neither, so
+		// the regenerate UI is simply inert rather than fatal.
+		$plugin_dir = plugin_dir_path( Plugin::get_plugin_file() );
+		$asset_file = $plugin_dir . 'build/admin/regenerate.asset.php';
+		if ( ! is_file( $asset_file ) ) {
+			return;
+		}
+		$asset = require $asset_file;
+		if ( ! is_array( $asset ) ) {
+			return;
+		}
+
+		// Enqueue the script with the manifest's dependencies and content-hash version,
+		// then expose the REST root so the script builds an absolute route URL. The
+		// dependency list is coerced to a string array since the manifest is typed loose.
+		$dependencies = array_values( array_filter(
+			is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [],
+			'is_string',
+		) );
+		$version = is_string( $asset['version'] ?? null ) ? $asset['version'] : null;
+		wp_enqueue_script(
+			self::REGENERATE_HANDLE,
+			plugins_url( 'build/admin/regenerate.js', Plugin::get_plugin_file() ),
+			$dependencies,
+			$version,
+			true,
+		);
+		$rest_config = wp_json_encode( [ 'root' => esc_url_raw( rest_url() ) ] );
+		wp_add_inline_script(
+			self::REGENERATE_HANDLE,
+			'window.wpApiSettings = window.wpApiSettings || ' . $rest_config . ';',
+			'before',
+		);
 
 	}
 
@@ -1255,12 +1339,16 @@ final class Admin_Page {
 	/**
 	 * Renders the edit form for one collection.
 	 *
-	 * The display name and the placement template are editable (the template
-	 * affects only future uploads, so it is safe to change; ADR-0014); the six
-	 * rendition fields — the immutable upload width/quality, the re-derivable full
-	 * and thumbnail width/quality, and the always-WebP format — are shown disabled
-	 * with a note (their editable re-derive flow is a later issue). An unknown slug
-	 * shows an error and a link back to the list.
+	 * The display name and the placement template are editable and saved instantly by
+	 * the form POST (the template affects only future uploads, so it is safe to
+	 * change; ADR-0014). The immutable upload width/quality and the always-WebP format
+	 * are shown read-only — never as editable fields, so a save can never touch the
+	 * irreversible pair. The re-derivable full and thumbnail width/quality are
+	 * editable, but in a separate regenerate section *after* the form
+	 * (`render_regenerate_section()`): changing one takes effect by browser-driven
+	 * regenerate-then-flip (ADR-0013), not the instant-save POST. The slug is shown
+	 * read-only as the durable identity. An unknown slug shows an error and a link
+	 * back to the list.
 	 *
 	 * @since 0.5.0
 	 *
@@ -1306,36 +1394,174 @@ final class Admin_Page {
 
 		echo '</tbody></table>';
 
-		// Show the collection's renditions disabled with a note: the upload contract
-		// is permanent, and the re-derivable full/thumbnail renditions are read-only
-		// here (their editable re-derive flow is a later issue).
+		// Show the immutable upload contract read-only: the upload width and quality
+		// were fixed at establishment (the source is discarded), and the format is
+		// always WebP, so none of these is an editable field and none POSTs — a save
+		// touches only the display name and the placement template.
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$contract_note = __( 'The upload width and quality were fixed when the collection was established and cannot be changed. The full and thumbnail renditions are re-derivable but are shown read-only here.', 'kntnt-photo-drop' );
-		echo '<h2>' . esc_html__( 'Renditions', 'kntnt-photo-drop' ) . '</h2>';
+		$contract_note = __( 'The upload width and quality were fixed when the collection was established and cannot be changed.', 'kntnt-photo-drop' );
+		echo '<h2>' . esc_html__( 'Upload contract (immutable)', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<p class="description">' . esc_html( $contract_note ) . '</p>';
-
-		// Render the six rendition values plus the always-WebP format as disabled
-		// fields; none POSTs, so a save touches only the display name.
 		echo '<table class="form-table" role="presentation"><tbody>';
 		$this->render_disabled_row(
 			__( 'Upload width', 'kntnt-photo-drop' ),
 			$this->format_upload_width( $descriptor->upload_width ),
 		);
 		$this->render_disabled_row( __( 'Upload quality', 'kntnt-photo-drop' ), (string) $descriptor->upload_quality );
-		$this->render_disabled_row(
-			__( 'Full image', 'kntnt-photo-drop' ),
-			$this->format_rendition( $descriptor->full_width, $descriptor->full_quality ),
-		);
-		$this->render_disabled_row(
-			__( 'Thumbnail', 'kntnt-photo-drop' ),
-			$this->format_rendition( $descriptor->thumbnail_width, $descriptor->thumbnail_quality ),
-		);
 		$this->render_disabled_row( __( 'Format', 'kntnt-photo-drop' ), __( 'WebP', 'kntnt-photo-drop' ) );
 		echo '</tbody></table>';
 
+		// The Save button commits the instant fields (display name + placement
+		// template); the re-derivable renditions are handled by their own regenerate
+		// section outside this form, so a plain save never disturbs them.
 		submit_button( __( 'Save changes', 'kntnt-photo-drop' ) );
 		$this->render_cancel_link();
 		echo '</form>';
+
+		// Render the re-derivable renditions section after the form, so it is driven by
+		// the browser-side regenerate flow (regenerate-then-flip; ADR-0013) rather than
+		// the instant-save POST.
+		$this->render_regenerate_section( $slug, $descriptor );
+
+	}
+
+	/**
+	 * Renders the editable re-derivable renditions and the regenerate control.
+	 *
+	 * The browser-driven half of the Edit page (ADR-0013): the four re-derivable
+	 * fields — full width/quality and thumbnail width/quality — are editable number
+	 * inputs pre-filled from the descriptor, and a Regenerate button drives the
+	 * batched re-derive against the manage-gated REST endpoint. The descriptor's
+	 * active widths flip only once every main is re-derived, so the gallery keeps
+	 * serving the old renditions until the run completes; an interrupted run is safe
+	 * because the descriptor was never flipped. This section sits **outside** the
+	 * instant-save form: the inputs never POST to the update handler, so a plain save
+	 * cannot flip the widths without first regenerating (which would leave the gallery
+	 * pointing at missing files). The host element carries the collection slug and the
+	 * `wp_rest` nonce the regenerate script reads, plus the empty progress region the
+	 * shared progress view writes into.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param string     $slug       The collection slug the regenerate run targets.
+	 * @param Descriptor $descriptor The collection descriptor, for the pre-filled values.
+	 */
+	private function render_regenerate_section( string $slug, Descriptor $descriptor ): void {
+
+		// Introduce the section and name the consequence of changing a value, so the
+		// builder understands a change triggers a regenerate rather than an instant save.
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$note = __( 'The full and thumbnail renditions are re-derived from the main image. Changing a width or quality regenerates every image; the gallery keeps showing the current renditions until the regeneration finishes.', 'kntnt-photo-drop' );
+		echo '<h2>' . esc_html__( 'Renditions (re-derivable)', 'kntnt-photo-drop' ) . '</h2>';
+		echo '<p class="description">' . esc_html( $note ) . '</p>';
+
+		// The host element carries the slug and a fresh wp_rest nonce so the regenerate
+		// script can drive the REST endpoint, and wraps the editable fields, the
+		// Regenerate button, and the progress region the shared progress view fills.
+		printf(
+			'<div data-kntnt-photo-drop-regenerate data-kntnt-photo-drop-collection="%s"'
+			. ' data-kntnt-photo-drop-nonce="%s">',
+			esc_attr( $slug ),
+			esc_attr( wp_create_nonce( 'wp_rest' ) ),
+		);
+
+		echo '<table class="form-table" role="presentation"><tbody>';
+		$this->render_editable_width_field(
+			'full_width',
+			__( 'Full width', 'kntnt-photo-drop' ),
+			$descriptor->full_width,
+		);
+		$this->render_editable_quality_field(
+			'full_quality',
+			__( 'Full quality', 'kntnt-photo-drop' ),
+			$descriptor->full_quality,
+		);
+		$this->render_editable_width_field(
+			'thumbnail_width',
+			__( 'Thumbnail width', 'kntnt-photo-drop' ),
+			$descriptor->thumbnail_width,
+		);
+		$this->render_editable_quality_field(
+			'thumbnail_quality',
+			__( 'Thumbnail quality', 'kntnt-photo-drop' ),
+			$descriptor->thumbnail_quality,
+		);
+		echo '</tbody></table>';
+
+		// The Regenerate trigger and the empty progress/status regions: the regenerate
+		// script wires the button to the batched REST run and writes the aggregate bar
+		// and the final summary into these regions (the shared Drop Zone progress view).
+		printf(
+			'<p><button type="button" class="button button-primary"'
+			. ' data-kntnt-photo-drop-regenerate-start>%s</button></p>',
+			esc_html__( 'Regenerate renditions', 'kntnt-photo-drop' ),
+		);
+		echo '<div class="kntnt-photo-drop-regenerate__progress" data-kntnt-photo-drop-regenerate-progress></div>';
+		echo '<div class="kntnt-photo-drop-regenerate__status" data-kntnt-photo-drop-regenerate-status></div>';
+		echo '<div class="screen-reader-text" aria-live="polite" data-kntnt-photo-drop-regenerate-summary></div>';
+
+		echo '</div>';
+
+	}
+
+	/**
+	 * Renders one editable positive-integer width field pre-filled from the descriptor.
+	 *
+	 * Shared by the regenerate section's full and thumbnail width rows. The field name
+	 * is the key the regenerate script reads; the field never POSTs to the update
+	 * handler (it sits outside the form), so the value reaches the server only through
+	 * the regenerate REST call.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param string $name    The form field name (and id stem).
+	 * @param string $label   The translated field label.
+	 * @param int    $current The stored width to pre-fill.
+	 */
+	private function render_editable_width_field( string $name, string $label, int $current ): void {
+
+		// A plain number input pre-filled with the stored width; the regenerate script
+		// reads it as the target full/thumbnail width.
+		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		printf(
+			'<input name="%s" id="%s" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			esc_attr( $name ),
+			esc_attr( $id ),
+			esc_attr( (string) $current ),
+			esc_html__( 'pixels', 'kntnt-photo-drop' ),
+		);
+		echo '</td></tr>';
+
+	}
+
+	/**
+	 * Renders one editable 0–100 quality field pre-filled from the descriptor.
+	 *
+	 * Shared by the regenerate section's full and thumbnail quality rows. Like the
+	 * width field it sits outside the instant-save form and is read only by the
+	 * regenerate script.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param string $name    The form field name (and id stem).
+	 * @param string $label   The translated field label.
+	 * @param int    $current The stored quality to pre-fill.
+	 */
+	private function render_editable_quality_field( string $name, string $label, int $current ): void {
+
+		// A bounded number input pre-filled with the stored quality; the regenerate
+		// script reads it as the target full/thumbnail quality.
+		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		printf(
+			'<input name="%s" id="%s" type="number" min="0" max="100" step="1" value="%s" class="small-text" />',
+			esc_attr( $name ),
+			esc_attr( $id ),
+			esc_attr( (string) $current ),
+		);
+		echo ' <span class="description">' . esc_html__( 'WebP quality, 0–100.', 'kntnt-photo-drop' ) . '</span>';
+		echo '</td></tr>';
 
 	}
 
