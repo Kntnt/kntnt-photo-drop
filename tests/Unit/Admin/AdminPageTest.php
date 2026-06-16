@@ -322,7 +322,8 @@ test( 'create defaults the path-components template when the field is blank', fu
 	// (ADR-0014).
 	$page->create_collection( 'blank-template', 'Blank', admin_renditions(), '' );
 
-	expect( Descriptor::read( $root . 'blank-template' )->path_components )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
+	$descriptor = Descriptor::read( $root . 'blank-template' );
+	expect( $descriptor->path_components )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
 
 	admin_remove_tree( $basedir );
 } );
