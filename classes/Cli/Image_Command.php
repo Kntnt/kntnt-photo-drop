@@ -19,14 +19,12 @@ declare( strict_types = 1 );
 
 namespace Kntnt\Photo_Drop\Cli;
 
-use Kntnt\Photo_Drop\Collection\Image_Name;
-use Kntnt\Photo_Drop\Collection\Path_Guard;
+use Kntnt\Photo_Drop\Collection\Image_Deleter;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Ingestion\Ingest_Outcome;
 use Kntnt\Photo_Drop\Ingestion\Ingest_Result;
 use Kntnt\Photo_Drop\Ingestion\Ingestor;
 use Kntnt\Photo_Drop\Storage\Descriptor;
-use Kntnt\Photo_Drop\Storage\Index;
 use WP_CLI;
 use WP_CLI\Utils;
 
@@ -217,24 +215,28 @@ final class Image_Command {
 
 		// Confine the path to the collection and resolve it to an existing main,
 		// accepting either the stored `<original>.webp` name or the original name.
-		$main = $this->resolve_main( $path, $relative );
+		// The deletion routine is the one shared with the gallery's trash write-path
+		// (ADR-0015), so the CLI and the REST endpoint name and remove files
+		// identically.
+		$deleter = new Image_Deleter();
+		$main    = $deleter->resolve_main( $path, $relative );
 		if ( $main === null ) {
 			WP_CLI::error( "No image '{$relative}' was found in collection '{$slug}'." );
 			return;
 		}
 
 		// Confirm the destructive act unless --yes; confirm() aborts on decline.
-		WP_CLI::confirm( "Delete the image '{$relative}' and its thumbnails from '{$slug}'?", $assoc_args );
+		WP_CLI::confirm( "Delete the image '{$relative}' and its derived artifacts from '{$slug}'?", $assoc_args );
 
-		// Remove the main first, then its thumbnails; a failed main removal is a
-		// hard error, while thumbnail removal is best-effort (the doctor heals it).
-		if ( ! $this->unlink_file( $main ) ) {
+		// Remove the main and every derived artifact slaved to it; a failed main
+		// removal is a hard error, while derived removal is best-effort (the doctor
+		// heals a stray) and the index self-heals on the next view.
+		if ( ! $deleter->delete( $main ) ) {
 			WP_CLI::error( "Failed to delete the main image at '{$relative}'." );
 			return;
 		}
-		$removed = $this->remove_thumbnails( $main );
 
-		WP_CLI::success( "Deleted '{$relative}' and {$removed} thumbnail(s) from '{$slug}'." );
+		WP_CLI::success( "Deleted '{$relative}' and its derived artifacts from '{$slug}'." );
 
 	}
 
@@ -336,100 +338,6 @@ final class Image_Command {
 
 		WP_CLI::success( "Import complete: {$summary}." );
 
-	}
-
-	/**
-	 * Resolves a relative path to an existing main image inside the collection.
-	 *
-	 * Confines the path with `Path_Guard` first, so nothing outside the collection
-	 * can be named. Only a stored main — a `<original>.webp` file — can ever
-	 * resolve: the `Image_Name::to_stored()` form of the confined path is computed
-	 * (which is a no-op for a path already ending in `.webp`, and appends `.webp`
-	 * to an original name) and accepted only when that exact `.webp` file exists.
-	 * A foreign file like `notes.txt` therefore never resolves to a main, so a
-	 * delete can never remove it. Returns the absolute main path, or `null`.
-	 *
-	 * @since 0.3.0
-	 *
-	 * @param string $collection_path The absolute collection root.
-	 * @param string $relative        The caller-supplied relative path.
-	 * @return string|null The absolute main path, or null when no main matches.
-	 */
-	private function resolve_main( string $collection_path, string $relative ): ?string {
-
-		// Confine the path to the collection; a rejected path resolves to no main.
-		$guard    = new Path_Guard( $collection_path );
-		$resolved = $guard->resolve( $relative );
-		if ( $resolved === null ) {
-			return null;
-		}
-
-		// Map the confined path to its stored main name — a no-op when it already
-		// ends in `.webp`, otherwise `<original>.webp` — so only a real main is ever
-		// targeted and a foreign non-`.webp` file can never be deleted.
-		$main = \dirname( $resolved ) . '/' . Image_Name::to_stored( basename( $resolved ) );
-
-		return is_file( $main ) ? $main : null;
-
-	}
-
-	/**
-	 * Removes every thumbnail derived from a main, returning how many were removed.
-	 *
-	 * Thumbnails live at `.kntnt-thumbnails/<width>/<name>.webp`; the configured
-	 * widths may have changed since the main was imported, so this scans every
-	 * width sub-directory present and removes the one named for this main rather
-	 * than trusting the current descriptor. It never recurses or deletes anything
-	 * but this main's own thumbnail files, so a foreign file is never touched.
-	 *
-	 * @since 0.3.0
-	 *
-	 * @param string $main_path Absolute path to the main image being deleted.
-	 * @return int The number of thumbnail files removed.
-	 */
-	private function remove_thumbnails( string $main_path ): int {
-
-		// The thumbnails root sits beside the main, inside the content folder.
-		$folder      = \dirname( $main_path );
-		$stored_name = basename( $main_path );
-		$thumbs_root = $folder . '/' . Index::THUMBNAILS_DIRNAME;
-		if ( ! is_dir( $thumbs_root ) ) {
-			return 0;
-		}
-
-		// Walk each width sub-directory and remove this main's thumbnail there;
-		// only the file named exactly for this main is touched, never a sibling.
-		$removed = 0;
-		$entries = scandir( $thumbs_root );
-		foreach ( $entries === false ? [] : $entries as $entry ) {
-			if ( $entry === '.' || $entry === '..' ) {
-				continue;
-			}
-			$candidate = $thumbs_root . '/' . $entry . '/' . $stored_name;
-			if ( is_file( $candidate ) && $this->unlink_file( $candidate ) ) {
-				++$removed;
-			}
-		}
-
-		return $removed;
-
-	}
-
-	/**
-	 * Unlinks a single file, returning whether it was removed.
-	 *
-	 * The plugin owns this directory tree on disk directly (ADR-0001), so it
-	 * unlinks the file rather than routing through `wp_delete_file`, which is for
-	 * Media-Library attachments, not files written outside it.
-	 *
-	 * @since 0.3.0
-	 *
-	 * @param string $path Absolute path to the file to remove.
-	 * @return bool True when the file was removed.
-	 */
-	private function unlink_file( string $path ): bool {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- The plugin owns this directory tree on disk directly (ADR-0001); wp_delete_file is for Media-Library attachments, not files written outside it.
-		return unlink( $path );
 	}
 
 }

@@ -35,6 +35,7 @@ namespace Kntnt\Photo_Drop\Rendering;
 
 use Kntnt\Photo_Drop\Collection\Path_Guard;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Rest\Images_Controller;
 use Kntnt\Photo_Drop\Rest\Media_Controller;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index_Store;
@@ -239,18 +240,25 @@ final class Render_Gallery {
 		$lightbox_enabled = self::read_bool( $attributes, 'lightbox', true );
 		$lightbox         = ! $is_preview && $lightbox_enabled;
 
-		// Resolve whether the add-to-media icon renders for this user: a real
-		// capability check on the front end (defence in depth, ADR-0015), but always
-		// true in the editor preview so the builder sees the icon's placement inertly
-		// regardless of their own capability. The nonce is still gated on the real
+		// Resolve whether the two write-path icons render for this user: a real
+		// capability check on the front end (defence in depth, ADR-0015) — add-to-media
+		// behind its capability and trash behind the delete capability — but always
+		// true in the editor preview so the builder sees each icon's placement inertly
+		// regardless of their own capability. The nonces are still gated on the real
 		// frontend visibility below, so the preview never carries a credential.
 		$add_to_media_capable = $is_preview || current_user_can( Media_Controller::required_capability() );
+		$delete_capable       = $is_preview || current_user_can( Images_Controller::required_capability() );
 
 		// Build the overlay renderer once — the four placements and the shared
 		// appearance (Colour/Typography/iconSize) apply identically to every figure
 		// and to the lightbox. The image's border/shadow are a separate per-image
 		// projection.
-		$overlays      = Overlay_Renderer::from_attributes( $attributes, $lightbox_enabled, $add_to_media_capable );
+		$overlays      = Overlay_Renderer::from_attributes(
+			$attributes,
+			$lightbox_enabled,
+			$add_to_media_capable,
+			$delete_capable,
+		);
 		$image_support = Block_Style_Support::image( $attributes );
 
 		// Pre-compose the render-constant image class/style once — the per-figure hot
@@ -539,11 +547,12 @@ final class Render_Gallery {
 			? sprintf( ' data-kntnt-photo-drop-breadcrumbs="%s"', esc_attr( $breadcrumb_text ) )
 			: '';
 
-		// Mirror the image's collection-relative path onto the anchor only when the
-		// add-to-media overlay actually renders (capable user, visibility on): it is
-		// the lightbox add-to-media target the view module reads per slide, so an
+		// Mirror the image's collection-relative path onto the anchor when either
+		// write-path overlay actually renders (capable user, visibility on): it is the
+		// lightbox add-to-media/trash target the view module reads per slide, and the
+		// trash view module also finds the tile to remove by this anchor path. An
 		// un-capable user's anchor carries no path at all (defence in depth, ADR-0015).
-		$path_attr = $overlays->add_to_media_visible()
+		$path_attr = $overlays->add_to_media_visible() || $overlays->delete_visible()
 			? sprintf( ' data-kntnt-photo-drop-path="%s"', esc_attr( $relative ) )
 			: '';
 		$link      = sprintf(
@@ -667,16 +676,37 @@ final class Render_Gallery {
 			$wrapper_attrs['data-kntnt-photo-drop-slideshow-seconds'] = (string) $slideshow->seconds;
 		}
 
-		// Emit the add-to-media REST credential — the `wp_rest` nonce and the
-		// collection's media endpoint URL — only on the frontend and only when a
-		// capable user will actually see the icon (ADR-0015). This ends the gallery's
-		// pure-SSR property for the write-path overlays alone; a page a visitor reads,
-		// or one with no add-to-media icon, carries neither nonce nor URL.
-		if ( ! $is_preview && $overlays->add_to_media_visible() ) {
-			$wrapper_attrs['data-kntnt-photo-drop-nonce']     = wp_create_nonce( 'wp_rest' );
+		// Emit the gallery's REST write-path credentials only on the frontend and only
+		// when a capable user will actually see a write-path icon (ADR-0015). This ends
+		// the gallery's pure-SSR property for the two write-path overlays alone; a page a
+		// visitor reads, or one with no write-path icon, carries no credential. The
+		// `wp_rest` nonce is shared by both write-paths and emitted when either icon
+		// shows; each icon's own endpoint URL is emitted only when that icon shows, so
+		// the add-to-media (copy) and trash (permanent delete) actions are independently
+		// gated by their separate capabilities.
+		$add_to_media_visible = $overlays->add_to_media_visible();
+		$delete_visible       = $overlays->delete_visible();
+		if ( ! $is_preview && ( $add_to_media_visible || $delete_visible ) ) {
+			$wrapper_attrs['data-kntnt-photo-drop-nonce'] = wp_create_nonce( 'wp_rest' );
+		}
+		if ( ! $is_preview && $add_to_media_visible ) {
 			$wrapper_attrs['data-kntnt-photo-drop-media-url'] = rest_url(
 				sprintf( 'kntnt-photo-drop/v1/collections/%s/media', $slug ),
 			);
+		}
+		if ( ! $is_preview && $delete_visible ) {
+			$wrapper_attrs['data-kntnt-photo-drop-delete-url'] = rest_url(
+				sprintf( 'kntnt-photo-drop/v1/collections/%s/images', $slug ),
+			);
+			// Mirror the trash confirm-popover copy onto the wrapper: a view-script
+			// module cannot translate at runtime, so the popover's permanence-stating
+			// prompt and its Delete/Cancel labels are translated here and read by the
+			// trash view module (the same pattern the lightbox counter uses).
+			$wrapper_attrs['data-kntnt-photo-drop-delete-prompt']  =
+				__( 'Delete this image permanently? This cannot be undone.', 'kntnt-photo-drop' );
+			$wrapper_attrs['data-kntnt-photo-drop-delete-confirm'] = __( 'Delete', 'kntnt-photo-drop' );
+			$wrapper_attrs['data-kntnt-photo-drop-delete-cancel']  = __( 'Cancel', 'kntnt-photo-drop' );
+			$wrapper_attrs['data-kntnt-photo-drop-delete-label']   = __( 'Confirm deletion', 'kntnt-photo-drop' );
 		}
 
 		// Mirror the block's HTML anchor onto the wrapper id — core does not emit

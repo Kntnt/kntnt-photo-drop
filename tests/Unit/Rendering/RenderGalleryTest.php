@@ -1834,6 +1834,120 @@ test( 'a gallery with no capability-gated overlay emits no nonce', function (): 
 	gallery_remove_tree( $basedir );
 } );
 
+test( 'the trash icon renders for a capable user and carries the per-image path', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'        => false,
+			'trashVisibility' => 'thumbnail',
+			'trashPosition'   => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// A user holding the delete capability sees the trash icon, and its button carries
+	// the image's collection-relative path so the view module can DELETE it (ADR-0015).
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__icon--trash' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-path="a.jpg.webp"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the trash icon is absent for an un-capable user', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'        => false,
+			'trashVisibility' => 'thumbnail',
+			'trashPosition'   => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// Defence in depth (ADR-0015): an un-capable user sees no trash icon at all — and,
+	// since no other overlay is on, no path attribute either, so a visitor's markup
+	// carries no destructive control.
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__icon--trash' );
+	expect( $html )->not->toContain( 'data-kntnt-photo-drop-path' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the wp_rest nonce and the images DELETE URL render only for a capable user', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$capable    = render_seeded_gallery(
+		[
+			'lightbox'        => false,
+			'trashVisibility' => 'thumbnail',
+			'trashPosition'   => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// A capable user's wrapper carries the nonce and the collection's images endpoint
+	// URL, the two things the view module needs to DELETE the image. The popover copy
+	// is mirrored too so the view module's confirm reads in the site language.
+	expect( $capable )->toContain( 'data-kntnt-photo-drop-nonce' );
+	expect( $capable )->toContain( '/wp-json/kntnt-photo-drop/v1/collections/photos/images' );
+	expect( $capable )->toContain( 'data-kntnt-photo-drop-delete-prompt' );
+
+	gallery_remove_tree( $basedir );
+	$incapable = render_seeded_gallery(
+		[
+			'lightbox'        => false,
+			'trashVisibility' => 'thumbnail',
+			'trashPosition'   => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// An un-capable user's wrapper carries neither: a page a visitor can read never
+	// holds a delete credential (defence in depth, ADR-0015).
+	expect( $incapable )->not->toContain( 'data-kntnt-photo-drop-nonce' );
+	expect( $incapable )->not->toContain( 'data-kntnt-photo-drop-delete-url' );
+
+	gallery_remove_tree( $basedir );
+} );
+
 test( 'a full-only download overlay shows in the lightbox, not on the thumbnail', function (): void {
 
 	$descriptor = gallery_descriptor();

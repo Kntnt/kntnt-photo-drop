@@ -103,6 +103,8 @@ interface OverlayRefs {
 	readonly breadcrumbs: HTMLElement | null;
 	/** The add-to-media icon button, or `null` when add-to-media is off the lightbox. */
 	readonly addToMedia: HTMLButtonElement | null;
+	/** The trash icon button, or `null` when the trash overlay is off the lightbox. */
+	readonly trash: HTMLButtonElement | null;
 }
 
 /**
@@ -144,8 +146,8 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		return null;
 	}
 
-	// The download anchor, the breadcrumb figcaption, and the add-to-media button
-	// are optional chrome; resolve them when present and leave them null otherwise.
+	// The download anchor, the breadcrumb figcaption, and the add-to-media and trash
+	// buttons are optional chrome; resolve them when present and leave them null otherwise.
 	const download = overlay.querySelector< HTMLAnchorElement >(
 		'.kntnt-photo-drop-lightbox__download'
 	);
@@ -154,6 +156,9 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 	);
 	const addToMedia = overlay.querySelector< HTMLButtonElement >(
 		'.kntnt-photo-drop-lightbox__add-to-media'
+	);
+	const trash = overlay.querySelector< HTMLButtonElement >(
+		'.kntnt-photo-drop-lightbox__trash'
 	);
 	return {
 		overlay,
@@ -166,6 +171,7 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		download,
 		breadcrumbs,
 		addToMedia,
+		trash,
 	};
 }
 
@@ -176,11 +182,17 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
  * @since 0.7.0
  */
 export class GalleryLightbox {
-	/** The thumbnail anchors, in gallery order — the triggers and the slides. */
-	readonly #links: readonly HTMLAnchorElement[];
+	/**
+	 * The thumbnail anchors, in gallery order — the triggers and the slides.
+	 *
+	 * Mutable so a live deletion (the trash overlay, ADR-0015) can drop the removed
+	 * image's anchor in lock-step with its slide, keeping the index navigable over a
+	 * set that shrinks under the visitor.
+	 */
+	#links: HTMLAnchorElement[];
 
-	/** The per-image data read off the anchors once on construction. */
-	readonly #slides: readonly GallerySlide[];
+	/** The per-image data read off the anchors once on construction (and re-derived on a live deletion). */
+	#slides: GallerySlide[];
 
 	/** The resolved overlay elements. */
 	readonly #refs: OverlayRefs;
@@ -259,12 +271,87 @@ export class GalleryLightbox {
 		refs: OverlayRefs,
 		counterTemplate: string
 	) {
-		this.#links = links;
+		this.#links = [ ...links ];
 		this.#refs = refs;
 		this.#counterTemplate = counterTemplate;
 		this.#slides = readSlides( links );
 		this.#state = createLightboxState( links.length );
 		this.#bind();
+	}
+
+	/**
+	 * Whether the lightbox is currently open.
+	 *
+	 * The trash overlay (ADR-0015) reads this to decide its post-delete behaviour: a
+	 * delete fired from the lightbox surface must advance or close the open viewer,
+	 * while one fired from a grid thumbnail (lightbox shut) only removes the tile.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @return True when the lightbox overlay is open.
+	 */
+	isOpen(): boolean {
+		return this.#state.open;
+	}
+
+	/**
+	 * Drops a live-deleted image from the lightbox, advancing or closing as needed.
+	 *
+	 * Called by the trash overlay after a confirmed delete removes the image's tile
+	 * (ADR-0015): the lightbox's slide set must shrink in lock-step so paging never
+	 * lands on a gone image. The removed anchor is found by identity and dropped from
+	 * both the anchor list and the slide list; the navigable count shrinks to match.
+	 * When the set empties, the lightbox closes. When the *currently shown* image was
+	 * the one removed, the viewer advances to the image that slid into its slot (the
+	 * next image, or the new last when the removed one was last), re-rendering it;
+	 * removing any other image leaves the shown slide untouched but re-renders so the
+	 * counter total updates. A removal of an anchor the lightbox does not own is a
+	 * no-op.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @param link - The thumbnail anchor of the deleted image.
+	 */
+	removeImage( link: HTMLAnchorElement ): void {
+		// Find the removed anchor by identity; an anchor this lightbox never owned is
+		// nothing to do.
+		const removed = this.#links.indexOf( link );
+		if ( removed === -1 ) {
+			return;
+		}
+
+		// Drop the image from both lists and shrink the navigable count to match, so
+		// the slide and anchor lists and the reducer state stay in step.
+		this.#links.splice( removed, 1 );
+		this.#slides.splice( removed, 1 );
+		this.#state = { ...this.#state, count: this.#links.length };
+
+		// An emptied gallery closes the lightbox — there is nothing left to show.
+		if ( this.#links.length === 0 ) {
+			if ( this.#state.open ) {
+				this.#close();
+			}
+			return;
+		}
+
+		// Realign the shown index to the shrunk list. Removing an image *before* the
+		// shown one shifts the shown image left by one, so the index decrements to keep
+		// the same image visible. Removing the shown image (or one after it) keeps the
+		// index, then clamps into range so it lands on the image that slid into the slot
+		// — the next image, or the new last when the removed one was last.
+		const shifted =
+			removed < this.#state.index
+				? this.#state.index - 1
+				: this.#state.index;
+		const clamped = Math.min(
+			Math.max( 0, shifted ),
+			this.#links.length - 1
+		);
+		this.#state = { ...this.#state, index: clamped };
+
+		// Re-render so the shown image, the counter total, and the paging controls
+		// reflect the shrunk set; harmless when the lightbox is shut (it stays hidden).
+		this.#render();
 	}
 
 	/**
@@ -555,6 +642,15 @@ export class GalleryLightbox {
 		// The delegated add-to-media listener reads this attribute on click.
 		if ( this.#refs.addToMedia ) {
 			this.#refs.addToMedia.dataset.kntntPhotoDropPath = slide.path;
+		}
+
+		// Point the trash icon at the current slide's collection-relative path
+		// (ADR-0015), so a confirmed delete in the lightbox targets the open image; the
+		// button is null (so this is skipped) when trash is off the lightbox. The
+		// delegated trash listener reads this attribute on click and, on success,
+		// removes the matching tile and advances or closes this lightbox.
+		if ( this.#refs.trash ) {
+			this.#refs.trash.dataset.kntntPhotoDropPath = slide.path;
 		}
 
 		// Mirror the gallery breadcrumb onto the lightbox figure when a breadcrumb

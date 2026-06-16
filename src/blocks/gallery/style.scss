@@ -221,6 +221,9 @@
 		// properties. The badge owns the pointer (it is the action trigger), and a
 		// keyboard user gets a visible ring on the otherwise text-free control. A
 		// button-flavoured icon resets the native button chrome to match the anchor.
+		// It anchors the trash icon's confirm popover, an absolutely-positioned
+		// child (the circular badge does not clip it — no overflow is hidden).
+		position: relative;
 		box-sizing: border-box;
 		width: var(--kntnt-photo-drop-icon-size, 2rem);
 		height: var(--kntnt-photo-drop-icon-size, 2rem);
@@ -284,6 +287,72 @@
 	&__icon--done::before {
 		// A checkmark — the copy landed.
 		--kntnt-photo-drop-icon-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 13l4 4L19 7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	}
+
+	&__confirm {
+		// The trash overlay's inline confirm popover (ADR-0015): a small panel
+		// anchored to the trash icon, holding a permanence-stating prompt and an
+		// explicit Delete / Cancel pair (a deliberate second click on a destructive
+		// button, never a one-click delete). It pops above the icon on its own dark
+		// chrome so it reads over any image, kept narrow but wide enough that the
+		// prompt is not a column of single words; on a small thumbnail it may
+		// overhang the tile, fine for a transient outside-click-dismissed confirm.
+		position: absolute;
+		bottom: calc(100% + 0.4em);
+		left: 50%;
+		z-index: 3;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4em;
+		justify-content: flex-end;
+		width: max-content;
+		max-width: 16rem;
+		padding: 0.6em;
+		cursor: auto;
+		background: #1e1e1e;
+		border-radius: 0.25rem;
+		box-shadow: 0 2px 8px rgb(0 0 0 / 40%);
+		transform: translateX(-50%);
+
+		&__message {
+			// The prompt spans the full panel width above the buttons; its copy states
+			// the deletion is permanent.
+			flex-basis: 100%;
+			margin: 0;
+			font-size: 0.8125rem;
+			line-height: 1.4;
+			color: #fff;
+		}
+
+		&__button {
+			// Compact text buttons resetting the native chrome; both read on the dark
+			// panel and show a clear keyboard ring.
+			padding: 0.25em 0.7em;
+			font: inherit;
+			font-size: 0.8125rem;
+			line-height: 1.6;
+			cursor: pointer;
+			border: 0;
+			border-radius: 0.2rem;
+
+			&:focus-visible {
+				outline: 2px solid #fff;
+				outline-offset: 1px;
+			}
+		}
+
+		&__button--delete {
+			// The destructive choice carries a warning colour so it never reads as the
+			// safe default.
+			color: #fff;
+			background: #d63638;
+		}
+
+		&__button--cancel {
+			// The safe choice is the quiet, light button (and the one focused on open).
+			color: #1e1e1e;
+			background: #f0f0f0;
+		}
 	}
 
 	&__slideshow-button {

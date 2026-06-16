@@ -57,6 +57,7 @@ import { SLIDE_LINK_SELECTOR } from './slides';
 import { lastRowFlags } from './justified-rows';
 import { saveFile, shouldInterceptClick } from './save-file';
 import { wireAddToMedia } from './add-to-media-view';
+import { wireTrash } from './trash-view';
 
 /**
  * The per-block Interactivity context emitted by `Render_Gallery`.
@@ -453,6 +454,16 @@ store( 'kntnt-photo-drop/gallery', {
 			// the call is harmless when there is nothing to wire.
 			wireAddToMedia( ref );
 
+			// Wire any trash icons to the inline-popover confirm and the permanent
+			// delete (ADR-0015), independent of the lightbox so a grid-thumbnail delete
+			// works with the lightbox off. The controller bails when the wrapper carries
+			// no nonce/delete-URL (an un-capable user sees inert icons). It reads the
+			// lightbox lazily through the holder assigned below, so a delete fired from
+			// the open lightbox can advance or close it; the holder is still null at wire
+			// time, which is fine — it is only read on a later click.
+			let lightboxController: GalleryLightbox | null = null;
+			wireTrash( ref, () => lightboxController );
+
 			// Lightbox off: suppress the plain thumbnail click via one delegated
 			// listener so a click on the image does nothing rather than navigate.
 			// This branch needs no anchors materialised.
@@ -466,7 +477,9 @@ store( 'kntnt-photo-drop/gallery', {
 			// overlay, then mount the controller. Without the anchors or the overlay
 			// there is nothing to enhance, so the no-JS fallback stands. The context can
 			// have degraded to `{}` server-side, so the counter template falls back to a
-			// neutral numeric form rather than crashing mid-open.
+			// neutral numeric form rather than crashing mid-open. The mounted controller
+			// is stored in the holder the trash wiring reads, so a lightbox delete can
+			// advance or close the open viewer.
 			const links = Array.from(
 				ref.querySelectorAll< HTMLAnchorElement >( SLIDE_LINK_SELECTOR )
 			);
@@ -477,7 +490,7 @@ store( 'kntnt-photo-drop/gallery', {
 				return;
 			}
 			const context = getContext< GalleryContext >();
-			GalleryLightbox.mount(
+			lightboxController = GalleryLightbox.mount(
 				links,
 				overlay,
 				context?.counterTemplate ?? FALLBACK_COUNTER_TEMPLATE

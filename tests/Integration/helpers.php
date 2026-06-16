@@ -1288,6 +1288,62 @@ function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $n
 }
 
 /**
+ * Sends a DELETE to the gallery's trash REST write-path.
+ *
+ * Drives the trash overlay's destructive server-side action exactly as the
+ * gallery view module does: a JSON `DELETE` carrying the collection-relative
+ * `path` of the main image to remove, the session cookie, and (optionally) a
+ * `wp_rest` nonce. The jar and the nonce are independently optional so a test
+ * can model every shape — both present (the happy path), no nonce (forgery
+ * rejection), or a low-privilege session (capability rejection). The path rides
+ * in the JSON body (matching the add-to-media write-path) rather than the query
+ * string, so an encoded traversal reaches `Path_Guard` as raw bytes.
+ *
+ * @since 0.13.0
+ *
+ * @param string      $slug  The target collection slug.
+ * @param string      $path  The collection-relative path of the main image to delete.
+ * @param string|null $jar   A cookie-jar path, or null for an anonymous request.
+ * @param string|null $nonce A `wp_rest` nonce, or null to omit the header.
+ * @return array{status:int,body:array<string,mixed>|null} The HTTP status and the decoded JSON body.
+ */
+function rest_delete_image( string $slug, string $path, ?string $jar, ?string $nonce ): array {
+
+	// Build the JSON DELETE against the collection's images route.
+	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/images';
+	$headers = [ 'Content-Type: application/json' ];
+	if ( $nonce !== null ) {
+		$headers[] = "X-WP-Nonce: {$nonce}";
+	}
+	$handle = curl_init( $url );
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_CUSTOMREQUEST  => 'DELETE',
+			CURLOPT_POSTFIELDS     => (string) json_encode( [ 'path' => $path ] ),
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 30,
+		],
+	);
+	if ( $jar !== null ) {
+		curl_setopt( $handle, CURLOPT_COOKIEFILE, $jar );
+	}
+
+	// Fire and decode; a non-JSON body decodes to null, which the test treats as
+	// its own failure signal.
+	$response = curl_exec( $handle );
+	$status   = (int) curl_getinfo( $handle, CURLINFO_RESPONSE_CODE );
+	$body     = is_string( $response ) ? json_decode( $response, true ) : null;
+
+	return [
+		'status' => $status,
+		'body'   => is_array( $body ) ? $body : null,
+	];
+
+}
+
+/**
  * Counts the attachments currently in the Media Library, via WP-CLI.
  *
  * The add-to-media tests assert the count before and after a copy, so a stable

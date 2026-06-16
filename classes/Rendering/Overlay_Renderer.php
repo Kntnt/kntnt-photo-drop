@@ -17,11 +17,12 @@
  * fitter is needed.
  *
  * Download is the action overlay shipped whole in #47 — an `<a download>` anchor
- * the view module upgrades to a programmatic save. Add-to-media (#52) is an active,
- * capability-gated `<button>`: it renders only for a user holding the
- * `add_to_media` capability and carries the image's collection-relative path the
- * view module POSTs behind a confirm callout (ADR-0015). Trash is still an inert
- * positioned stub here; its gated REST write-path is #53.
+ * the view module upgrades to a programmatic save. Add-to-media (#52) and trash
+ * (#53) are active, capability-gated `<button>`s: each renders only for a user
+ * holding its capability (`add_to_media` for the copy, `delete` for the permanent
+ * delete) and carries the image's collection-relative path the view module sends
+ * behind a confirm — add-to-media a confirm callout, trash a destructive
+ * inline-popover confirm (ADR-0015).
  *
  * @package Kntnt\Photo_Drop
  * @since   0.11.0
@@ -87,6 +88,7 @@ final readonly class Overlay_Renderer {
 	 * @param string                          $breadcrumb_style The pre-escaped breadcrumb style, or ''.
 	 * @param string                          $cluster_style The pre-escaped icon-cluster style, or ''.
 	 * @param bool                            $add_to_media_capable Whether the current user may add to the Library.
+	 * @param bool                            $delete_capable Whether the current user may delete a gallery image.
 	 */
 	private function __construct(
 		private bool $lightbox,
@@ -98,6 +100,7 @@ final readonly class Overlay_Renderer {
 		private string $breadcrumb_style,
 		private string $cluster_style,
 		private bool $add_to_media_capable,
+		private bool $delete_capable,
 	) {}
 
 	/**
@@ -115,12 +118,14 @@ final readonly class Overlay_Renderer {
 	 * @param array<string,mixed> $attributes           The block attributes.
 	 * @param bool                $lightbox             Whether the gallery's lightbox is on.
 	 * @param bool                $add_to_media_capable Whether the current user may add to the Library.
+	 * @param bool                $delete_capable       Whether the current user may delete a gallery image.
 	 * @return self The resolved overlay renderer.
 	 */
 	public static function from_attributes(
 		array $attributes,
 		bool $lightbox,
 		bool $add_to_media_capable = false,
+		bool $delete_capable = false,
 	): self {
 
 		// Narrow each overlay's visibility and position; the action icons share the
@@ -172,6 +177,7 @@ final readonly class Overlay_Renderer {
 			esc_attr( $breadcrumb_support['style'] ),
 			esc_attr( $cluster_style ),
 			$add_to_media_capable,
+			$delete_capable,
 		);
 
 	}
@@ -209,6 +215,29 @@ final readonly class Overlay_Renderer {
 		// Off everywhere, or an un-capable user — either way no icon, so no nonce.
 		$placement = $this->icons['add-to-media'];
 		return $this->add_to_media_capable
+			&& ( $placement->on_thumbnail() || $placement->on_full( $this->lightbox ) );
+
+	}
+
+	/**
+	 * Whether the trash overlay actually renders on any surface.
+	 *
+	 * True only when the trash placement is on (thumbnail and/or full) *and* the
+	 * current user holds the delete capability — the same conjunction that gates the
+	 * icon itself (ADR-0015). `Render_Gallery` reads this to decide whether to emit
+	 * the gallery's REST nonce and images-delete URL at all: the credential for a
+	 * destructive action rides only when a capable user will see the control, never
+	 * on a page an ordinary visitor reads.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @return bool True when the trash icon will render for this user.
+	 */
+	public function delete_visible(): bool {
+
+		// Off everywhere, or an un-capable user — either way no icon, so no credential.
+		$placement = $this->icons['trash'];
+		return $this->delete_capable
 			&& ( $placement->on_thumbnail() || $placement->on_full( $this->lightbox ) );
 
 	}
@@ -339,11 +368,15 @@ final readonly class Overlay_Renderer {
 
 		// Bucket the icons that show on this surface by their position, preserving
 		// the fixed cluster order so a shared position reads download → add → trash.
-		// The add-to-media icon is additionally capability-gated (ADR-0015): an
-		// un-capable user never sees it, so it is dropped here before bucketing.
+		// The two write-path icons are additionally capability-gated (ADR-0015):
+		// add-to-media needs the add capability and trash the delete capability, so an
+		// un-capable user never sees either, dropped here before bucketing.
 		$by_position = [];
 		foreach ( self::ICON_ORDER as $name ) {
 			if ( $name === 'add-to-media' && ! $this->add_to_media_capable ) {
+				continue;
+			}
+			if ( $name === 'trash' && ! $this->delete_capable ) {
 				continue;
 			}
 			$placement = $this->icons[ $name ];
@@ -383,17 +416,20 @@ final readonly class Overlay_Renderer {
 	 * `data-kntnt-photo-drop-path` (on the lightbox surface it ships path-less and
 	 * carries the `lightbox__add-to-media` marker the view module sets per slide),
 	 * which the view module POSTs behind its confirm callout (ADR-0015). The trash
-	 * icon is still an inert stub here — its gated write-path is #53. Every icon
-	 * shares the cluster's foreground/background/size; its glyph is a CSS mask the
-	 * stylesheet draws from the icon's modifier class, so the markup carries no SVG.
+	 * icon is likewise an active `<button>` carrying the same per-image path (and the
+	 * `lightbox__trash` marker on the lightbox surface), which the view module DELETEs
+	 * behind its inline-popover confirm. Every icon shares the cluster's
+	 * foreground/background/size; its glyph is a CSS mask the stylesheet draws from the
+	 * icon's modifier class, so the markup carries no SVG.
 	 *
 	 * @since 0.11.0
 	 * @since 0.12.0 The add-to-media icon is active and carries the per-image path.
+	 * @since 0.13.0 The trash icon is active and carries the per-image path.
 	 *
 	 * @param string $name          The icon name (one of ICON_ORDER).
 	 * @param string $main_url       The pre-escaped download target (empty for the lightbox).
 	 * @param string $surface        One of SURFACE_THUMBNAIL or SURFACE_FULL.
-	 * @param string $relative_path The image's collection-relative add-to-media path (empty for the lightbox).
+	 * @param string $relative_path The image's collection-relative add-to-media/trash path (empty for the lightbox).
 	 * @return string The icon control markup.
 	 */
 	private function icon( string $name, string $main_url, string $surface, string $relative_path ): string {
@@ -431,12 +467,20 @@ final readonly class Overlay_Renderer {
 			);
 		}
 
-		// Trash is still an inert positioned stub (its gated REST write-path is #53);
-		// a labelled button the framework places.
+		// The trash icon is an active button: on the thumbnail it carries the image's
+		// collection-relative path the view module DELETEs behind its inline-popover
+		// confirm; on the lightbox it ships path-less and carries the `lightbox__trash`
+		// marker the view sets per slide. The capability gate is applied in
+		// `icon_clusters()`, so reaching here already means the user may delete.
+		$class = 'kntnt-photo-drop-gallery__icon kntnt-photo-drop-gallery__icon--trash'
+			. ( $surface === self::SURFACE_FULL ? ' kntnt-photo-drop-lightbox__trash' : '' );
+		$path_attr = $surface === self::SURFACE_THUMBNAIL && $relative_path !== ''
+			? sprintf( ' data-kntnt-photo-drop-path="%s"', esc_attr( $relative_path ) )
+			: '';
 		return sprintf(
-			'<button type="button" class="kntnt-photo-drop-gallery__icon kntnt-photo-drop-gallery__icon--%1$s"'
-				. ' aria-label="%2$s"></button>',
-			esc_attr( $name ),
+			'<button type="button" class="%1$s"%2$s aria-label="%3$s"></button>',
+			$class,
+			$path_attr,
 			esc_attr__( 'Delete image', 'kntnt-photo-drop' ),
 		);
 
