@@ -55,7 +55,7 @@ final class Path_Guard {
 	 * @return bool True when the path passes every lexical check.
 	 */
 	public static function is_lexically_safe( string $relative_path ): bool {
-		return true; // RED stub — replaced with the real lexical check for GREEN.
+		return self::lexical_segments( $relative_path ) !== null;
 	}
 
 	/**
