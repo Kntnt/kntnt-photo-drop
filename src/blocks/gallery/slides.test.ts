@@ -88,4 +88,20 @@ describe( 'readSlides', () => {
 			'https://example.test/photos/full/c.jpg.webp 1600w'
 		);
 	} );
+
+	it( 'reads the add-to-media path from its own attribute, empty when absent', () => {
+		// The collection-relative path mirrored onto the anchor is the lightbox
+		// add-to-media target (ADR-0015); an anchor without it (no add-to-media
+		// overlay, or an un-capable user) yields an empty path, not a fallback.
+		const slides = readSlides( [
+			anchor( {
+				href: 'https://example.test/photos/d.jpg.webp',
+				'data-kntnt-photo-drop-path': '2026/06/15/jane/d.jpg.webp',
+			} ),
+			anchor( { href: 'https://example.test/photos/e.jpg.webp' } ),
+		] );
+
+		expect( slides[ 0 ]?.path ).toBe( '2026/06/15/jane/d.jpg.webp' );
+		expect( slides[ 1 ]?.path ).toBe( '' );
+	} );
 } );

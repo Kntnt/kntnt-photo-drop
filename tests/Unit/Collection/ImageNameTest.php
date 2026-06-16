@@ -116,3 +116,46 @@ test( 'an extensionless original collides with an already-webp name', function (
 	expect( Image_Name::to_original( 'photo.webp' ) )->toBe( 'photo.webp' );
 
 } );
+
+// ---------------------------------------------------------------------------
+// is_stored_main — the basename main-image predicate the doctor and the
+// add-to-media gate share (ADR-0013/0015)
+// ---------------------------------------------------------------------------
+
+test( 'is_stored_main accepts a name in its own stored form ending in .webp', function ( string $name ): void {
+
+	// A basename that already equals its `to_stored()` form and ends in `.webp`
+	// is a stored main: the universal `<original>.ext.webp`, a doubled-extension
+	// stored name, and an already-WebP original stored verbatim all qualify.
+	expect( Image_Name::is_stored_main( $name ) )->toBeTrue();
+
+} )->with( [
+	'jpeg stored'         => [ 'IMG_2024.jpg.webp' ],
+	'png stored'          => [ 'panorama.png.webp' ],
+	'multi-dot stored'    => [ 'a.b.c.jpg.webp' ],
+	'already-webp stored' => [ 'sunset.webp' ],
+	'unicode stored'      => [ 'смотри-Ñoño-日本語.jpg.webp' ],
+] );
+
+test( 'is_stored_main rejects a name that is not WebP', function ( string $name ): void {
+
+	// Anything not ending in `.webp` is not a stored main — a foreign loose file,
+	// the descriptor, or a bare original that never passed through ingestion.
+	expect( Image_Name::is_stored_main( $name ) )->toBeFalse();
+
+} )->with( [
+	'jpeg original' => [ 'IMG_2024.jpg' ],
+	'descriptor'    => [ 'collection.json' ],
+	'listing guard' => [ 'index.php' ],
+	'extensionless' => [ 'photo' ],
+	'readme'        => [ 'notes.txt' ],
+] );
+
+test( 'is_stored_main matches the .webp extension case-insensitively', function (): void {
+
+	// An already-WebP original stored verbatim keeps its letter case, so the
+	// predicate must accept `.WEBP`/`.WebP` exactly as `to_stored()` leaves them.
+	expect( Image_Name::is_stored_main( 'Photo.WEBP' ) )->toBeTrue();
+	expect( Image_Name::is_stored_main( 'image.WebP' ) )->toBeTrue();
+
+} );

@@ -35,6 +35,7 @@ namespace Kntnt\Photo_Drop\Rendering;
 
 use Kntnt\Photo_Drop\Collection\Path_Guard;
 use Kntnt\Photo_Drop\Collection\Repository;
+use Kntnt\Photo_Drop\Rest\Media_Controller;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index_Store;
 
@@ -238,11 +239,18 @@ final class Render_Gallery {
 		$lightbox_enabled = self::read_bool( $attributes, 'lightbox', true );
 		$lightbox         = ! $is_preview && $lightbox_enabled;
 
+		// Resolve whether the add-to-media icon renders for this user: a real
+		// capability check on the front end (defence in depth, ADR-0015), but always
+		// true in the editor preview so the builder sees the icon's placement inertly
+		// regardless of their own capability. The nonce is still gated on the real
+		// frontend visibility below, so the preview never carries a credential.
+		$add_to_media_capable = $is_preview || current_user_can( Media_Controller::required_capability() );
+
 		// Build the overlay renderer once — the four placements and the shared
 		// appearance (Colour/Typography/iconSize) apply identically to every figure
 		// and to the lightbox. The image's border/shadow are a separate per-image
 		// projection.
-		$overlays      = Overlay_Renderer::from_attributes( $attributes, $lightbox_enabled );
+		$overlays      = Overlay_Renderer::from_attributes( $attributes, $lightbox_enabled, $add_to_media_capable );
 		$image_support = Block_Style_Support::image( $attributes );
 
 		// Pre-compose the render-constant image class/style once — the per-figure hot
@@ -287,7 +295,7 @@ final class Render_Gallery {
 		// built-in button, and the overlay.
 		$slideshow = self::slideshow_settings( $attributes );
 
-		return self::wrap( $attributes, $layout, $figures, $lightbox, $is_preview, $overlays, $slideshow );
+		return self::wrap( $attributes, $layout, $figures, $lightbox, $is_preview, $overlays, $slideshow, $slug );
 
 	}
 
@@ -530,24 +538,34 @@ final class Render_Gallery {
 		$breadcrumb_attr = $breadcrumb_text !== ''
 			? sprintf( ' data-kntnt-photo-drop-breadcrumbs="%s"', esc_attr( $breadcrumb_text ) )
 			: '';
-		$link            = sprintf(
+
+		// Mirror the image's collection-relative path onto the anchor only when the
+		// add-to-media overlay actually renders (capable user, visibility on): it is
+		// the lightbox add-to-media target the view module reads per slide, so an
+		// un-capable user's anchor carries no path at all (defence in depth, ADR-0015).
+		$path_attr = $overlays->add_to_media_visible()
+			? sprintf( ' data-kntnt-photo-drop-path="%s"', esc_attr( $relative ) )
+			: '';
+		$link      = sprintf(
 			'<a class="kntnt-photo-drop-gallery__link" href="%1$s" data-kntnt-photo-drop-full="%1$s"'
-				. ' data-kntnt-photo-drop-main="%1$s" data-kntnt-photo-drop-srcset="%2$s"%3$s>%4$s</a>',
+				. ' data-kntnt-photo-drop-main="%1$s" data-kntnt-photo-drop-srcset="%2$s"%3$s%4$s>%5$s</a>',
 			esc_url( $main_url ),
 			esc_attr( $srcset ),
 			$breadcrumb_attr,
+			$path_attr,
 			$image,
 		);
 
 		// The thumbnail-surface overlays (the breadcrumb element and any action-icon
 		// clusters) follow the link inside the figure, positioned absolutely by their
-		// anchor classes.
+		// anchor classes. The add-to-media icon carries the image's collection-relative
+		// path the view module POSTs.
 		return sprintf(
 			'<figure class="kntnt-photo-drop-gallery__item %1$s" style="%2$s">%3$s%4$s</figure>',
 			esc_attr( $item_class ),
 			esc_attr( $item_style ),
 			$link,
-			$overlays->thumbnail( $breadcrumb_text, $main_url ),
+			$overlays->thumbnail( $breadcrumb_text, $main_url, $relative ),
 		);
 
 	}
@@ -580,6 +598,8 @@ final class Render_Gallery {
 	 * @since 0.7.0 Added the slideshow surface (ADR-0009).
 	 * @since 0.11.0 Replaced the download wrapper flag and the caption/download
 	 *               overlay chrome with the unified overlay framework (ADR-0015).
+	 * @since 0.12.0 Emits the add-to-media REST nonce and URL only for a capable user
+	 *               who will see the icon (ADR-0015).
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @param string              $layout     The resolved layout token.
@@ -588,6 +608,7 @@ final class Render_Gallery {
 	 * @param bool                $is_preview Whether this is the capped editor preview.
 	 * @param Overlay_Renderer    $overlays   The resolved overlay renderer.
 	 * @param Slideshow_Settings  $slideshow  The resolved slideshow settings.
+	 * @param string              $slug       The collection slug (for the add-to-media REST URL).
 	 * @return string The full gallery markup.
 	 */
 	private static function wrap(
@@ -598,6 +619,7 @@ final class Render_Gallery {
 		bool $is_preview,
 		Overlay_Renderer $overlays,
 		Slideshow_Settings $slideshow,
+		string $slug,
 	): string {
 
 		// Build the inner container's style from the gap (both layouts) and, for the
@@ -643,6 +665,18 @@ final class Render_Gallery {
 		if ( $slideshow_active ) {
 			$wrapper_attrs['data-kntnt-photo-drop-slideshow-mode']    = $slideshow->mode;
 			$wrapper_attrs['data-kntnt-photo-drop-slideshow-seconds'] = (string) $slideshow->seconds;
+		}
+
+		// Emit the add-to-media REST credential — the `wp_rest` nonce and the
+		// collection's media endpoint URL — only on the frontend and only when a
+		// capable user will actually see the icon (ADR-0015). This ends the gallery's
+		// pure-SSR property for the write-path overlays alone; a page a visitor reads,
+		// or one with no add-to-media icon, carries neither nonce nor URL.
+		if ( ! $is_preview && $overlays->add_to_media_visible() ) {
+			$wrapper_attrs['data-kntnt-photo-drop-nonce']     = wp_create_nonce( 'wp_rest' );
+			$wrapper_attrs['data-kntnt-photo-drop-media-url'] = rest_url(
+				sprintf( 'kntnt-photo-drop/v1/collections/%s/media', $slug ),
+			);
 		}
 
 		// Mirror the block's HTML anchor onto the wrapper id — core does not emit

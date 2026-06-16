@@ -106,6 +106,28 @@ final class Image_Name {
 	}
 
 	/**
+	 * Reports whether a basename is a stored main image's filename.
+	 *
+	 * The naming side of "is this a main image": a stored main is a filename
+	 * already in its `to_stored()` form (so it is idempotent under the naming
+	 * rule — `IMG.jpg.webp`, not the un-stored `IMG.jpg`) that ends in `.webp`
+	 * (case-insensitive). It is a pure check of the name alone — it neither
+	 * touches the filesystem nor knows about a file's *location*, so a caller
+	 * that must also exclude a thumbnail (a derived `<name>.webp` living under
+	 * the hidden artifacts directory) adds that path-based check on top. This is
+	 * the single authoritative source the doctor's classification and the
+	 * gallery's add-to-media gate both read, so the two never drift (ADR-0013).
+	 *
+	 * @since 0.12.0
+	 *
+	 * @param string $name The basename to inspect, without any path.
+	 * @return bool True when the basename is a stored main image's filename.
+	 */
+	public static function is_stored_main( string $name ): bool {
+		return self::to_stored( $name ) === $name && self::is_webp( $name );
+	}
+
+	/**
 	 * Reports whether a filename ends in `.webp`, compared case-insensitively.
 	 *
 	 * Uses a case-insensitive suffix test so `Photo.WEBP`, `image.WebP`, and

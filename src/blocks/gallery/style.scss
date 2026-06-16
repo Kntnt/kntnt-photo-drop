@@ -266,6 +266,26 @@
 		--kntnt-photo-drop-icon-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 7h14M9 7V5h6v2m-7 0v12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 	}
 
+	// The add-to-media button's interaction states the view module toggles
+	// (ADR-0015). Armed is the confirm gate's first click — a high-contrast ring
+	// invites the deliberate second click; busy dims while the copy POSTs; done
+	// swaps the plus glyph for a checkmark as the success feedback. None of these
+	// states exists server-side, so a no-JS render simply shows the plain icon.
+	&__icon--armed {
+		outline: 2px solid currentcolor;
+		outline-offset: 2px;
+	}
+
+	&__icon--busy {
+		cursor: progress;
+		opacity: 0.5;
+	}
+
+	&__icon--done::before {
+		// A checkmark — the copy landed.
+		--kntnt-photo-drop-icon-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 13l4 4L19 7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	}
+
 	&__slideshow-button {
 		// The quiet slideshow affordance above the gallery (ADR-0009): a
 		// link-styled button, right-aligned, visible when you look for it and

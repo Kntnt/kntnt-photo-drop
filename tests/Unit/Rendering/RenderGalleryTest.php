@@ -78,6 +78,10 @@ function wire_gallery_stubs( string $basedir, bool $can_edit = false ): void {
 		static fn ( string $hook, mixed $value ): mixed => $value
 	);
 	Functions\when( 'current_user_can' )->justReturn( $can_edit );
+	Functions\when( 'wp_create_nonce' )->justReturn( 'test-nonce' );
+	Functions\when( 'rest_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-json/' . ltrim( $path, '/' )
+	);
 	Functions\when( 'get_block_wrapper_attributes' )->alias(
 		static function ( array $args = [] ): string {
 			$parts = [];
@@ -1639,12 +1643,13 @@ test( 'icons sharing a position auto-cluster in the fixed order download, add-to
 			],
 		],
 		$descriptor,
-		can_edit: false,
+		can_edit: true,
 		basedir_out: $basedir,
 	);
 
 	// All three icons share one position, so they cluster into one anchored row in the
-	// documented fixed order: download, then add-to-media, then trash.
+	// documented fixed order: download, then add-to-media, then trash. Add-to-media and
+	// trash are capability-gated (ADR-0015), so this renders as a capable user.
 	expect( substr_count( $html, 'kntnt-photo-drop-gallery__icons--anchor-top-right' ) )->toBe( 1 );
 	$download    = strpos( $html, 'kntnt-photo-drop-gallery__icon--download' );
 	$add_to_media = strpos( $html, 'kntnt-photo-drop-gallery__icon--add-to-media' );
@@ -1660,11 +1665,73 @@ test( 'overlays split across positions emit one cluster per occupied position', 
 	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
-			'lightbox'           => false,
-			'downloadVisibility' => 'thumbnail',
-			'downloadPosition'   => 'top-left',
-			'trashVisibility'    => 'thumbnail',
-			'trashPosition'      => 'bottom-right',
+			'lightbox'             => false,
+			'downloadVisibility'   => 'thumbnail',
+			'downloadPosition'     => 'top-left',
+			'addToMediaVisibility' => 'thumbnail',
+			'addToMediaPosition'   => 'bottom-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// Two icons at two positions yield two separate clusters (add-to-media is
+	// capability-gated, so this renders as a capable user).
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__icons--anchor-top-left' );
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__icons--anchor-bottom-right' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Add-to-media — capability-gated icon and nonce (ADR-0015)
+// ---------------------------------------------------------------------------
+
+test( 'the add-to-media icon renders for a capable user', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'             => false,
+			'addToMediaVisibility' => 'thumbnail',
+			'addToMediaPosition'   => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// A user holding the add_to_media capability sees the icon, and its anchor
+	// carries the image's collection-relative path so the view module can POST it.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery__icon--add-to-media' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-path="a.jpg.webp"' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the add-to-media icon is absent for an un-capable user', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'             => false,
+			'addToMediaVisibility' => 'thumbnail',
+			'addToMediaPosition'   => 'top-right',
 		],
 		[
 			[
@@ -1678,9 +1745,91 @@ test( 'overlays split across positions emit one cluster per occupied position', 
 		basedir_out: $basedir,
 	);
 
-	// Two icons at two positions yield two separate clusters.
-	expect( $html )->toContain( 'kntnt-photo-drop-gallery__icons--anchor-top-left' );
-	expect( $html )->toContain( 'kntnt-photo-drop-gallery__icons--anchor-bottom-right' );
+	// Defence in depth (ADR-0015): an un-capable user sees no add-to-media icon at
+	// all — and, since no other overlay is on, no path attribute either.
+	expect( $html )->not->toContain( 'kntnt-photo-drop-gallery__icon--add-to-media' );
+	expect( $html )->not->toContain( 'data-kntnt-photo-drop-path' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the wp_rest nonce and the media REST URL render only for a capable user', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$capable    = render_seeded_gallery(
+		[
+			'lightbox'             => false,
+			'addToMediaVisibility' => 'thumbnail',
+			'addToMediaPosition'   => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// A capable user's wrapper carries the nonce and the collection's media endpoint
+	// URL, the two things the view module needs to POST the copy.
+	expect( $capable )->toContain( 'data-kntnt-photo-drop-nonce' );
+	expect( $capable )->toContain( '/wp-json/kntnt-photo-drop/v1/collections/photos/media' );
+
+	gallery_remove_tree( $basedir );
+	$incapable = render_seeded_gallery(
+		[
+			'lightbox'             => false,
+			'addToMediaVisibility' => 'thumbnail',
+			'addToMediaPosition'   => 'top-right',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// An un-capable user's wrapper carries neither: a page a visitor can read never
+	// holds an add-to-media credential (defence in depth, ADR-0015).
+	expect( $incapable )->not->toContain( 'data-kntnt-photo-drop-nonce' );
+	expect( $incapable )->not->toContain( '/media' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'a gallery with no capability-gated overlay emits no nonce', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$html       = render_seeded_gallery(
+		[
+			'downloadVisibility' => 'thumbnail',
+			'downloadPosition'   => 'top-left',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: true,
+		basedir_out: $basedir,
+	);
+
+	// Even for a capable user, a gallery whose only overlay is the SSR-only download
+	// needs no REST surface, so no nonce is emitted — the credential rides only when
+	// a write-path overlay is actually on.
+	expect( $html )->not->toContain( 'data-kntnt-photo-drop-nonce' );
 
 	gallery_remove_tree( $basedir );
 } );

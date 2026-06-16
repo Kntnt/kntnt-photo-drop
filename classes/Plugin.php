@@ -21,6 +21,7 @@ use Kntnt\Photo_Drop\Cli\Image_Command;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Imaging\Optimizer;
 use Kntnt\Photo_Drop\Rest\Collections_Controller;
+use Kntnt\Photo_Drop\Rest\Media_Controller;
 use Kntnt\Photo_Drop\Rest\Regenerate_Controller;
 use Kntnt\Photo_Drop\Rest\Upload_Controller;
 
@@ -324,6 +325,15 @@ final class Plugin {
 		// permission callback, so wiring it on every request is safe.
 		$regenerate_controller = new Regenerate_Controller( $repository );
 		add_action( 'rest_api_init', [ $regenerate_controller, 'register_routes' ] );
+
+		// Register the gallery's add-to-media write-path — the gallery's first (and
+		// only) REST write surface (ADR-0015). Gated by a nonce plus the
+		// `add_to_media` capability in its own permission callback, it copies a
+		// collection main image into the Media Library as an independent attachment,
+		// so wiring it on every request is safe — an unauthenticated or un-capable
+		// caller never reaches the handler.
+		$media_controller = new Media_Controller( $repository );
+		add_action( 'rest_api_init', [ $media_controller, 'register_routes' ] );
 
 		// Register the collection-lifecycle admin page — the GUI mirror of the CLI's
 		// create/update/delete verbs, and one of the two deliberate, trusted contexts

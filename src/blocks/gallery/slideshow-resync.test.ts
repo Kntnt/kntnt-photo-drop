@@ -114,6 +114,7 @@ describe( 'freshSlides', () => {
 				srcset: 'https://site.test/alpha-320.webp 320w',
 				label: 'alpha',
 				breadcrumbs: 'alpha crumb',
+				path: '',
 			},
 		] );
 	} );
@@ -127,6 +128,7 @@ describe( 'resolveResync', () => {
 			srcset: '',
 			label: '',
 			breadcrumbs: '',
+			path: '',
 		},
 	];
 
@@ -149,6 +151,7 @@ describe( 'resolveResync', () => {
 				srcset: '',
 				label: '',
 				breadcrumbs: '',
+				path: '',
 			},
 			{
 				url: 'c.webp',
@@ -156,6 +159,7 @@ describe( 'resolveResync', () => {
 				srcset: '',
 				label: '',
 				breadcrumbs: '',
+				path: '',
 			},
 		];
 		expect( resolveResync( fresh, current ) ).toEqual( {

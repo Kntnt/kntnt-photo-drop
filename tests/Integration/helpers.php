@@ -1233,6 +1233,117 @@ function delete_user( string $username ): void {
 	run_cli( [ 'user', 'delete', $username, '--yes' ] );
 }
 
+/**
+ * POSTs an add-to-media copy request to the gallery's REST write-path.
+ *
+ * Drives the add-to-media overlay's server-side action exactly as the gallery
+ * view module does: a JSON POST carrying the collection-relative `path` of the
+ * image to copy, the session cookie, and (optionally) a `wp_rest` nonce. The jar
+ * and the nonce are independently optional so a test can model every shape — both
+ * present (the happy path), no nonce (forgery rejection), or a low-privilege
+ * session (capability rejection).
+ *
+ * @since 0.12.0
+ *
+ * @param string      $slug  The target collection slug.
+ * @param string      $path  The collection-relative path of the main image to copy.
+ * @param string|null $jar   A cookie-jar path, or null for an anonymous request.
+ * @param string|null $nonce A `wp_rest` nonce, or null to omit the header.
+ * @return array{status:int,body:array<string,mixed>|null} The HTTP status and the decoded JSON body.
+ */
+function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $nonce ): array {
+
+	// Build the JSON POST against the collection's media route.
+	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/media';
+	$headers = [ 'Content-Type: application/json' ];
+	if ( $nonce !== null ) {
+		$headers[] = "X-WP-Nonce: {$nonce}";
+	}
+	$handle = curl_init( $url );
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_POST           => true,
+			CURLOPT_POSTFIELDS     => (string) json_encode( [ 'path' => $path ] ),
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 30,
+		],
+	);
+	if ( $jar !== null ) {
+		curl_setopt( $handle, CURLOPT_COOKIEFILE, $jar );
+	}
+
+	// Fire and decode; a non-JSON body decodes to null, which the test treats as
+	// its own failure signal.
+	$response = curl_exec( $handle );
+	$status   = (int) curl_getinfo( $handle, CURLINFO_RESPONSE_CODE );
+	$body     = is_string( $response ) ? json_decode( $response, true ) : null;
+
+	return [
+		'status' => $status,
+		'body'   => is_array( $body ) ? $body : null,
+	];
+
+}
+
+/**
+ * Counts the attachments currently in the Media Library, via WP-CLI.
+ *
+ * The add-to-media tests assert the count before and after a copy, so a stable
+ * count read from inside the container — never the host filesystem — is the
+ * proof a real, independent attachment was (or was not) created.
+ *
+ * @since 0.12.0
+ *
+ * @return int The number of `attachment` posts.
+ * @throws \RuntimeException When the count cannot be read from the container.
+ */
+function attachment_count(): int {
+
+	// Ask WP-CLI for the bare attachment count; --format=count prints just the
+	// integer, so the match keeps any residual decoration out of the number.
+	$result = run_cli( [ 'post', 'list', '--post_type=attachment', '--post_status=any', '--format=count' ] );
+	if ( preg_match( '/\b(\d+)\b/', $result['output'], $match ) !== 1 ) {
+		throw new \RuntimeException( "Cannot read the attachment count: {$result['output']}" );
+	}
+
+	return (int) $match[1];
+
+}
+
+/**
+ * Counts the WordPress-generated sub-sizes recorded for one attachment.
+ *
+ * A real, independent attachment carries its own `sizes` in
+ * `_wp_attachment_metadata` (thumbnail, medium, …) — the proof add-to-media
+ * sideloaded a genuine copy rather than registering a bare file (ADR-0015). This
+ * reads that metadata from inside the container and counts the generated sizes.
+ *
+ * @since 0.12.0
+ *
+ * @param int $attachment_id The attachment id to inspect.
+ * @return int The number of generated sub-sizes.
+ * @throws \RuntimeException When the metadata cannot be read from the container.
+ */
+function attachment_subsize_count( int $attachment_id ): int {
+
+	// Read the attachment metadata's `sizes` count through a wp eval so the real
+	// generated sub-sizes are counted, never assumed.
+	$php    = sprintf(
+		'$m = wp_get_attachment_metadata( %d ); echo is_array( $m ) && isset( $m["sizes"] )'
+			. ' ? count( $m["sizes"] ) : 0, "\n";',
+		$attachment_id,
+	);
+	$result = run_cli( [ 'eval', $php ] );
+	if ( preg_match( '/\b(\d+)\b/', $result['output'], $match ) !== 1 ) {
+		throw new \RuntimeException( "Cannot read the sub-size count: {$result['output']}" );
+	}
+
+	return (int) $match[1];
+
+}
+
 // Guard the whole suite at load time: every integration test needs the live
 // wp-env instance, so an unreachable site fails the run immediately with the
 // one actionable remedy instead of erroring test by test.
