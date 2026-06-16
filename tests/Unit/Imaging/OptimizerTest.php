@@ -263,12 +263,27 @@ function gd_optimizer(): Optimizer {
 	return new Optimizer( new Gd_Webp_Codec() );
 }
 
+/**
+ * Builds a descriptor exercising only the optimiser's upload contract.
+ *
+ * The optimiser enforces the immutable upload pair — the main width ceiling and
+ * the WebP quality — and ignores the full/thumbnail derived settings, so those
+ * are fixed at sane placeholders here (ADR-0013).
+ *
+ * @param int|null $upload_width   The upload-width ceiling, or null for no limit.
+ * @param int      $upload_quality The upload (main) WebP quality.
+ * @return Descriptor The descriptor under test.
+ */
+function opt_descriptor( ?int $upload_width, int $upload_quality ): Descriptor {
+	return new Descriptor( 'X', $upload_width, $upload_quality, 1280, 80, 320, 75, '%year%' );
+}
+
 // ---------------------------------------------------------------------------
 // Downscaling and format conversion
 // ---------------------------------------------------------------------------
 
 test( 'an over-ceiling image is downscaled to exactly the ceiling and stored WebP', function (): void {
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = opt_descriptor( 1920, 80 );
 
 	$result = gd_optimizer()->optimize( jpeg_bytes( 4000, 2000 ), $descriptor );
 
@@ -281,7 +296,7 @@ test( 'an over-ceiling image is downscaled to exactly the ceiling and stored Web
 } );
 
 test( 'a JPEG within the ceiling is converted to WebP without downscaling', function (): void {
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = opt_descriptor( 1920, 80 );
 
 	$result = gd_optimizer()->optimize( jpeg_bytes( 1200, 800 ), $descriptor );
 
@@ -293,7 +308,7 @@ test( 'a JPEG within the ceiling is converted to WebP without downscaling', func
 } );
 
 test( 'a PNG is converted to WebP', function (): void {
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = opt_descriptor( 1920, 80 );
 
 	$result = gd_optimizer()->optimize( png_bytes( 900, 600 ), $descriptor );
 
@@ -306,7 +321,7 @@ test( 'a PNG is converted to WebP', function (): void {
 // ---------------------------------------------------------------------------
 
 test( 'an already-conforming WebP at or under the ceiling is stored byte-identical', function (): void {
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = opt_descriptor( 1920, 80 );
 	$source     = webp_bytes( 800, 600 );
 
 	$result = gd_optimizer()->optimize( $source, $descriptor );
@@ -319,7 +334,7 @@ test( 'an already-conforming WebP at or under the ceiling is stored byte-identic
 } );
 
 test( 'a WebP exactly at the ceiling is accepted as-is', function (): void {
-	$descriptor = new Descriptor( 'X', 1000, 80, [] );
+	$descriptor = opt_descriptor( 1000, 80 );
 	$source     = webp_bytes( 1000, 700 );
 
 	$result = gd_optimizer()->optimize( $source, $descriptor );
@@ -329,7 +344,7 @@ test( 'a WebP exactly at the ceiling is accepted as-is', function (): void {
 } );
 
 test( 'an over-ceiling WebP is re-encoded and downscaled to the ceiling', function (): void {
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = opt_descriptor( 1920, 80 );
 
 	$result = gd_optimizer()->optimize( webp_bytes( 3000, 1500 ), $descriptor );
 
@@ -344,7 +359,7 @@ test( 'an over-ceiling WebP is re-encoded and downscaled to the ceiling', functi
 // ---------------------------------------------------------------------------
 
 test( 'a null ceiling stores a small WebP at its own width without re-encoding', function (): void {
-	$descriptor = new Descriptor( 'X', null, 80, [] );
+	$descriptor = opt_descriptor( null, 80 );
 	$source     = webp_bytes( 64, 48 );
 
 	$result = gd_optimizer()->optimize( $source, $descriptor );
@@ -357,7 +372,7 @@ test( 'a null ceiling stores a small WebP at its own width without re-encoding',
 } );
 
 test( 'a null ceiling converts a small JPEG to WebP at its own width, never upscaling', function (): void {
-	$descriptor = new Descriptor( 'X', null, 80, [] );
+	$descriptor = opt_descriptor( null, 80 );
 
 	$result = gd_optimizer()->optimize( jpeg_bytes( 50, 40 ), $descriptor );
 
@@ -377,8 +392,8 @@ test( 'quality is taken from the descriptor, so a lower quality yields smaller b
 	// The same high-frequency source re-encoded at two descriptor qualities must
 	// differ in size — lower quality is smaller — proving the descriptor's
 	// quality, not any fixed default, drives the WebP encode.
-	$low  = gd_optimizer()->optimize( $source, new Descriptor( 'X', 1920, 10, [] ) );
-	$high = gd_optimizer()->optimize( $source, new Descriptor( 'X', 1920, 95, [] ) );
+	$low  = gd_optimizer()->optimize( $source, opt_descriptor( 1920, 10 ) );
+	$high = gd_optimizer()->optimize( $source, opt_descriptor( 1920, 95 ) );
 
 	expect( strlen( $low->bytes ) )->toBeLessThan( strlen( $high->bytes ) );
 } );
@@ -388,7 +403,7 @@ test( 'quality is taken from the descriptor, so a lower quality yields smaller b
 // ---------------------------------------------------------------------------
 
 test( 'an undecodable source yields null', function (): void {
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = opt_descriptor( 1920, 80 );
 
 	$result = gd_optimizer()->optimize( 'this is not an image', $descriptor );
 
@@ -403,7 +418,7 @@ test( 'auto-selection picks a working codec on a GD-equipped host', function ():
 	// With no injection the optimiser auto-selects GD; on this host that must
 	// succeed and optimise a real image, proving a working codec was chosen and
 	// the loud-failure branch was not taken.
-	$result = ( new Optimizer() )->optimize( jpeg_bytes( 100, 100 ), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = ( new Optimizer() )->optimize( jpeg_bytes( 100, 100 ), opt_descriptor( 1920, 80 ) );
 
 	expect( is_webp_magic( $result->bytes ) )->toBeTrue();
 } );
@@ -414,7 +429,7 @@ test( 'an encode failure from the codec is surfaced as a rejected source', funct
 	// failure to the caller as a rejection.
 	$optimizer = new Optimizer( new Encode_Failing_Codec() );
 
-	$result = $optimizer->optimize( jpeg_bytes( 100, 100 ), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = $optimizer->optimize( jpeg_bytes( 100, 100 ), opt_descriptor( 1920, 80 ) );
 
 	expect( $result )->toBeNull();
 } );
@@ -433,7 +448,7 @@ test( 'an extreme-aspect panorama is downscaled without a GD throw', function ()
 	// A 4000×2 source scaled to a 320 ceiling derives a sub-pixel height; the
 	// single-argument imagescale() would throw a ValueError here. The optimiser
 	// must instead clamp the height to one pixel and produce a real WebP.
-	$result = gd_optimizer()->optimize( jpeg_bytes( 4000, 2 ), new Descriptor( 'X', 320, 80, [] ) );
+	$result = gd_optimizer()->optimize( jpeg_bytes( 4000, 2 ), opt_descriptor( 320, 80 ) );
 
 	expect( $result )->not->toBeNull();
 	expect( $result->width )->toBe( 320 );
@@ -446,7 +461,7 @@ test( 'a source declaring a huge pixel area is rejected from the header alone', 
 	// reject before any decode could OOM the worker. The memory raise sits after
 	// the ceiling, so it must not have fired either — proof the rejection
 	// happened before the decode stage.
-	$result = gd_optimizer()->optimize( bomb_png_bytes(), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( bomb_png_bytes(), opt_descriptor( 1920, 80 ) );
 
 	expect( $result )->toBeNull();
 	expect( $GLOBALS['kntnt_optimizer_memory_limit_calls'] )->toBe( [] );
@@ -458,7 +473,7 @@ test( 'the megapixel ceiling honours its filter', function (): void {
 	// default, drives the ceiling.
 	stub_megapixel_ceiling( 0.01 );
 
-	$result = gd_optimizer()->optimize( jpeg_bytes( 200, 200 ), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( jpeg_bytes( 200, 200 ), opt_descriptor( 1920, 80 ) );
 
 	expect( $result )->toBeNull();
 } );
@@ -469,7 +484,7 @@ test( 'an invalid megapixel filter return falls back to the default ceiling', fu
 	// the guard): the 200×200 source sails through.
 	stub_megapixel_ceiling( $bogus );
 
-	$result = gd_optimizer()->optimize( jpeg_bytes( 200, 200 ), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( jpeg_bytes( 200, 200 ), opt_descriptor( 1920, 80 ) );
 
 	expect( $result )->not->toBeNull();
 } )->with( [
@@ -485,7 +500,7 @@ test( 'the megapixel ceiling also guards the accept-as-is path', function (): vo
 	// must reject it too before that decode.
 	stub_megapixel_ceiling( 0.01 );
 
-	$result = gd_optimizer()->optimize( webp_bytes( 200, 200 ), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( webp_bytes( 200, 200 ), opt_descriptor( 1920, 80 ) );
 
 	expect( $result )->toBeNull();
 } );
@@ -493,14 +508,14 @@ test( 'the megapixel ceiling also guards the accept-as-is path', function (): vo
 test( 'the memory limit is raised for images exactly once per optimisation', function (): void {
 	// The optimiser must ask WordPress for the image-editing memory headroom
 	// exactly the way core's own editors do, before the decode.
-	gd_optimizer()->optimize( jpeg_bytes( 100, 100 ), new Descriptor( 'X', 1920, 80, [] ) );
+	gd_optimizer()->optimize( jpeg_bytes( 100, 100 ), opt_descriptor( 1920, 80 ) );
 
 	expect( $GLOBALS['kntnt_optimizer_memory_limit_calls'] )->toBe( [ 'image' ] );
 } );
 
 test( 'a zero-byte source yields null', function (): void {
 	$result = optimizer_quietly(
-		static fn (): ?object => gd_optimizer()->optimize( '', new Descriptor( 'X', 1920, 80, [] ) )
+		static fn (): ?object => gd_optimizer()->optimize( '', opt_descriptor( 1920, 80 ) )
 	);
 
 	expect( $result )->toBeNull();
@@ -518,7 +533,7 @@ test( 'a truncated WebP that probes fine is rejected by the validation decode', 
 
 	expect( ( new Gd_Webp_Codec() )->probe( $truncated ) )->not->toBeNull();
 	$result = optimizer_quietly(
-		static fn (): ?object => gd_optimizer()->optimize( $truncated, new Descriptor( 'X', 1920, 80, [] ) )
+		static fn (): ?object => gd_optimizer()->optimize( $truncated, opt_descriptor( 1920, 80 ) )
 	);
 	expect( $result )->toBeNull();
 } );
@@ -534,7 +549,7 @@ test( 'an accept-as-is WebP has its EXIF chunk stripped without a re-encode', fu
 	$clean   = webp_bytes( 300, 200 );
 	$tainted = webp_with_exif_chunk( $clean, 'GPS-COORDS-SECRET' );
 
-	$result = gd_optimizer()->optimize( $tainted, new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( $tainted, opt_descriptor( 1920, 80 ) );
 
 	expect( $result->reencoded )->toBeFalse();
 	expect( $result->bytes )->toBe( $clean );
@@ -548,7 +563,7 @@ test( 'an EXIF-oriented portrait JPEG is stored upright', function (): void {
 	// Orientation 6 stores landscape pixels that must be rotated 90° clockwise:
 	// a 30×20 stored frame is a 20×30 upright photo, and the stored main must
 	// carry the upright dimensions.
-	$result = gd_optimizer()->optimize( exif_jpeg_bytes( 30, 20, 6 ), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( exif_jpeg_bytes( 30, 20, 6 ), opt_descriptor( 1920, 80 ) );
 
 	expect( $result->width )->toBe( 20 );
 	$decoded = imagecreatefromstring( $result->bytes );
@@ -561,7 +576,7 @@ test( 'a source whose rotation pushes it over the ceiling is still scaled to the
 	// orientation 6 swaps it to 300×100 upright, which exceeds the ceiling. The
 	// target width must be derived from the decoded (rotated) handle, so the
 	// stored main lands at exactly 150.
-	$result = gd_optimizer()->optimize( exif_jpeg_bytes( 100, 300, 6 ), new Descriptor( 'X', 150, 80, [] ) );
+	$result = gd_optimizer()->optimize( exif_jpeg_bytes( 100, 300, 6 ), opt_descriptor( 150, 80 ) );
 
 	expect( $result->width )->toBe( 150 );
 	expect( $result->reencoded )->toBeTrue();
@@ -574,7 +589,7 @@ test( 'a source whose rotation pushes it over the ceiling is still scaled to the
 test( 'a palette PNG is converted to WebP rather than rejected', function (): void {
 	// imagewebp() cannot encode palette handles; without truecolor promotion in
 	// the decode this perfectly valid source would be rejected with a warning.
-	$result = gd_optimizer()->optimize( palette_png_bytes(), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( palette_png_bytes(), opt_descriptor( 1920, 80 ) );
 
 	expect( $result )->not->toBeNull();
 	expect( is_webp_magic( $result->bytes ) )->toBeTrue();
@@ -584,7 +599,7 @@ test( 'a palette PNG is converted to WebP rather than rejected', function (): vo
 test( 'palette transparency survives the truecolor promotion and encode', function (): void {
 	// The transparent palette entry covering the left half must arrive in the
 	// stored WebP as fully transparent alpha while the right half stays opaque.
-	$result = gd_optimizer()->optimize( palette_png_bytes( true ), new Descriptor( 'X', 1920, 80, [] ) );
+	$result = gd_optimizer()->optimize( palette_png_bytes( true ), opt_descriptor( 1920, 80 ) );
 
 	$decoded = imagecreatefromstring( $result->bytes );
 	expect( ( imagecolorat( $decoded, 5, 5 ) >> 24 ) & 0x7F )->toBe( 127 );
