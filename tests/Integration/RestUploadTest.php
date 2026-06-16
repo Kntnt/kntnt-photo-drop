@@ -24,6 +24,7 @@ use function Tests\Integration\delete_collection;
 use function Tests\Integration\delete_user;
 use function Tests\Integration\login_session;
 use function Tests\Integration\rest_upload;
+use function Tests\Integration\site_today_path;
 use function Tests\Integration\unique_slug;
 use function Tests\Integration\uploads_root;
 use function Tests\Integration\write_jpeg;
@@ -46,7 +47,7 @@ afterAll( function () use ( $slug, $fixture ): void {
 	@unlink( $fixture );
 } );
 
-test( 'an authenticated upload lands at its client path, conforming', function () use ( $slug, $fixture ): void {
+test( 'an authenticated upload lands under the expanded template', function () use ( $slug, $fixture ): void {
 
 	// POST the JPEG with both gates satisfied: the admin session cookie and a
 	// fresh wp_rest nonce, targeting a nested relative path.
@@ -60,10 +61,11 @@ test( 'an authenticated upload lands at its client path, conforming', function (
 	expect( $response['body']['outcome'] )->toBe( 'reencoded' );
 	expect( $response['body']['storedName'] )->toBe( 'photo.jpg.webp' );
 
-	// Until the pathComponents template is expanded server-side (issue #48), the
-	// file lands at exactly the client relative path beneath the collection root,
-	// and conforms: WebP bytes, never upscaled past its own 800px width.
-	$stored = collection_path( $slug ) . '/field/day-1/photo.jpg.webp';
+	// The default template (%year%/%month%/%day%/%uploader%) is expanded server-side
+	// and prepended ahead of the client path (ADR-0014): the file lands under the
+	// site-timezone date and the admin's nicename, with the client hierarchy
+	// preserved after the prefix, and conforms (WebP, never upscaled past 800px).
+	$stored = collection_path( $slug ) . '/' . site_today_path() . '/admin/field/day-1/photo.jpg.webp';
 	expect( is_file( $stored ) )->toBeTrue();
 	$info = getimagesize( $stored );
 	expect( $info['mime'] )->toBe( 'image/webp' );

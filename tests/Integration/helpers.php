@@ -480,6 +480,83 @@ function create_collection_via_admin(
 }
 
 /**
+ * Creates a collection through the CLI with an explicit placement template.
+ *
+ * Mirrors create_collection() but threads `--path-components` so a placement test
+ * can pin a deterministic template (e.g. `%uploader%` alone, avoiding the
+ * date-dependent default). A failure throws with the CLI's own words, since
+ * seeding is setup rather than the subject under test (ADR-0014).
+ *
+ * @since 0.7.0
+ *
+ * @param string $slug     The collection slug.
+ * @param string $template The path-components template to store.
+ * @throws \RuntimeException When the CLI refuses to create the collection.
+ */
+function create_collection_with_template( string $slug, string $template ): void {
+
+	// Seed with the documented upload contract and the supplied placement template.
+	$result = run_cli(
+		[
+			'kntnt-photo-drop',
+			'collection',
+			'create',
+			$slug,
+			'--upload-width=1200',
+			'--upload-quality=70',
+			"--path-components={$template}",
+		],
+	);
+	if ( $result['exit_code'] !== 0 ) {
+		throw new \RuntimeException( "Cannot seed collection '{$slug}' with a template: {$result['output']}" );
+	}
+
+}
+
+/**
+ * Updates a collection's placement template through the CLI.
+ *
+ * @since 0.7.0
+ *
+ * @param string $slug     The collection slug.
+ * @param string $template The new path-components template.
+ * @return array{output:string,exit_code:int} The filtered output and the exit code.
+ */
+function update_path_components( string $slug, string $template ): array {
+	return run_cli(
+		[ 'kntnt-photo-drop', 'collection', 'update', $slug, '--name=Updated', "--path-components={$template}" ],
+	);
+}
+
+/**
+ * Returns today's date as `Y/m/d` in the site's timezone, read from the container.
+ *
+ * The Drop Zone expands `%year%/%month%/%day%` in the site timezone (ADR-0014),
+ * so a placement assertion against the default template must compute the same
+ * date the server will — through a `wp eval` so it honours the live
+ * `wp_timezone()`, never the host's clock or zone.
+ *
+ * @since 0.7.0
+ *
+ * @return string The site-timezone date as `Y/m/d`.
+ * @throws \RuntimeException When the date cannot be resolved from the container.
+ */
+function site_today_path(): string {
+
+	// Ask WordPress for the current site-timezone date, matching the server's own
+	// expansion exactly.
+	$result = run_cli(
+		[ 'eval', 'echo ( new DateTimeImmutable( "now", wp_timezone() ) )->format( "Y/m/d" ), "\n";' ],
+	);
+	if ( preg_match( '~\b(\d{4}/\d{2}/\d{2})\b~', $result['output'], $match ) !== 1 ) {
+		throw new \RuntimeException( "Cannot resolve the site date: {$result['output']}" );
+	}
+
+	return $match[1];
+
+}
+
+/**
  * Deletes a collection through the CLI, best-effort.
  *
  * Used by teardown, where the collection may already be gone (a delete test)
