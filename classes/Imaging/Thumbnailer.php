@@ -190,8 +190,17 @@ final class Thumbnailer {
 		int $quality,
 	): ?string {
 
-		// Ensure the `<width>/` directory under the hidden corral exists.
+		// Refuse to write through any symlink on the rendition's path — the hidden
+		// corral, the `<width>/` bucket, or the target file itself — so a planted
+		// link can never route the write outside the collection (defence in depth for
+		// every caller, the doctor's symlink-safety in particular).
 		$path = self::thumbnail_path( $folder, $stored_name, $width );
+		if ( $this->writes_through_symlink( $folder, $path ) ) {
+			Plugin::warning( "Refused to write a derived rendition through a symlink at {$path}." );
+			return null;
+		}
+
+		// Ensure the `<width>/` directory under the hidden corral exists.
 		if ( ! $this->ensure_dir( \dirname( $path ) ) ) {
 			Plugin::warning( "Could not create the rendition directory for width {$width} under {$folder}." );
 			return null;
@@ -217,6 +226,30 @@ final class Thumbnailer {
 		}
 
 		return $path;
+
+	}
+
+	/**
+	 * Reports whether writing the rendition would pass through any symlink.
+	 *
+	 * Checks the three points on the path a planted link could redirect the write
+	 * outside the collection: the hidden corral (`.kntnt-thumbnails`), the
+	 * `<width>/` bucket directory, and the target file itself (a dangling or
+	 * planted file link). A `true` here means the deriver must refuse the write —
+	 * the plugin never writes through a link it does not own.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $folder The content folder holding the main.
+	 * @param string $path   The intended absolute rendition path.
+	 * @return bool True when any segment of the write path is a symlink.
+	 */
+	private function writes_through_symlink( string $folder, string $path ): bool {
+
+		// The corral and the width bucket are the two directory hops; the target is
+		// the file itself. Any of them being a link routes the write off the tree.
+		$corral = rtrim( $folder, '/' ) . '/' . Index::THUMBNAILS_DIRNAME;
+		return is_link( $corral ) || is_link( \dirname( $path ) ) || is_link( $path );
 
 	}
 
