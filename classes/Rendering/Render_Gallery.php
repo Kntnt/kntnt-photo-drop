@@ -1449,7 +1449,10 @@ final class Render_Gallery {
 
 		// Harden the filter's return: a non-string or empty result falls back to
 		// the default so a buggy filter can never open the gate to the public.
-		$filtered = apply_filters( 'kntnt_photo_drop_editor_notice_capability', self::DEFAULT_EDITOR_NOTICE_CAPABILITY );
+		$filtered = apply_filters(
+			'kntnt_photo_drop_editor_notice_capability',
+			self::DEFAULT_EDITOR_NOTICE_CAPABILITY,
+		);
 		return is_string( $filtered ) && $filtered !== '' ? $filtered : self::DEFAULT_EDITOR_NOTICE_CAPABILITY;
 
 	}
