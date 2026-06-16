@@ -40,6 +40,8 @@ use function Tests\Integration\write_jpeg;
 
 require_once __DIR__ . '/helpers.php';
 
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This suite runs on the host with no WordPress loaded (esc_html() does not exist); the seeding-failure message surfaces only in the Pest console, never in HTML.
+
 // Seed one collection holding one real main image for the whole file. The image
 // is imported through the CLI so it is conforming on disk, exactly as a gallery
 // would serve it; its collection-relative path is the add-to-media target.
@@ -64,28 +66,30 @@ afterAll( function () use ( $slug, &$fixtures ): void {
 	}
 } );
 
-test( 'a confirmed copy sideloads the main image as an independent attachment with sub-sizes', function () use ( $slug, $main_path ): void {
+test(
+	'a confirmed copy sideloads the main image as an independent attachment with sub-sizes',
+	function () use ( $slug, $main_path ): void {
 
-	// Count the Media Library before, then POST the confirmed copy with both gates
-	// satisfied: the admin session cookie and a fresh wp_rest nonce, targeting the
-	// collection-relative main-image path the gallery mirrors onto the anchor.
-	$before   = attachment_count();
-	$session  = admin_session();
-	$response = rest_add_to_media( $slug, $main_path, $session['jar'], $session['nonce'] );
+		// Count the Media Library before, then POST the confirmed copy with both gates
+		// satisfied: the admin session cookie and a fresh wp_rest nonce, targeting the
+		// collection-relative main-image path the gallery mirrors onto the anchor.
+		$before   = attachment_count();
+		$session  = admin_session();
+		$response = rest_add_to_media( $slug, $main_path, $session['jar'], $session['nonce'] );
 
-	// The endpoint reports the created attachment, and exactly one new attachment
-	// now exists in the Media Library — a real copy, not a link.
-	expect( $response['status'] )->toBe( 201 );
-	expect( $response['body'] )->not->toBeNull();
-	expect( $response['body']['id'] )->toBeInt();
-	expect( $response['body']['id'] )->toBeGreaterThan( 0 );
-	expect( attachment_count() )->toBe( $before + 1 );
+		// The endpoint reports the created attachment, and exactly one new attachment
+		// now exists in the Media Library — a real copy, not a link.
+		expect( $response['status'] )->toBe( 201 );
+		expect( $response['body'] )->not->toBeNull();
+		expect( $response['body']['id'] )->toBeInt();
+		expect( $response['body']['id'] )->toBeGreaterThan( 0 );
+		expect( attachment_count() )->toBe( $before + 1 );
 
-	// WordPress generated its own sub-sizes for the copied image — the proof it is
-	// an ordinary, independent attachment (ADR-0015), not a bare file reference.
-	expect( attachment_subsize_count( $response['body']['id'] ) )->toBeGreaterThan( 0 );
+		// WordPress generated its own sub-sizes for the copied image — the proof it is
+		// an ordinary, independent attachment (ADR-0015), not a bare file reference.
+		expect( attachment_subsize_count( $response['body']['id'] ) )->toBeGreaterThan( 0 );
 
-} );
+	} );
 
 test( 'a copy without a nonce is 401 even for a logged-in admin', function () use ( $slug, $main_path ): void {
 

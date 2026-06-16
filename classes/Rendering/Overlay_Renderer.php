@@ -16,10 +16,12 @@
  * its alignment are pure CSS (driven by the position anchor class), so no JS
  * fitter is needed.
  *
- * Download is the one action overlay shipped whole in #47 — an `<a download>`
- * anchor the view module upgrades to a programmatic save. Add-to-media and trash
- * are emitted as inert positioned stubs here; their gated REST write-path is
- * #52/#53 (and the capability-gated rendering, ADR-0015).
+ * Download is the action overlay shipped whole in #47 — an `<a download>` anchor
+ * the view module upgrades to a programmatic save. Add-to-media (#52) is an active,
+ * capability-gated `<button>`: it renders only for a user holding the
+ * `add_to_media` capability and carries the image's collection-relative path the
+ * view module POSTs behind a confirm callout (ADR-0015). Trash is still an inert
+ * positioned stub here; its gated REST write-path is #53.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.11.0
@@ -84,6 +86,7 @@ final readonly class Overlay_Renderer {
 	 * @param string                          $breadcrumb_class The pre-escaped breadcrumb class.
 	 * @param string                          $breadcrumb_style The pre-escaped breadcrumb style, or ''.
 	 * @param string                          $cluster_style The pre-escaped icon-cluster style, or ''.
+	 * @param bool                            $add_to_media_capable Whether the current user may add to the Library.
 	 */
 	private function __construct(
 		private bool $lightbox,
@@ -94,6 +97,7 @@ final readonly class Overlay_Renderer {
 		private string $breadcrumb_class,
 		private string $breadcrumb_style,
 		private string $cluster_style,
+		private bool $add_to_media_capable,
 	) {}
 
 	/**
@@ -108,11 +112,16 @@ final readonly class Overlay_Renderer {
 	 *
 	 * @since 0.11.0
 	 *
-	 * @param array<string,mixed> $attributes  The block attributes.
-	 * @param bool                $lightbox    Whether the gallery's lightbox is on.
+	 * @param array<string,mixed> $attributes           The block attributes.
+	 * @param bool                $lightbox             Whether the gallery's lightbox is on.
+	 * @param bool                $add_to_media_capable Whether the current user may add to the Library.
 	 * @return self The resolved overlay renderer.
 	 */
-	public static function from_attributes( array $attributes, bool $lightbox ): self {
+	public static function from_attributes(
+		array $attributes,
+		bool $lightbox,
+		bool $add_to_media_capable = false,
+	): self {
 
 		// Narrow each overlay's visibility and position; the action icons share the
 		// nine-point vocabulary but each keeps its own documented default position.
@@ -162,6 +171,7 @@ final readonly class Overlay_Renderer {
 			esc_attr( $breadcrumb_class ),
 			esc_attr( $breadcrumb_support['style'] ),
 			esc_attr( $cluster_style ),
+			$add_to_media_capable,
 		);
 
 	}
@@ -179,6 +189,28 @@ final readonly class Overlay_Renderer {
 	 */
 	public function breadcrumbs_visible(): bool {
 		return $this->breadcrumbs->visibility !== Overlay_Placement::OFF;
+	}
+
+	/**
+	 * Whether the add-to-media overlay actually renders on any surface.
+	 *
+	 * True only when the add-to-media placement is on (thumbnail and/or full) *and*
+	 * the current user holds the capability — the same conjunction that gates the
+	 * icon itself (ADR-0015). `Render_Gallery` reads this to decide whether to emit
+	 * the gallery's REST nonce and media URL at all: the credential rides only when
+	 * a capable user will see a write-path control, never on a page a visitor reads.
+	 *
+	 * @since 0.12.0
+	 *
+	 * @return bool True when the add-to-media icon will render for this user.
+	 */
+	public function add_to_media_visible(): bool {
+
+		// Off everywhere, or an un-capable user — either way no icon, so no nonce.
+		$placement = $this->icons['add-to-media'];
+		return $this->add_to_media_capable
+			&& ( $placement->on_thumbnail() || $placement->on_full( $this->lightbox ) );
+
 	}
 
 	/**
@@ -204,24 +236,28 @@ final readonly class Overlay_Renderer {
 	 *
 	 * The breadcrumb element (filled with the image's text) when the breadcrumb
 	 * shows on the thumbnail, plus the action-icon clusters that show there. The
-	 * download icon's `href` is the image's main URL; the inert add-to-media and
-	 * trash stubs carry no target. Empty when no overlay shows on the thumbnail.
+	 * download icon's `href` is the image's main URL; the add-to-media icon carries
+	 * the image's collection-relative path so the view module can POST it; the trash
+	 * stub carries no target. Empty when no overlay shows on the thumbnail.
 	 *
 	 * @since 0.11.0
+	 * @since 0.12.0 The add-to-media icon carries the per-image collection-relative path.
 	 *
 	 * @param string $breadcrumb_text The pre-assembled breadcrumb text for this image.
 	 * @param string $main_url        The image's main URL (the download target).
+	 * @param string $relative_path   The image's collection-relative path (the add-to-media target).
 	 * @return string The thumbnail overlay markup.
 	 */
-	public function thumbnail( string $breadcrumb_text, string $main_url ): string {
+	public function thumbnail( string $breadcrumb_text, string $main_url, string $relative_path = '' ): string {
 
 		// The breadcrumb element carries the image's text when it shows on the
-		// thumbnail; the icon clusters carry the download href for this image.
+		// thumbnail; the icon clusters carry the download href and the add-to-media
+		// path for this image.
 		$breadcrumb = $this->breadcrumbs->on_thumbnail()
 			? $this->breadcrumb_element( '', esc_html( $breadcrumb_text ) )
 			: '';
 
-		return $breadcrumb . $this->icon_clusters( self::SURFACE_THUMBNAIL, esc_url( $main_url ) );
+		return $breadcrumb . $this->icon_clusters( self::SURFACE_THUMBNAIL, esc_url( $main_url ), $relative_path );
 
 	}
 
@@ -241,12 +277,13 @@ final readonly class Overlay_Renderer {
 	public function lightbox(): string {
 
 		// The breadcrumb element ships empty for the view module to fill per slide;
-		// the icon clusters carry an empty download href the view module sets.
+		// the icon clusters carry an empty download href and an empty add-to-media
+		// path the view module sets per slide.
 		$breadcrumb = $this->breadcrumbs->on_full( $this->lightbox )
 			? $this->breadcrumb_element( 'kntnt-photo-drop-lightbox__breadcrumbs', '' )
 			: '';
 
-		return $breadcrumb . $this->icon_clusters( self::SURFACE_FULL, '' );
+		return $breadcrumb . $this->icon_clusters( self::SURFACE_FULL, '', '' );
 
 	}
 
@@ -293,16 +330,22 @@ final readonly class Overlay_Renderer {
 	 *
 	 * @since 0.11.0
 	 *
-	 * @param string $surface  One of SURFACE_THUMBNAIL or SURFACE_FULL.
-	 * @param string $main_url The pre-escaped download target (empty for the lightbox).
+	 * @param string $surface       One of SURFACE_THUMBNAIL or SURFACE_FULL.
+	 * @param string $main_url      The pre-escaped download target (empty for the lightbox).
+	 * @param string $relative_path The image's collection-relative add-to-media path (empty for the lightbox).
 	 * @return string The concatenated icon-cluster markup.
 	 */
-	private function icon_clusters( string $surface, string $main_url ): string {
+	private function icon_clusters( string $surface, string $main_url, string $relative_path ): string {
 
 		// Bucket the icons that show on this surface by their position, preserving
 		// the fixed cluster order so a shared position reads download → add → trash.
+		// The add-to-media icon is additionally capability-gated (ADR-0015): an
+		// un-capable user never sees it, so it is dropped here before bucketing.
 		$by_position = [];
 		foreach ( self::ICON_ORDER as $name ) {
+			if ( $name === 'add-to-media' && ! $this->add_to_media_capable ) {
+				continue;
+			}
 			$placement = $this->icons[ $name ];
 			if ( $this->shows( $placement, $surface ) ) {
 				$by_position[ $placement->position ][] = $name;
@@ -315,7 +358,7 @@ final readonly class Overlay_Renderer {
 		foreach ( $by_position as $position => $names ) {
 			$icons = '';
 			foreach ( $names as $name ) {
-				$icons .= $this->icon( $name, $main_url, $surface );
+				$icons .= $this->icon( $name, $main_url, $surface, $relative_path );
 			}
 			$markup .= sprintf(
 				'<span class="kntnt-photo-drop-gallery__icons kntnt-photo-drop-gallery__icons--anchor-%1$s"%2$s>'
@@ -334,21 +377,26 @@ final readonly class Overlay_Renderer {
 	 * Builds one action-icon control.
 	 *
 	 * The download icon is an `<a download>` anchor at the main image — the one
-	 * action shipped whole in #47, which the view module upgrades to a
-	 * programmatic save (the `download` attribute is the no-JS fallback). The
-	 * add-to-media and trash icons are inert `<button>` stubs here: their gated
-	 * REST write-path lands in #52/#53. Every icon shares the cluster's
-	 * foreground/background/size; its glyph is a CSS mask the stylesheet draws
-	 * from the icon's modifier class, so the markup carries no SVG.
+	 * action shipped whole in #47, which the view module upgrades to a programmatic
+	 * save (the `download` attribute is the no-JS fallback). The add-to-media icon is
+	 * an active `<button>` carrying the image's collection-relative path as
+	 * `data-kntnt-photo-drop-path` (on the lightbox surface it ships path-less and
+	 * carries the `lightbox__add-to-media` marker the view module sets per slide),
+	 * which the view module POSTs behind its confirm callout (ADR-0015). The trash
+	 * icon is still an inert stub here — its gated write-path is #53. Every icon
+	 * shares the cluster's foreground/background/size; its glyph is a CSS mask the
+	 * stylesheet draws from the icon's modifier class, so the markup carries no SVG.
 	 *
 	 * @since 0.11.0
+	 * @since 0.12.0 The add-to-media icon is active and carries the per-image path.
 	 *
-	 * @param string $name     The icon name (one of ICON_ORDER).
-	 * @param string $main_url The pre-escaped download target (empty for the lightbox).
-	 * @param string $surface  One of SURFACE_THUMBNAIL or SURFACE_FULL.
+	 * @param string $name          The icon name (one of ICON_ORDER).
+	 * @param string $main_url       The pre-escaped download target (empty for the lightbox).
+	 * @param string $surface        One of SURFACE_THUMBNAIL or SURFACE_FULL.
+	 * @param string $relative_path The image's collection-relative add-to-media path (empty for the lightbox).
 	 * @return string The icon control markup.
 	 */
-	private function icon( string $name, string $main_url, string $surface ): string {
+	private function icon( string $name, string $main_url, string $surface, string $relative_path ): string {
 
 		// The download icon is a real <a download> at the main image; the lightbox's
 		// per-slide href is set client-side, so it ships empty there and carries the
@@ -364,17 +412,32 @@ final readonly class Overlay_Renderer {
 			);
 		}
 
-		// Add-to-media and trash are inert positioned stubs (the gated REST
-		// write-path is #52/#53); each is a labelled button the framework places.
-		$label = $name === 'add-to-media'
-			? esc_attr__( 'Add to Media Library', 'kntnt-photo-drop' )
-			: esc_attr__( 'Delete image', 'kntnt-photo-drop' );
+		// The add-to-media icon is an active button: on the thumbnail it carries the
+		// image's collection-relative path the view module POSTs; on the lightbox it
+		// ships path-less and carries the `lightbox__add-to-media` marker the view
+		// sets per slide. The capability gate is applied in `shows()`, so reaching
+		// here already means the user may copy into the Library.
+		if ( $name === 'add-to-media' ) {
+			$class = 'kntnt-photo-drop-gallery__icon kntnt-photo-drop-gallery__icon--add-to-media'
+				. ( $surface === self::SURFACE_FULL ? ' kntnt-photo-drop-lightbox__add-to-media' : '' );
+			$path_attr = $surface === self::SURFACE_THUMBNAIL && $relative_path !== ''
+				? sprintf( ' data-kntnt-photo-drop-path="%s"', esc_attr( $relative_path ) )
+				: '';
+			return sprintf(
+				'<button type="button" class="%1$s"%2$s aria-label="%3$s"></button>',
+				$class,
+				$path_attr,
+				esc_attr__( 'Add to Media Library', 'kntnt-photo-drop' ),
+			);
+		}
 
+		// Trash is still an inert positioned stub (its gated REST write-path is #53);
+		// a labelled button the framework places.
 		return sprintf(
 			'<button type="button" class="kntnt-photo-drop-gallery__icon kntnt-photo-drop-gallery__icon--%1$s"'
 				. ' aria-label="%2$s"></button>',
 			esc_attr( $name ),
-			$label,
+			esc_attr__( 'Delete image', 'kntnt-photo-drop' ),
 		);
 
 	}

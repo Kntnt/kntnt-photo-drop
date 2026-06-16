@@ -101,6 +101,8 @@ interface OverlayRefs {
 	readonly download: HTMLAnchorElement | null;
 	/** The mirrored breadcrumb figcaption, or `null` when breadcrumbs are off the lightbox. */
 	readonly breadcrumbs: HTMLElement | null;
+	/** The add-to-media icon button, or `null` when add-to-media is off the lightbox. */
+	readonly addToMedia: HTMLButtonElement | null;
 }
 
 /**
@@ -142,13 +144,16 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		return null;
 	}
 
-	// The download anchor and the breadcrumb figcaption are optional chrome;
-	// resolve them when present and leave them null otherwise.
+	// The download anchor, the breadcrumb figcaption, and the add-to-media button
+	// are optional chrome; resolve them when present and leave them null otherwise.
 	const download = overlay.querySelector< HTMLAnchorElement >(
 		'.kntnt-photo-drop-lightbox__download'
 	);
 	const breadcrumbs = overlay.querySelector< HTMLElement >(
 		'.kntnt-photo-drop-lightbox__breadcrumbs'
+	);
+	const addToMedia = overlay.querySelector< HTMLButtonElement >(
+		'.kntnt-photo-drop-lightbox__add-to-media'
 	);
 	return {
 		overlay,
@@ -160,6 +165,7 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		failure,
 		download,
 		breadcrumbs,
+		addToMedia,
 	};
 }
 
@@ -541,6 +547,14 @@ export class GalleryLightbox {
 		// then emits no icon.
 		if ( this.#refs.download ) {
 			this.#refs.download.href = slide.main;
+		}
+
+		// Point the add-to-media icon at the current slide's collection-relative path
+		// (ADR-0015), so a confirmed copy in the lightbox targets the open image; the
+		// button is null (so this is skipped) when add-to-media is off the lightbox.
+		// The delegated add-to-media listener reads this attribute on click.
+		if ( this.#refs.addToMedia ) {
+			this.#refs.addToMedia.dataset.kntntPhotoDropPath = slide.path;
 		}
 
 		// Mirror the gallery breadcrumb onto the lightbox figure when a breadcrumb

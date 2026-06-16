@@ -78,6 +78,10 @@ function wire_gallery_stubs( string $basedir, bool $can_edit = false ): void {
 		static fn ( string $hook, mixed $value ): mixed => $value
 	);
 	Functions\when( 'current_user_can' )->justReturn( $can_edit );
+	Functions\when( 'wp_create_nonce' )->justReturn( 'test-nonce' );
+	Functions\when( 'rest_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-json/' . ltrim( $path, '/' )
+	);
 	Functions\when( 'get_block_wrapper_attributes' )->alias(
 		static function ( array $args = [] ): string {
 			$parts = [];

@@ -336,18 +336,19 @@ test( 'a hostile path is rejected with nothing sideloaded', function ( string $h
 
 	$response = $controller->add_to_media( media_request( 'photos', $hostile ) );
 
-	expect( $response->get_status() )->toBe( 422 );
+	expect( $response )->toBeInstanceOf( WP_Error::class );
+	expect( $response->get_error_data()['status'] )->toBe( 422 );
 	expect( $GLOBALS['kntnt_sideloaded_path'] )->toBeNull();
 
 	media_remove_tree( $basedir );
 } )->with( [
-	'parent traversal'  => [ '../escape.webp' ],
-	'deep traversal'    => [ '../../../../etc/passwd' ],
-	'encoded traversal' => [ '%2e%2e%2fescape.webp' ],
-	'double-encoded'    => [ '%252e%252e%252fescape.webp' ],
-	'absolute path'     => [ '/etc/passwd' ],
+	'parent traversal'   => [ '../escape.webp' ],
+	'deep traversal'     => [ '../../../../etc/passwd' ],
+	'encoded traversal'  => [ '%2e%2e%2fescape.webp' ],
+	'double-encoded'     => [ '%252e%252e%252fescape.webp' ],
+	'absolute path'      => [ '/etc/passwd' ],
 	'embedded traversal' => [ 'a/../../b.webp' ],
-	'nul byte'          => [ "ok\x00/../escape.webp" ],
+	'nul byte'           => [ "ok\x00/../escape.webp" ],
 ] );
 
 // ---------------------------------------------------------------------------

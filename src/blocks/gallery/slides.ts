@@ -31,10 +31,13 @@ export const SLIDE_LINK_SELECTOR = '.kntnt-photo-drop-gallery__link';
  * The per-image data read off one thumbnail anchor: the display (full-rendition)
  * URL it points at, the main-image download target, the responsive srcset the
  * server mirrored onto the anchor, the accessible label to announce when shown,
- * and the breadcrumb overlay text (empty when the gallery has no breadcrumbs).
+ * the breadcrumb overlay text (empty when the gallery has no breadcrumbs), and
+ * the collection-relative path the lightbox's add-to-media icon copies (empty
+ * when the gallery has no add-to-media overlay or the user is un-capable).
  *
  * @since 0.7.0
  * @since 0.11.0 Added the `main` download target, distinct from the display `url`.
+ * @since 0.12.0 Added the `path` add-to-media target.
  */
 export interface GallerySlide {
 	/** The display image URL — the full rendition the lightbox shows (the anchor's `href`). */
@@ -47,6 +50,8 @@ export interface GallerySlide {
 	readonly label: string;
 	/** The breadcrumb overlay text mirrored from the gallery figure, or `''`. */
 	readonly breadcrumbs: string;
+	/** The collection-relative add-to-media path (ADR-0015), or `''` when off/un-capable. */
+	readonly path: string;
 }
 
 /**
@@ -59,6 +64,7 @@ export interface GallerySlide {
  *
  * @since 0.7.0
  * @since 0.11.0 Reads the `main` download target from its own data attribute.
+ * @since 0.12.0 Reads the `path` add-to-media target, empty when the anchor has none.
  *
  * @param links - The thumbnail anchors, in gallery order.
  * @return One slide per anchor, in the same order.
@@ -72,5 +78,6 @@ export function readSlides(
 		srcset: link.dataset.kntntPhotoDropSrcset ?? '',
 		label: link.querySelector< HTMLImageElement >( 'img' )?.alt ?? '',
 		breadcrumbs: link.dataset.kntntPhotoDropBreadcrumbs ?? '',
+		path: link.dataset.kntntPhotoDropPath ?? '',
 	} ) );
 }

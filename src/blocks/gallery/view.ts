@@ -56,6 +56,7 @@ import { resolveSlideshowTarget } from './slideshow-target';
 import { SLIDE_LINK_SELECTOR } from './slides';
 import { lastRowFlags } from './justified-rows';
 import { saveFile, shouldInterceptClick } from './save-file';
+import { wireAddToMedia } from './add-to-media-view';
 
 /**
  * The per-block Interactivity context emitted by `Render_Gallery`.
@@ -445,6 +446,12 @@ store( 'kntnt-photo-drop/gallery', {
 			// blob download, independent of the lightbox; the delegated listener
 			// is harmless when there are no icons.
 			wireIconDownloads( ref );
+
+			// Wire any add-to-media icons to the confirm callout and the copy POST,
+			// independent of the lightbox (ADR-0015). The controller bails when the
+			// wrapper carries no nonce/URL (an un-capable user sees inert icons), so
+			// the call is harmless when there is nothing to wire.
+			wireAddToMedia( ref );
 
 			// Lightbox off: suppress the plain thumbnail click via one delegated
 			// listener so a click on the image does nothing rather than navigate.
