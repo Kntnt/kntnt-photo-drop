@@ -24,9 +24,10 @@
  *
  * The Drop Zone remains a *select-only consumer* of collections: its only
  * inspector controls are a collection selector and a strictly read-only display
- * of the selected collection's output contract (max width, quality, format,
- * thumbnail width). Nothing about the contract is editable here — that is what
- * keeps the block unable to conflict with the immutable contract (ADR-0002).
+ * of the selected collection's renditions (the immutable upload width/quality
+ * contract, the re-derivable full and thumbnail renditions, and the always-WebP
+ * format). Nothing about the renditions is editable here — that is what keeps the
+ * block unable to conflict with the immutable contract (ADR-0002, ADR-0013).
  *
  * The collection list and contracts come from the editor-only REST endpoint
  * `kntnt-photo-drop/v1/collections` (gated by `edit_posts`), fetched once per
@@ -72,7 +73,7 @@ interface DropZoneAttributes {
  * One collection as returned by the editor list endpoint.
  *
  * Mirrors the payload `Rest\Collections_Controller::list_collections()` emits:
- * the slug and display name drive the selector, and the three contract fields the
+ * the slug and display name drive the selector, and the six rendition fields the
  * read-only display.
  *
  * @since 0.5.0
@@ -80,10 +81,13 @@ interface DropZoneAttributes {
 interface CollectionSummary {
 	readonly slug: string;
 	readonly name: string;
-	/** The contract ceiling in pixels, or `null` for no limit. */
-	readonly maxWidth: number | null;
-	readonly quality: number;
-	readonly thumbnailWidths: readonly number[];
+	/** The immutable upload-width ceiling in pixels, or `null` for the source's own dimensions. */
+	readonly uploadWidth: number | null;
+	readonly uploadQuality: number;
+	readonly fullWidth: number;
+	readonly fullQuality: number;
+	readonly thumbnailWidth: number;
+	readonly thumbnailQuality: number;
 }
 
 /**
@@ -237,68 +241,64 @@ const DEFAULT_TEMPLATE: readonly BlockTemplate[] = [
 ];
 
 /**
- * Formats the max-width contract value for the read-only display.
+ * Formats the upload-width contract value for the read-only display.
  *
- * A `null` ceiling is the "no limit" contract; any other value is shown as a pixel
- * width. Kept tiny and local because it is presentation only.
+ * A `null` ceiling is the "source's own dimensions" contract; any other value is
+ * shown as a pixel width. Kept tiny and local because it is presentation only.
  *
  * @since 0.5.0
  *
- * @param maxWidth - The contract ceiling, or `null` for no limit.
+ * @param uploadWidth - The immutable upload ceiling, or `null` for the source's own dimensions.
  * @return The display string.
  */
-function formatMaxWidth( maxWidth: number | null ): string {
-	if ( maxWidth === null ) {
-		return __( 'No limit', 'kntnt-photo-drop' );
+function formatUploadWidth( uploadWidth: number | null ): string {
+	if ( uploadWidth === null ) {
+		return __( 'Original dimensions', 'kntnt-photo-drop' );
 	}
 	return sprintf(
-		/* translators: %d: the maximum image width in pixels. */
+		/* translators: %d: the maximum upload width in pixels. */
 		__( '%d px', 'kntnt-photo-drop' ),
-		maxWidth
+		uploadWidth
 	);
 }
 
 /**
- * Formats the thumbnail-width list for the read-only display.
+ * Formats a rendition's width and quality as one read-only "W px, quality Q" cell.
  *
- * An empty list is the "no thumbnail" contract; otherwise the widths are joined
- * as a comma-separated pixel list.
+ * Used for the re-derivable full and thumbnail renditions. Kept tiny and local
+ * because it is presentation only.
  *
- * @since 0.5.0
+ * @since 0.7.0
  *
- * @param widths - The canonical thumbnail widths.
+ * @param width   - The rendition width in pixels.
+ * @param quality - The rendition WebP quality, 0–100.
  * @return The display string.
  */
-function formatThumbnailWidths( widths: readonly number[] ): string {
-	if ( widths.length === 0 ) {
-		return __( 'None', 'kntnt-photo-drop' );
-	}
-	return widths
-		.map( ( width ) =>
-			sprintf(
-				/* translators: %d: a thumbnail width in pixels. */
-				__( '%d px', 'kntnt-photo-drop' ),
-				width
-			)
-		)
-		.join( ', ' );
+function formatRendition( width: number, quality: number ): string {
+	return sprintf(
+		/* translators: 1: rendition width in pixels; 2: WebP quality, 0–100. */
+		__( '%1$d px, quality %2$d', 'kntnt-photo-drop' ),
+		width,
+		quality
+	);
 }
 
 /**
- * Renders the read-only output-contract display for the selected collection.
+ * Renders the read-only rendition display for the selected collection.
  *
- * A plain definition list of the four contract facets — max width, quality, format
- * (always WebP), and thumbnail width(s). Nothing here is editable; the panel exists
- * so a site builder can confirm what the chosen collection will do to uploaded
- * images. The "Manage collections" admin link is rendered separately and always by
- * the inspector panel (issue #41), not here, so it shows even when no collection is
- * selected.
+ * A plain definition list of the collection's three renditions — the immutable
+ * upload contract (width + quality), the re-derivable full and thumbnail
+ * renditions, and the always-WebP format. Nothing here is editable; the panel
+ * exists so a site builder can confirm what the chosen collection will do to
+ * uploaded images. The "Manage collections" admin link is rendered separately and
+ * always by the inspector panel (issue #41), not here, so it shows even when no
+ * collection is selected.
  *
  * @since 0.5.0
  *
  * @param props            - Component props.
  * @param props.collection - The selected collection's summary.
- * @return The contract display.
+ * @return The rendition display.
  */
 function ContractDisplay( {
 	collection,
@@ -309,19 +309,31 @@ function ContractDisplay( {
 		<div className="kntnt-photo-drop-drop-zone__contract">
 			<p className="kntnt-photo-drop-drop-zone__contract-hint">
 				{ __(
-					'Output contract (read-only — set when the collection was created):',
+					'Renditions (read-only — set when the collection was created):',
 					'kntnt-photo-drop'
 				) }
 			</p>
 			<dl>
-				<dt>{ __( 'Maximum width', 'kntnt-photo-drop' ) }</dt>
-				<dd>{ formatMaxWidth( collection.maxWidth ) }</dd>
-				<dt>{ __( 'Quality', 'kntnt-photo-drop' ) }</dt>
-				<dd>{ collection.quality }</dd>
+				<dt>{ __( 'Upload width', 'kntnt-photo-drop' ) }</dt>
+				<dd>{ formatUploadWidth( collection.uploadWidth ) }</dd>
+				<dt>{ __( 'Upload quality', 'kntnt-photo-drop' ) }</dt>
+				<dd>{ collection.uploadQuality }</dd>
+				<dt>{ __( 'Full image', 'kntnt-photo-drop' ) }</dt>
+				<dd>
+					{ formatRendition(
+						collection.fullWidth,
+						collection.fullQuality
+					) }
+				</dd>
+				<dt>{ __( 'Thumbnail', 'kntnt-photo-drop' ) }</dt>
+				<dd>
+					{ formatRendition(
+						collection.thumbnailWidth,
+						collection.thumbnailQuality
+					) }
+				</dd>
 				<dt>{ __( 'Format', 'kntnt-photo-drop' ) }</dt>
 				<dd>{ __( 'WebP', 'kntnt-photo-drop' ) }</dd>
-				<dt>{ __( 'Thumbnail width', 'kntnt-photo-drop' ) }</dt>
-				<dd>{ formatThumbnailWidths( collection.thumbnailWidths ) }</dd>
 			</dl>
 		</div>
 	);

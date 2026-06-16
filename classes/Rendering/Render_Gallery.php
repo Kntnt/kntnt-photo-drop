@@ -176,7 +176,7 @@ final class Render_Gallery {
 			return self::no_collection_output( $is_preview );
 		}
 
-		// Read the descriptor for the thumbnail widths the srcset needs and the
+		// Read the descriptor for the full/thumbnail widths the srcset needs and the
 		// display name a breadcrumb caption may prefix; an unreadable descriptor is
 		// a degraded collection we decline to render rather than guess at.
 		$descriptor = Descriptor::read( $root );
@@ -563,13 +563,16 @@ final class Render_Gallery {
 		string $item_class,
 	): string {
 
-		// Build the main URL and the responsive srcset candidates (each thumbnail
-		// width plus the main, at real widths) for this image's relative path.
+		// Build the main URL and the responsive srcset candidates — the thumbnail and
+		// the full rendition, at real widths; the full image is the display ceiling
+		// and the (possibly unbounded) main is download-only (ADR-0013). Each derived
+		// rendition is served from the hidden width directory.
 		$relative   = $item->relative_path();
 		$main_url   = Image_Url::main( $base_url, $relative );
 		$candidates = Srcset_Builder::candidates(
 			$item->width,
-			$descriptor->thumbnail_widths,
+			$descriptor->full_width,
+			$descriptor->thumbnail_width,
 			$main_url,
 			static fn ( int $width ): string => Image_Url::thumbnail( $base_url, $relative, $width ),
 		);

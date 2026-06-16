@@ -23,47 +23,69 @@ use Kntnt\Photo_Drop\Rendering\Justified_Layout;
 use Kntnt\Photo_Drop\Rendering\Srcset_Builder;
 
 // ---------------------------------------------------------------------------
-// Srcset_Builder — the main is always a candidate; upscales are dropped
+// Srcset_Builder — candidates are { thumbnail, full }; the full is the ceiling
 // ---------------------------------------------------------------------------
 
-test( 'srcset candidates list each smaller thumbnail width plus the main, ascending', function (): void {
+test( 'srcset lists the thumbnail and the bounded full, never the wider main', function (): void {
 
+	// A main (4000) wider than the full (1920) is download-only: the candidates are
+	// the thumbnail (640) and the bounded full (1920), both served from the hidden
+	// width directories, and the 4000px main never appears (ADR-0013).
 	$candidates = Srcset_Builder::candidates(
-		1200,
-		[ 320, 640 ],
+		4000,
+		1920,
+		640,
 		'https://x/main.webp',
 		static fn ( int $w ): string => "https://x/t{$w}.webp",
 	);
 
-	// Three candidates ascending: the two thumbnails below the main, then the main.
-	$widths = array_column( $candidates, 'width' );
-	expect( $widths )->toBe( [ 320, 640, 1200 ] );
-	expect( $candidates[2]['url'] )->toBe( 'https://x/main.webp' );
+	expect( $candidates )->toBe( [
+		[
+			'url'   => 'https://x/t640.webp',
+			'width' => 640,
+		],
+		[
+			'url'   => 'https://x/t1920.webp',
+			'width' => 1920,
+		],
+	] );
 
 } );
 
-test( 'a thumbnail width at or above the main width is dropped from the candidates', function (): void {
+test( 'a main no wider than the full is itself the full candidate, served from the main url', function (): void {
 
+	// A main (1500) no wider than the full (1920) is the full rendition itself, so
+	// it stays a candidate at its own width and is served from the main URL — nothing
+	// is upscaled — alongside the smaller thumbnail (ADR-0013).
+	$candidates = Srcset_Builder::candidates(
+		1500,
+		1920,
+		640,
+		'https://x/main.webp',
+		static fn ( int $w ): string => "https://x/t{$w}.webp",
+	);
+
+	expect( $candidates )->toBe( [
+		[
+			'url'   => 'https://x/t640.webp',
+			'width' => 640,
+		],
+		[
+			'url'   => 'https://x/main.webp',
+			'width' => 1500,
+		],
+	] );
+
+} );
+
+test( 'a main no wider than the thumbnail yields just the main candidate', function (): void {
+
+	// A tiny main (500) no wider than either tier serves every role, so the only
+	// candidate is the main itself at its own width, served from the main URL.
 	$candidates = Srcset_Builder::candidates(
 		500,
-		[ 320, 500, 800 ],
-		'https://x/main.webp',
-		static fn ( int $w ): string => "https://x/t{$w}.webp",
-	);
-
-	// 500 equals the main (the main candidate wins that width) and 800 is an
-	// upscale, so only 320 and the 500-wide main remain.
-	$widths = array_column( $candidates, 'width' );
-	expect( $widths )->toBe( [ 320, 500 ] );
-	expect( $candidates[1]['url'] )->toBe( 'https://x/main.webp' );
-
-} );
-
-test( 'a collection with no thumbnail widths yields just the main candidate', function (): void {
-
-	$candidates = Srcset_Builder::candidates(
-		900,
-		[],
+		1920,
+		640,
 		'https://x/main.webp',
 		static fn ( int $w ): string => "https://x/t{$w}.webp",
 	);
@@ -71,7 +93,7 @@ test( 'a collection with no thumbnail widths yields just the main candidate', fu
 	expect( $candidates )->toBe( [
 		[
 			'url'   => 'https://x/main.webp',
-			'width' => 900,
+			'width' => 500,
 		],
 	] );
 

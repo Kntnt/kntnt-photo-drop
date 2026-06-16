@@ -44,8 +44,8 @@ beforeAll( function () use ( $slug, &$fixtures, &$thumbnail ): void {
 	write_jpeg( "{$fixtures}/photo.jpg", 1600, 900 );
 	import_images( $slug, [ to_container_path( "{$fixtures}/photo.jpg" ) ] );
 
-	// Resolve the baseline thumbnail path from the descriptor's first width.
-	$width     = read_descriptor( $slug )['thumbnailWidths'][0];
+	// Resolve the baseline thumbnail path from the descriptor's thumbnail width.
+	$width     = read_descriptor( $slug )['thumbnailWidth'];
 	$thumbnail = collection_path( $slug ) . "/.kntnt-thumbnails/{$width}/photo.jpg.webp";
 
 } );
@@ -85,7 +85,7 @@ test( 'an orphan thumbnail whose main is gone is removed by --repair', function 
 	// thumbnail becomes an orphan.
 	write_jpeg( "{$fixtures}/orphan.jpg", 1600, 900 );
 	import_images( $slug, [ to_container_path( "{$fixtures}/orphan.jpg" ) ] );
-	$width  = read_descriptor( $slug )['thumbnailWidths'][0];
+	$width  = read_descriptor( $slug )['thumbnailWidth'];
 	$main   = collection_path( $slug ) . '/orphan.jpg.webp';
 	$orphan = collection_path( $slug ) . "/.kntnt-thumbnails/{$width}/orphan.jpg.webp";
 	expect( is_file( $orphan ) )->toBeTrue();

@@ -49,7 +49,10 @@ export function uniqueSlug( label: string ): string {
 }
 
 /**
- * Creates a collection with the suite's standard contract (1920 px, q80).
+ * Creates a collection with the suite's standard upload contract (1920 px, q80).
+ *
+ * The full and thumbnail renditions and the path-components template take their
+ * documented defaults (ADR-0013, ADR-0014).
  *
  * @since 0.2.0
  *
@@ -61,8 +64,8 @@ export function createCollection( slug: string ): void {
 		'collection',
 		'create',
 		slug,
-		'--max-width=1920',
-		'--quality=80',
+		'--upload-width=1920',
+		'--upload-quality=80',
 	] );
 }
 
@@ -149,28 +152,29 @@ export function siteUrl( pathname: string ): string {
  *
  * Collections live under `wp_upload_dir()` at
  * `uploads/kntnt-photo-drop/<slug>/`, and a stored main is the original
- * filename with `.webp` appended (ADR-0003). When the collection namespaces
- * per uploader (`uploaderFolders`, on by default — ADR-0008), a Drop Zone
- * upload lands under a first segment derived from the uploader's nicename, so
- * the caller passes that segment to address the prefixed location.
+ * filename with `.webp` appended (ADR-0003). A Drop Zone upload lands at its
+ * source-relative path; once the `pathComponents` template is expanded
+ * server-side (issue #48) it will sit under a leading expanded segment, so the
+ * caller may pass that segment to address the prefixed location (empty until
+ * then).
  *
  * @since 0.2.0
  *
- * @param slug           - The collection slug.
- * @param originalName   - The uploaded file's original name, e.g. `a.jpg`.
- * @param uploaderFolder - The uploader-folder segment, or '' for the bare root.
+ * @param slug          - The collection slug.
+ * @param originalName  - The uploaded file's original name, e.g. `a.jpg`.
+ * @param leadingFolder - An optional leading path segment, or '' for the bare root.
  * @return The absolute URL of the stored `<originalName>.webp`.
  */
 export function storedImageUrl(
 	slug: string,
 	originalName: string,
-	uploaderFolder = ''
+	leadingFolder = ''
 ): string {
 	return siteUrl(
 		path.posix.join(
 			'/wp-content/uploads/kntnt-photo-drop',
 			slug,
-			uploaderFolder,
+			leadingFolder,
 			`${ originalName }.webp`
 		)
 	);

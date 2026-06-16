@@ -5,7 +5,7 @@
  * `Collections_Controller` backs the block editors' collection selectors. These
  * tests prove its permission gate (`edit_posts`, overridable via filter) and the
  * shape of its payload — one object per discovered collection carrying the slug,
- * display name, and the three contract fields the inspector shows read-only. The
+ * display name, and the six rendition fields the inspector shows read-only. The
  * `Repository` and `Descriptor` run against a real temp-dir collection; only the
  * WordPress seams are stubbed, the same harness pattern the upload tests use.
  *
@@ -155,18 +155,26 @@ test( 'the permission gate honours the list_capability filter', function (): voi
 } );
 
 // ---------------------------------------------------------------------------
-// The payload shape — slug, name, and the three contract fields
+// The payload shape — slug, name, and the six rendition fields
 // ---------------------------------------------------------------------------
 
-test( 'the list returns one object per collection with the contract fields', function (): void {
+test( 'the list returns one object per collection with the rendition fields', function (): void {
 
 	// Two seeded collections must come back as two objects, each carrying the
-	// slug, display name, and the contract fields the inspector surfaces, sorted
-	// by slug (the discovery scan's order).
+	// slug, display name, and the six rendition fields the inspector surfaces,
+	// sorted by slug (the discovery scan's order).
 	$basedir = fresh_list_basedir();
 	wire_collections_stubs( $basedir, cap_ok: true );
-	seed_list_collection( $basedir, 'autumn', new Descriptor( 'Autumn Trip', 1600, 75, [ 320 ] ) );
-	seed_list_collection( $basedir, 'spring', new Descriptor( 'Spring Walk', null, 80, [ 320, 640 ] ) );
+	seed_list_collection(
+		$basedir,
+		'autumn',
+		new Descriptor( 'Autumn Trip', 1600, 75, 1600, 80, 320, 70, Descriptor::DEFAULT_PATH_COMPONENTS ),
+	);
+	seed_list_collection(
+		$basedir,
+		'spring',
+		new Descriptor( 'Spring Walk', null, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS ),
+	);
 	$controller = new Collections_Controller( new Repository() );
 
 	$response = $controller->list_collections();
@@ -176,16 +184,19 @@ test( 'the list returns one object per collection with the contract fields', fun
 	expect( $data )->toHaveCount( 2 );
 	expect( $data[0] )->toBe(
 		[
-			'slug'            => 'autumn',
-			'name'            => 'Autumn Trip',
-			'maxWidth'        => 1600,
-			'quality'         => 75,
-			'thumbnailWidths' => [ 320 ],
+			'slug'             => 'autumn',
+			'name'             => 'Autumn Trip',
+			'uploadWidth'      => 1600,
+			'uploadQuality'    => 75,
+			'fullWidth'        => 1600,
+			'fullQuality'      => 80,
+			'thumbnailWidth'   => 320,
+			'thumbnailQuality' => 70,
 		]
 	);
 	expect( $data[1]['slug'] )->toBe( 'spring' );
-	expect( $data[1]['maxWidth'] )->toBeNull();
-	expect( $data[1]['thumbnailWidths'] )->toBe( [ 320, 640 ] );
+	expect( $data[1]['uploadWidth'] )->toBeNull();
+	expect( $data[1]['thumbnailWidth'] )->toBe( 640 );
 
 	list_remove_tree( $basedir );
 } );
@@ -211,7 +222,11 @@ test( 'a collection with an unreadable descriptor is skipped, not fatal', functi
 	// back with only the good one rather than failing wholesale.
 	$basedir = fresh_list_basedir();
 	wire_collections_stubs( $basedir, cap_ok: true );
-	seed_list_collection( $basedir, 'good', new Descriptor( 'Good', 1920, 80, [ 320 ] ) );
+	seed_list_collection(
+		$basedir,
+		'good',
+		new Descriptor( 'Good', 1920, 80, 1920, 85, 320, 75, Descriptor::DEFAULT_PATH_COMPONENTS ),
+	);
 	$broken_path = $basedir . '/kntnt-photo-drop/broken';
 	mkdir( $broken_path, 0700, true );
 	file_put_contents( $broken_path . '/' . Descriptor::FILENAME, '{ not valid json' );

@@ -1,12 +1,12 @@
 <?php
 /**
- * Tests for the collection descriptor: round-tripping `collection.json` and
- * normalising the filter-supplied thumbnail width(s).
+ * Tests for the collection descriptor: round-tripping the three-rendition
+ * `collection.json` (ADR-0013) and its mutable path-components template
+ * (ADR-0014).
  *
- * WordPress functions (`apply_filters`, `wp_json_encode`) are stubbed via Brain
- * Monkey, but a real temp directory backs the collection root so reads and
- * writes exercise the actual filesystem. Each test seeds and tears down its own
- * temp tree.
+ * WordPress functions (`wp_json_encode`) are stubbed via Brain Monkey, but a
+ * real temp directory backs the collection root so reads and writes exercise the
+ * actual filesystem. Each test seeds and tears down its own temp tree.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.1.0
@@ -20,24 +20,13 @@ use Kntnt\Photo_Drop\Storage\Descriptor;
 /**
  * Wires the WordPress stubs the descriptor depends on.
  *
- * `wp_json_encode()` is given the real `json_encode()` behaviour, and
- * `apply_filters()` returns the thumbnail-width override when one is supplied or
- * passes the default through otherwise.
- *
- * @param int|array<int,int>|null $thumbnail_override Filter return value, or null to pass the default through.
+ * `wp_json_encode()` is given the real `json_encode()` behaviour; the descriptor
+ * no longer reads any filter, so nothing else is stubbed.
  */
-function wire_descriptor_stubs( int|array|null $thumbnail_override = null ): void {
+function wire_descriptor_stubs(): void {
 
 	Functions\when( 'wp_json_encode' )->alias(
 		static fn ( mixed $data, int $flags = 0 ): string|false => json_encode( $data, $flags )
-	);
-
-	Functions\when( 'apply_filters' )->alias(
-		static function ( string $hook, mixed $value ) use ( $thumbnail_override ): mixed {
-			return $hook === 'kntnt_photo_drop_thumbnail_width' && $thumbnail_override !== null
-				? $thumbnail_override
-				: $value;
-		}
 	);
 
 }
@@ -73,95 +62,159 @@ function descriptor_remove_tree( string $dir ): void {
 	@rmdir( $dir );
 }
 
+/**
+ * Builds a descriptor with the three-rendition defaults, overriding fields.
+ *
+ * @param array<string,mixed> $overrides Field overrides keyed by constructor parameter name.
+ * @return Descriptor The descriptor under test.
+ */
+function make_descriptor( array $overrides = [] ): Descriptor {
+	$fields = array_merge(
+		[
+			'name'              => 'Spring Trip',
+			'upload_width'      => null,
+			'upload_quality'    => 95,
+			'full_width'        => 1920,
+			'full_quality'      => 85,
+			'thumbnail_width'   => 640,
+			'thumbnail_quality' => 75,
+			'path_components'   => '%year%/%month%/%day%/%uploader%',
+		],
+		$overrides,
+	);
+	return new Descriptor(
+		$fields['name'],
+		$fields['upload_width'],
+		$fields['upload_quality'],
+		$fields['full_width'],
+		$fields['full_quality'],
+		$fields['thumbnail_width'],
+		$fields['thumbnail_quality'],
+		$fields['path_components'],
+	);
+}
+
 // ---------------------------------------------------------------------------
-// Round-trip — all six fields survive a write/read cycle
+// Round-trip — all nine fields survive a write/read cycle
 // ---------------------------------------------------------------------------
 
-test( 'a descriptor round-trips all six fields through disk', function (): void {
+test( 'a descriptor round-trips every rendition field through disk', function (): void {
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();
 
-	// Write a descriptor with a concrete max width and two thumbnail widths,
-	// then read it back; every field must survive the JSON cycle.
-	$written = new Descriptor( 'Spring Trip', 1920, 80, [ 320, 640 ] );
+	// Write a descriptor with concrete values across all three tiers plus a custom
+	// path-components template, then read it back; every field must survive the JSON
+	// cycle (ADR-0013, ADR-0014).
+	$written = make_descriptor( [
+		'name'              => 'Spring Trip',
+		'upload_width'      => 4000,
+		'upload_quality'    => 92,
+		'full_width'        => 1600,
+		'full_quality'      => 82,
+		'thumbnail_width'   => 480,
+		'thumbnail_quality' => 70,
+		'path_components'   => '%year%/%uploader%',
+	] );
 	expect( $written->write( $dir ) )->toBeTrue();
 
 	$read = Descriptor::read( $dir );
 	expect( $read )->not->toBeNull();
 	expect( $read->name )->toBe( 'Spring Trip' );
-	expect( $read->max_width )->toBe( 1920 );
-	expect( $read->quality )->toBe( 80 );
-	expect( $read->thumbnail_widths )->toBe( [ 320, 640 ] );
-	expect( $read->uploader_folders )->toBeTrue();
+	expect( $read->upload_width )->toBe( 4000 );
+	expect( $read->upload_quality )->toBe( 92 );
+	expect( $read->full_width )->toBe( 1600 );
+	expect( $read->full_quality )->toBe( 82 );
+	expect( $read->thumbnail_width )->toBe( 480 );
+	expect( $read->thumbnail_quality )->toBe( 70 );
+	expect( $read->path_components )->toBe( '%year%/%uploader%' );
 
 	descriptor_remove_tree( $dir );
 } );
 
-test( 'a descriptor round-trips uploaderFolders for both values', function ( bool $uploader_folders ): void {
+test( 'a descriptor round-trips a null upload width', function (): void {
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();
 
-	// The immutable uploader-folders flag must survive the JSON cycle for both
-	// on and off, so an off collection is honoured even before the create UI.
-	( new Descriptor( 'Namespaced', 1920, 80, [ 640 ], $uploader_folders ) )->write( $dir );
-
-	expect( Descriptor::read( $dir )->uploader_folders )->toBe( $uploader_folders );
-
-	descriptor_remove_tree( $dir );
-} )->with( [
-	'on'  => [ true ],
-	'off' => [ false ],
-] );
-
-test( 'a descriptor round-trips a null maxWidth', function (): void {
-	wire_descriptor_stubs();
-	$dir = fresh_collection_dir();
-
-	// A null max width means "no limit" and must persist as JSON null, not 0.
-	( new Descriptor( 'No Limit', null, 75, [ 640 ] ) )->write( $dir );
+	// A null upload width means "the source's own dimensions" and must persist as
+	// JSON null, not 0 (ADR-0013).
+	make_descriptor( [ 'upload_width' => null ] )->write( $dir );
 
 	$read = Descriptor::read( $dir );
-	expect( $read->max_width )->toBeNull();
-
-	descriptor_remove_tree( $dir );
-} );
-
-test( 'a descriptor round-trips empty thumbnail widths', function (): void {
-	wire_descriptor_stubs();
-	$dir = fresh_collection_dir();
-
-	// `[]` is the canonical "no thumbnail" marker and must round-trip as an
-	// empty JSON array.
-	( new Descriptor( 'Thumbless', 1600, 80, [] ) )->write( $dir );
-
-	$read = Descriptor::read( $dir );
-	expect( $read->thumbnail_widths )->toBe( [] );
+	expect( $read->upload_width )->toBeNull();
 
 	descriptor_remove_tree( $dir );
 } );
 
 // ---------------------------------------------------------------------------
-// On-disk shape — schema, key order, and JSON null
+// On-disk shape — schema, key order, the dropped legacy keys, JSON null
 // ---------------------------------------------------------------------------
 
-test( 'the written file carries the schema and the fixed key order', function (): void {
+test( 'the written file carries the schema and the fixed nine-key order', function (): void {
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();
 
-	( new Descriptor( 'Album', 1920, 80, [ 640 ] ) )->write( $dir );
+	make_descriptor( [ 'upload_width' => 4000 ] )->write( $dir );
 
-	// The schema constant is recorded, the keys appear in the documented order,
-	// and a null max width is emitted as JSON null.
+	// The schema constant is recorded and the keys appear in the documented order:
+	// schema, name, the upload/full/thumbnail width+quality pairs, then
+	// pathComponents (ADR-0013, ADR-0014).
 	$raw  = file_get_contents( $dir . '/' . Descriptor::FILENAME );
 	$data = json_decode( $raw, true );
 	expect( $data['schema'] )->toBe( Descriptor::SCHEMA );
-	expect( array_keys( $data ) )->toBe(
-		[ 'schema', 'name', 'maxWidth', 'quality', 'thumbnailWidths', 'uploaderFolders' ]
-	);
+	expect( array_keys( $data ) )->toBe( [
+		'schema',
+		'name',
+		'uploadWidth',
+		'uploadQuality',
+		'fullWidth',
+		'fullQuality',
+		'thumbnailWidth',
+		'thumbnailQuality',
+		'pathComponents',
+	] );
 
-	( new Descriptor( 'Album', null, 80, [ 640 ] ) )->write( $dir );
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'the written file drops the retired pre-redesign keys', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	make_descriptor()->write( $dir );
+
+	// Pre-1.0 means no compatibility shim: the old maxWidth/quality/thumbnailWidths
+	// and uploaderFolders keys are gone entirely (ADR-0013, ADR-0014).
+	$data = json_decode( (string) file_get_contents( $dir . '/' . Descriptor::FILENAME ), true );
+	foreach ( [ 'maxWidth', 'quality', 'thumbnailWidths', 'uploaderFolders' ] as $retired ) {
+		expect( array_key_exists( $retired, $data ) )->toBeFalse();
+	}
+
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'a null upload width is emitted as JSON null', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	make_descriptor( [ 'upload_width' => null ] )->write( $dir );
+
 	$contents = (string) file_get_contents( $dir . '/' . Descriptor::FILENAME );
-	expect( str_contains( $contents, '"maxWidth": null' ) )->toBeTrue();
+	expect( str_contains( $contents, '"uploadWidth": null' ) )->toBeTrue();
+
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'a re-write with unchanged data is byte-identical', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	// The stable, pretty JSON must be deterministic so diffs stay quiet.
+	$descriptor = make_descriptor( [ 'upload_width' => 4000 ] );
+	$descriptor->write( $dir );
+	$first = file_get_contents( $dir . '/' . Descriptor::FILENAME );
+	$descriptor->write( $dir );
+	$second = file_get_contents( $dir . '/' . Descriptor::FILENAME );
+	expect( $second )->toBe( $first );
 
 	descriptor_remove_tree( $dir );
 } );
@@ -170,10 +223,10 @@ test( 'a successful write leaves no staging file beside the descriptor', functio
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();
 
-	// The descriptor is published atomically (temp file, then rename); a
-	// successful write must leave no `*.tmp-*` staging file beside the
-	// irreplaceable collection.json.
-	expect( ( new Descriptor( 'Atomic', 1920, 80, [ 640 ] ) )->write( $dir ) )->toBeTrue();
+	// The descriptor is published atomically (temp file, then rename); a successful
+	// write must leave no `*.tmp-*` staging file beside the irreplaceable
+	// collection.json.
+	expect( make_descriptor()->write( $dir ) )->toBeTrue();
 	expect( glob( $dir . '/*.tmp-*' ) )->toBe( [] );
 	expect( is_file( $dir . '/' . Descriptor::FILENAME ) )->toBeTrue();
 
@@ -184,14 +237,14 @@ test( 'a failed write reports false and leaves an existing descriptor intact', f
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();
 
-	// Publish a first descriptor, then make the directory unwritable so the
-	// atomic stage cannot be created: the live collection.json must survive
-	// byte-for-byte — this is the file a torn write would brick.
-	( new Descriptor( 'Original', 1920, 80, [ 640 ] ) )->write( $dir );
+	// Publish a first descriptor, then make the directory unwritable so the atomic
+	// stage cannot be created: the live collection.json must survive byte-for-byte —
+	// this is the file a torn write would brick.
+	make_descriptor( [ 'name' => 'Original' ] )->write( $dir );
 	$before = file_get_contents( $dir . '/' . Descriptor::FILENAME );
 	chmod( $dir, 0500 );
 	set_error_handler( static fn (): bool => true );
-	$result = ( new Descriptor( 'Replacement', 800, 50, [] ) )->write( $dir );
+	$result = make_descriptor( [ 'name' => 'Replacement' ] )->write( $dir );
 	restore_error_handler();
 	chmod( $dir, 0700 );
 
@@ -201,23 +254,8 @@ test( 'a failed write reports false and leaves an existing descriptor intact', f
 	descriptor_remove_tree( $dir );
 } );
 
-test( 'a re-write with unchanged data is byte-identical', function (): void {
-	wire_descriptor_stubs();
-	$dir = fresh_collection_dir();
-
-	// The stable, pretty JSON must be deterministic so diffs stay quiet.
-	$descriptor = new Descriptor( 'Stable', 1920, 80, [ 320, 640 ] );
-	$descriptor->write( $dir );
-	$first = file_get_contents( $dir . '/' . Descriptor::FILENAME );
-	$descriptor->write( $dir );
-	$second = file_get_contents( $dir . '/' . Descriptor::FILENAME );
-	expect( $second )->toBe( $first );
-
-	descriptor_remove_tree( $dir );
-} );
-
 // ---------------------------------------------------------------------------
-// read() — defensive decoding
+// read() — defensive decoding and the path-components default
 // ---------------------------------------------------------------------------
 
 test( 'read returns null for a missing descriptor', function (): void {
@@ -240,124 +278,84 @@ test( 'read returns null for a corrupt descriptor', function (): void {
 	descriptor_remove_tree( $dir );
 } );
 
-test( 'read re-normalises a hand-edited thumbnailWidths', function (): void {
+test( 'read defaults an absent path-components template to the standard template', function (): void {
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();
 
-	// A hand-edited file with out-of-order, duplicate, and non-positive widths
-	// is re-normalised on read to the canonical sorted, unique, positive list.
+	// A descriptor that omits pathComponents (or carries a non-string) reads as the
+	// default template, since an empty field means the default (ADR-0014). Expansion
+	// itself is out of scope here — only the stored/defaulted value is asserted.
 	$payload = [
-		'schema'          => Descriptor::SCHEMA,
-		'name'            => 'Edited',
-		'maxWidth'        => 1920,
-		'quality'         => 80,
-		'thumbnailWidths' => [ 640, 320, 640, 0, -10, 320 ],
-		'uploaderFolders' => true,
+		'schema'           => Descriptor::SCHEMA,
+		'name'             => 'No Template',
+		'uploadWidth'      => 4000,
+		'uploadQuality'    => 95,
+		'fullWidth'        => 1920,
+		'fullQuality'      => 85,
+		'thumbnailWidth'   => 640,
+		'thumbnailQuality' => 75,
 	];
 	file_put_contents( $dir . '/' . Descriptor::FILENAME, json_encode( $payload ) );
 
-	expect( Descriptor::read( $dir )->thumbnail_widths )->toBe( [ 320, 640 ] );
+	expect( Descriptor::read( $dir )->path_components )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
 
 	descriptor_remove_tree( $dir );
 } );
 
-test( 'read returns null when the required uploaderFolders flag is bad', function ( mixed $value ): void {
+test( 'read coerces a null upload width and keeps a concrete one', function (): void {
 	wire_descriptor_stubs();
 	$dir = fresh_collection_dir();
 
-	// uploaderFolders is required with no default-on-read fallback (pre-1.0,
-	// ADR-0008): an omitted flag (null marker) or a non-boolean value is a
-	// malformed descriptor read as null, not silently defaulted to on.
+	// uploadWidth is the nullable half of the contract: JSON null reads as null (no
+	// limit), a concrete integer reads as that integer.
 	$payload = [
-		'schema'          => Descriptor::SCHEMA,
-		'name'            => 'Legacy',
-		'maxWidth'        => 1920,
-		'quality'         => 80,
-		'thumbnailWidths' => [ 640 ],
+		'schema'           => Descriptor::SCHEMA,
+		'name'             => 'Nullable',
+		'uploadWidth'      => null,
+		'uploadQuality'    => 95,
+		'fullWidth'        => 1920,
+		'fullQuality'      => 85,
+		'thumbnailWidth'   => 640,
+		'thumbnailQuality' => 75,
+		'pathComponents'   => '%year%',
 	];
-	if ( $value !== null ) {
-		$payload['uploaderFolders'] = $value;
-	}
 	file_put_contents( $dir . '/' . Descriptor::FILENAME, json_encode( $payload ) );
 
-	expect( Descriptor::read( $dir ) )->toBeNull();
+	expect( Descriptor::read( $dir )->upload_width )->toBeNull();
 
 	descriptor_remove_tree( $dir );
-} )->with( [
-	'missing'     => [ null ],
-	'string true' => [ 'true' ],
-	'integer one' => [ 1 ],
-] );
+} );
 
 // ---------------------------------------------------------------------------
-// from_filter — thumbnail-width normalisation from the filter
+// to_array — the raw on-disk shape callers can read without re-reading
 // ---------------------------------------------------------------------------
 
-test( 'from_filter defaults to a single 640 thumbnail width', function (): void {
+test( 'to_array exposes the nine-field shape in the fixed key order', function (): void {
 	wire_descriptor_stubs();
 
-	// With no override the default thumbnail width is recorded.
-	$descriptor = Descriptor::from_filter( 'Default', 1920, 80 );
-	expect( $descriptor->thumbnail_widths )->toBe( [ 640 ] );
+	$array = make_descriptor( [ 'upload_width' => 4000 ] )->to_array();
+
+	expect( $array )->toBe( [
+		'schema'           => Descriptor::SCHEMA,
+		'name'             => 'Spring Trip',
+		'uploadWidth'      => 4000,
+		'uploadQuality'    => 95,
+		'fullWidth'        => 1920,
+		'fullQuality'      => 85,
+		'thumbnailWidth'   => 640,
+		'thumbnailQuality' => 75,
+		'pathComponents'   => '%year%/%month%/%day%/%uploader%',
+	] );
 
 } );
 
-test( 'from_filter records an int thumbnail width as a one-element list', function (): void {
-	wire_descriptor_stubs( 480 );
+// ---------------------------------------------------------------------------
+// DEFAULT_PATH_COMPONENTS — the documented standard template
+// ---------------------------------------------------------------------------
 
-	// A scalar filter return becomes a single-element list.
-	expect( Descriptor::from_filter( 'Single', 1920, 80 )->thumbnail_widths )->toBe( [ 480 ] );
+test( 'the default path-components template is the documented placeholder string', function (): void {
 
-} );
-
-test( 'from_filter normalises an array thumbnail width', function (): void {
-	wire_descriptor_stubs( [ 960, 320, 640 ] );
-
-	// An array filter return is sorted ascending and de-duplicated.
-	expect( Descriptor::from_filter( 'Multi', 1920, 80 )->thumbnail_widths )->toBe( [ 320, 640, 960 ] );
+	// The default template nests uploads under year/month/day/uploader (ADR-0014).
+	expect( Descriptor::DEFAULT_PATH_COMPONENTS )->toBe( '%year%/%month%/%day%/%uploader%' );
 
 } );
-
-test( 'from_filter treats 0 and [] as no thumbnail', function ( int|array $override ): void {
-	wire_descriptor_stubs( $override );
-
-	// `0` and `[]` both collapse to the empty "no thumbnail" list.
-	expect( Descriptor::from_filter( 'None', 1920, 80 )->thumbnail_widths )->toBe( [] );
-
-} )->with( [
-	'zero'        => [ 0 ],
-	'empty array' => [ [] ],
-] );
-
-test( 'from_filter carries the caller-supplied contract values', function (): void {
-	wire_descriptor_stubs();
-
-	// The name, max width, and quality come straight from the caller; only the
-	// thumbnail widths are filter-derived.
-	$descriptor = Descriptor::from_filter( 'Contract', null, 65 );
-	expect( $descriptor->name )->toBe( 'Contract' );
-	expect( $descriptor->max_width )->toBeNull();
-	expect( $descriptor->quality )->toBe( 65 );
-
-} );
-
-test( 'from_filter defaults the uploader-folders namespace to on', function (): void {
-	wire_descriptor_stubs();
-
-	// A caller that does not surface the create-time choice still namespaces per
-	// uploader by default (ADR-0008).
-	expect( Descriptor::from_filter( 'Default', 1920, 80 )->uploader_folders )->toBeTrue();
-
-} );
-
-test( 'from_filter carries the caller-supplied uploader-folders choice', function ( bool $choice ): void {
-	wire_descriptor_stubs();
-
-	// The create-time choice (admin checkbox, CLI flag) is recorded verbatim and
-	// fixed at establishment; both values must survive into the descriptor.
-	expect( Descriptor::from_filter( 'Chosen', 1920, 80, $choice )->uploader_folders )->toBe( $choice );
-
-} )->with( [
-	'on'  => [ true ],
-	'off' => [ false ],
-] );

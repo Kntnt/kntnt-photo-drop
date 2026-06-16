@@ -32,6 +32,7 @@ use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Plugin;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
+use Kntnt\Photo_Drop\Storage\Rendition_Defaults;
 
 /**
  * Registers and renders the collection-lifecycle admin page.
@@ -88,10 +89,11 @@ final class Admin_Page {
 	private const NOTICE_SLUG = 'kntnt_photo_drop_admin';
 
 	/**
-	 * The literal "Maximum width" form value that maps to "no limit" (`null`).
+	 * The literal "Upload width" form value that maps to "source dimensions" (`null`).
 	 *
-	 * The contract is irreversible, so a max width must be stated explicitly;
-	 * this radio choice is the one explicit way to say "do not cap width".
+	 * The upload contract is irreversible, so the width must be stated explicitly;
+	 * this radio choice is the one explicit way to say "do not cap width" — store
+	 * the source's own dimensions.
 	 *
 	 * @since 0.5.0
 	 * @var string
@@ -105,22 +107,6 @@ final class Admin_Page {
 	 * @var string
 	 */
 	private const CAPABILITY_FILTER = 'kntnt_photo_drop_manage_capability';
-
-	/**
-	 * The default-max-width filter that pre-fills the create form.
-	 *
-	 * @since 0.5.0
-	 * @var string
-	 */
-	private const DEFAULT_MAX_WIDTH_FILTER = 'kntnt_photo_drop_default_max_width';
-
-	/**
-	 * The default-quality filter that pre-fills the create form.
-	 *
-	 * @since 0.5.0
-	 * @var string
-	 */
-	private const DEFAULT_QUALITY_FILTER = 'kntnt_photo_drop_default_quality';
 
 	/**
 	 * The pure parser/validator shared with the CLI so the two agree exactly.
@@ -251,27 +237,29 @@ final class Admin_Page {
 		$this->guard_request( self::ACTION_CREATE );
 
 		// Read and sanitise the create fields from the request. The slug and name
-		// are text; the max-width choice and value and the quality are read as raw
-		// strings and parsed by the shared Collection_Input below; the
-		// uploader-folders checkbox is present only when ticked (an unchecked box
-		// submits nothing), so its mere presence is the boolean. The nonce is
-		// verified in guard_request() above, before any field is read.
+		// are text; the six rendition fields are read as raw strings and parsed by
+		// the shared Collection_Input below. The upload-width radio picks between an
+		// explicit pixel ceiling and the "source dimensions" choice, mapped to the
+		// same `none` → null spelling the CLI uses. The nonce is verified in
+		// guard_request() above, before any field is read.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified in guard_request().
-		$slug             = $this->read_string( $_POST, 'slug' );
-		$name             = $this->read_string( $_POST, 'name' );
-		$max_width_mode   = $this->read_string( $_POST, 'max_width_mode' );
-		$max_width_raw    = $this->read_string( $_POST, 'max_width' );
-		$quality_raw      = $this->read_string( $_POST, 'quality' );
-		$uploader_folders = isset( $_POST['uploader_folders'] );
+		$slug              = $this->read_string( $_POST, 'slug' );
+		$name              = $this->read_string( $_POST, 'name' );
+		$upload_width_mode = $this->read_string( $_POST, 'upload_width_mode' );
+		$renditions        = [
+			'upload-width'      => $upload_width_mode === self::NO_LIMIT_VALUE
+				? self::NO_LIMIT_VALUE
+				: $this->read_string( $_POST, 'upload_width' ),
+			'upload-quality'    => $this->read_string( $_POST, 'upload_quality' ),
+			'full-width'        => $this->read_string( $_POST, 'full_width' ),
+			'full-quality'      => $this->read_string( $_POST, 'full_quality' ),
+			'thumbnail-width'   => $this->read_string( $_POST, 'thumbnail_width' ),
+			'thumbnail-quality' => $this->read_string( $_POST, 'thumbnail_quality' ),
+		];
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
-		// "No limit" is an explicit mode; otherwise the typed width is the value
-		// Collection_Input parses, so the same `none` → null mapping the CLI uses
-		// applies here verbatim.
-		$max_width_value = $max_width_mode === self::NO_LIMIT_VALUE ? self::NO_LIMIT_VALUE : $max_width_raw;
-
 		// Run the decision logic and redirect back to the list with its notice.
-		$this->create_collection( $slug, $name, $max_width_value, $quality_raw, $uploader_folders );
+		$this->create_collection( $slug, $name, $renditions );
 		$this->redirect_to_list();
 
 	}
@@ -339,29 +327,23 @@ final class Admin_Page {
 	 * writes its descriptor.
 	 *
 	 * The GUI counterpart of `collection create`. The slug must be a valid,
-	 * unused slug; both contract values are required and parsed by the shared
-	 * `Collection_Input` (so `none` → null and 0–100 bounds match the CLI). On
-	 * success it creates the directory and writes `collection.json`. Each failure
-	 * queues a precise error notice and returns without a partial write. Returns
-	 * whether the collection was established, so a test can assert the effect
-	 * without reading the notice queue.
+	 * unused slug; the six rendition fields are parsed by the shared
+	 * `Collection_Input` (so the upload width's `none` → null form and the 0–100
+	 * quality bounds match the CLI). On success it creates the directory and writes
+	 * `collection.json` with the three-rendition shape and the default
+	 * path-components template (whose editing is a later issue). Each failure queues
+	 * a precise error notice and returns without a partial write. Returns whether
+	 * the collection was established, so a test can assert the effect without
+	 * reading the notice queue.
 	 *
 	 * @since 0.5.0
 	 *
-	 * @param string $slug             The collection identity to create.
-	 * @param string $name             The optional display name; humanised from the slug when empty.
-	 * @param string $max_width_value  The raw max-width value ("none" or a positive integer).
-	 * @param string $quality_value    The raw quality value (0–100).
-	 * @param bool   $uploader_folders Whether Drop Zone uploads are namespaced per uploader (fixed at establishment).
+	 * @param string               $slug       The collection identity to create.
+	 * @param string               $name       The optional display name; humanised from the slug when empty.
+	 * @param array<string,string> $renditions The six raw rendition values keyed by flag name (e.g. `upload-width`).
 	 * @return bool True when the collection was established.
 	 */
-	public function create_collection(
-		string $slug,
-		string $name,
-		string $max_width_value,
-		string $quality_value,
-		bool $uploader_folders = true,
-	): bool {
+	public function create_collection( string $slug, string $name, array $renditions ): bool {
 
 		// Reject a malformed slug up front so the user gets the same lexical
 		// contract the rest of the plugin enforces.
@@ -372,20 +354,11 @@ final class Admin_Page {
 			return false;
 		}
 
-		// Both contract values are mandatory and irreversible; parse each in
-		// isolation so the user learns precisely which one was malformed.
-		$max_width = $this->input->parse_max_width( $max_width_value );
-		if ( $max_width === false ) {
-			$this->add_error(
-				__( 'Maximum width must be a positive integer, or choose "No limit".', 'kntnt-photo-drop' ),
-			);
-			return false;
-		}
-		$quality = $this->input->parse_quality( $quality_value );
-		if ( $quality === false ) {
-			$this->add_error(
-				__( 'Quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
-			);
+		// Parse the six rendition fields, each defaulting from its filter when the
+		// field is blank; a malformed value queues a precise error and aborts before
+		// any directory is made. Only the upload pair is the irreversible contract.
+		$renditions = $this->parse_renditions( $renditions );
+		if ( $renditions === null ) {
 			return false;
 		}
 
@@ -404,10 +377,19 @@ final class Admin_Page {
 			return false;
 		}
 
-		// Write the descriptor that turns the bare directory into a collection;
-		// the thumbnail width(s) are filter-derived inside from_filter(), the
-		// uploader-folders placement rule is fixed here once (ADR-0008).
-		$descriptor = Descriptor::from_filter( $display_name, $max_width, $quality, $uploader_folders );
+		// Write the descriptor that turns the bare directory into a collection,
+		// carrying all three rendition tiers and the default path-components template
+		// (its editing is a later issue).
+		$descriptor = new Descriptor(
+			$display_name,
+			$renditions['upload_width'],
+			$renditions['upload_quality'],
+			$renditions['full_width'],
+			$renditions['full_quality'],
+			$renditions['thumbnail_width'],
+			$renditions['thumbnail_quality'],
+			Descriptor::DEFAULT_PATH_COMPONENTS,
+		);
 		if ( ! $descriptor->write( $path ) ) {
 			$this->add_error(
 				__( 'Created the directory but failed to write the collection descriptor.', 'kntnt-photo-drop' ),
@@ -420,6 +402,154 @@ final class Admin_Page {
 			sprintf( __( 'Created collection “%s”.', 'kntnt-photo-drop' ), $slug ),
 		);
 		return true;
+
+	}
+
+	/**
+	 * Parses the six raw rendition fields, defaulting each from its filter.
+	 *
+	 * A blank field falls back to its `kntnt_photo_drop_default_*` filter (via
+	 * `Rendition_Defaults`); a present field is parsed by the shared
+	 * `Collection_Input` so the upload width's `none` → null form, the positive-int
+	 * widths, and the 0–100 qualities all match the CLI exactly. The first
+	 * malformed value queues a precise error and returns `null`, so the caller
+	 * aborts before any directory is made. On success it returns the typed values
+	 * keyed for the descriptor constructor.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param array<string,string> $raw The six raw rendition strings keyed by flag name.
+	 * @return array{upload_width:int|null,upload_quality:int,full_width:int,full_quality:int,thumbnail_width:int,thumbnail_quality:int}|null
+	 */
+	private function parse_renditions( array $raw ): ?array {
+
+		// The upload width is the nullable half of the contract: a blank field takes
+		// the filter default, "none" maps to the source's own dimensions, and any
+		// other value must be a positive integer.
+		$upload_width_raw = $raw['upload-width'] ?? '';
+		if ( $upload_width_raw === '' ) {
+			$upload_width = Rendition_Defaults::upload_width();
+		} else {
+			$upload_width = $this->input->parse_upload_width( $upload_width_raw );
+			if ( $upload_width === false ) {
+				$this->add_error(
+					// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+					__( 'Upload width must be a positive integer, or choose “Original dimensions”.', 'kntnt-photo-drop' ),
+				);
+				return null;
+			}
+		}
+
+		// Parse the four positive-int widths/quality pairs for the full and thumbnail
+		// renditions and the upload quality; the first malformed one aborts. Each
+		// blank field defaults from its filter.
+		$upload_quality = $this->parse_quality_field(
+			$raw['upload-quality'] ?? '',
+			Rendition_Defaults::upload_quality(),
+			__( 'Upload quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
+		);
+		$full_width = $this->parse_width_field(
+			$raw['full-width'] ?? '',
+			Rendition_Defaults::full_width(),
+			__( 'Full width must be a positive integer.', 'kntnt-photo-drop' ),
+		);
+		$full_quality = $this->parse_quality_field(
+			$raw['full-quality'] ?? '',
+			Rendition_Defaults::full_quality(),
+			__( 'Full quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
+		);
+		$thumb_width = $this->parse_width_field(
+			$raw['thumbnail-width'] ?? '',
+			Rendition_Defaults::thumbnail_width(),
+			__( 'Thumbnail width must be a positive integer.', 'kntnt-photo-drop' ),
+		);
+		$thumb_quality = $this->parse_quality_field(
+			$raw['thumbnail-quality'] ?? '',
+			Rendition_Defaults::thumbnail_quality(),
+			__( 'Thumbnail quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
+		);
+
+		// Any malformed numeric field has already queued its error and read back as
+		// null; one null aborts the whole parse so nothing is written.
+		$malformed = $upload_quality === null
+			|| $full_width === null
+			|| $full_quality === null
+			|| $thumb_width === null
+			|| $thumb_quality === null;
+		if ( $malformed ) {
+			return null;
+		}
+
+		return [
+			'upload_width'      => $upload_width,
+			'upload_quality'    => $upload_quality,
+			'full_width'        => $full_width,
+			'full_quality'      => $full_quality,
+			'thumbnail_width'   => $thumb_width,
+			'thumbnail_quality' => $thumb_quality,
+		];
+
+	}
+
+	/**
+	 * Parses one positive-integer width field, defaulting from its filter.
+	 *
+	 * A blank field takes the supplied filter default; a present one must be a
+	 * strictly positive integer, and a malformed value queues the supplied error
+	 * and returns `null` so the caller aborts.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $value   The raw field value.
+	 * @param int    $fallback The filter-resolved default width.
+	 * @param string $error   The translated error to queue when the value is malformed.
+	 * @return int|null The parsed width, or null when malformed.
+	 */
+	private function parse_width_field( string $value, int $fallback, string $error ): ?int {
+
+		// A blank field is the documented default; a present one is parsed, and a
+		// non-positive or malformed value queues its error and aborts.
+		if ( $value === '' ) {
+			return $fallback;
+		}
+		$parsed = $this->input->parse_width( $value );
+		if ( $parsed === false ) {
+			$this->add_error( $error );
+			return null;
+		}
+
+		return $parsed;
+
+	}
+
+	/**
+	 * Parses one 0–100 quality field, defaulting from its filter.
+	 *
+	 * A blank field takes the supplied filter default; a present one must be an
+	 * integer in 0–100, and a malformed value queues the supplied error and returns
+	 * `null` so the caller aborts.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $value   The raw field value.
+	 * @param int    $fallback The filter-resolved default quality.
+	 * @param string $error   The translated error to queue when the value is malformed.
+	 * @return int|null The parsed quality, or null when malformed.
+	 */
+	private function parse_quality_field( string $value, int $fallback, string $error ): ?int {
+
+		// A blank field is the documented default; a present one is parsed, and an
+		// out-of-range or malformed value queues its error and aborts.
+		if ( $value === '' ) {
+			return $fallback;
+		}
+		$parsed = $this->input->parse_quality( $value );
+		if ( $parsed === false ) {
+			$this->add_error( $error );
+			return null;
+		}
+
+		return $parsed;
 
 	}
 
@@ -477,15 +607,19 @@ final class Admin_Page {
 			return false;
 		}
 
-		// Rewrite the descriptor with only the name replaced; max-width, quality,
-		// the thumbnail widths and the immutable uploader-folders flag carry over
-		// untouched.
+		// Rewrite the descriptor with only the name replaced; the immutable upload
+		// contract, the re-derivable full/thumbnail pairs, and the path-components
+		// template all carry over untouched (their editable re-derive flow is a
+		// later issue).
 		$updated = new Descriptor(
 			$name,
-			$current->max_width,
-			$current->quality,
-			$current->thumbnail_widths,
-			$current->uploader_folders,
+			$current->upload_width,
+			$current->upload_quality,
+			$current->full_width,
+			$current->full_quality,
+			$current->thumbnail_width,
+			$current->thumbnail_quality,
+			$current->path_components,
 		);
 		if ( ! $updated->write( $path ) ) {
 			$this->add_error(
@@ -579,11 +713,11 @@ final class Admin_Page {
 	 * Renders the list view: a table of discovered collections plus a create button.
 	 *
 	 * One row per discovered collection (the discovery scan), showing the display
-	 * name, slug, the immutable contract (max width or "No limit", quality, the
-	 * always-WebP format), the filter-driven thumbnail width(s), and the live
-	 * image count, with always-visible Edit and Delete buttons in the rightmost
-	 * column. A collection copied in from another site appears automatically; a
-	 * deleted directory disappears.
+	 * name, slug, the upload contract (width and quality), the full and thumbnail
+	 * renditions, the always-WebP format, and the live image count, with
+	 * always-visible Edit and Delete buttons in the rightmost column. A collection
+	 * copied in from another site appears automatically; a deleted directory
+	 * disappears.
 	 *
 	 * @since 0.5.0
 	 */
@@ -610,10 +744,10 @@ final class Admin_Page {
 		echo '<thead><tr>';
 		echo '<th scope="col">' . esc_html__( 'Name', 'kntnt-photo-drop' ) . '</th>';
 		echo '<th scope="col">' . esc_html__( 'Slug', 'kntnt-photo-drop' ) . '</th>';
-		echo '<th scope="col">' . esc_html__( 'Max width', 'kntnt-photo-drop' ) . '</th>';
-		echo '<th scope="col">' . esc_html__( 'Quality', 'kntnt-photo-drop' ) . '</th>';
+		echo '<th scope="col">' . esc_html__( 'Upload', 'kntnt-photo-drop' ) . '</th>';
+		echo '<th scope="col">' . esc_html__( 'Full', 'kntnt-photo-drop' ) . '</th>';
+		echo '<th scope="col">' . esc_html__( 'Thumbnail', 'kntnt-photo-drop' ) . '</th>';
 		echo '<th scope="col">' . esc_html__( 'Format', 'kntnt-photo-drop' ) . '</th>';
-		echo '<th scope="col">' . esc_html__( 'Thumbnail width', 'kntnt-photo-drop' ) . '</th>';
 		echo '<th scope="col">' . esc_html__( 'Images', 'kntnt-photo-drop' ) . '</th>';
 		echo '<th scope="col" class="kntnt-photo-drop-actions">';
 		echo esc_html__( 'Actions', 'kntnt-photo-drop' ) . '</th>';
@@ -655,11 +789,18 @@ final class Admin_Page {
 		$descriptor = Descriptor::read( $path );
 		$name       = $descriptor !== null && $descriptor->name !== '' ? $descriptor->name : $slug;
 
-		// Resolve the contract cells from the descriptor; a missing descriptor renders
-		// each contract cell as a dash so a broken collection still lists by slug.
-		$max_width_cell = $descriptor !== null ? $this->format_max_width( $descriptor->max_width ) : '—';
-		$quality_cell   = $descriptor !== null ? (string) $descriptor->quality : '—';
-		$thumbs_cell    = $descriptor !== null ? $this->format_thumbnail_widths( $descriptor->thumbnail_widths ) : '—';
+		// Resolve the rendition cells from the descriptor; a missing descriptor renders
+		// each one as a dash so a broken collection still lists by slug.
+		$upload_cell = $descriptor !== null
+			? $this->format_rendition_or_source( $descriptor->upload_width, $descriptor->upload_quality )
+			: '—';
+		$full_cell   = $descriptor !== null
+			? $this->format_rendition( $descriptor->full_width, $descriptor->full_quality )
+			: '—';
+		$thumb_cell  = $descriptor !== null
+			? $this->format_rendition( $descriptor->thumbnail_width, $descriptor->thumbnail_quality )
+			: '—';
+		$format_cell = $descriptor !== null ? __( 'WebP', 'kntnt-photo-drop' ) : '—';
 
 		// The image count is read live from disk; an unreadable subtree yields an
 		// unknown count, rendered as a dash rather than failing the whole page.
@@ -669,10 +810,10 @@ final class Admin_Page {
 		echo '<tr>';
 		echo '<td><strong>' . esc_html( $name ) . '</strong></td>';
 		echo '<td><code>' . esc_html( $slug ) . '</code></td>';
-		echo '<td>' . esc_html( $max_width_cell ) . '</td>';
-		echo '<td>' . esc_html( $quality_cell ) . '</td>';
-		echo '<td>' . esc_html__( 'WebP', 'kntnt-photo-drop' ) . '</td>';
-		echo '<td>' . esc_html( $thumbs_cell ) . '</td>';
+		echo '<td>' . esc_html( $upload_cell ) . '</td>';
+		echo '<td>' . esc_html( $full_cell ) . '</td>';
+		echo '<td>' . esc_html( $thumb_cell ) . '</td>';
+		echo '<td>' . esc_html( $format_cell ) . '</td>';
 		echo '<td>' . esc_html( $images_cell ) . '</td>';
 
 		// The rightmost cell holds the always-visible action buttons; the red
@@ -693,21 +834,18 @@ final class Admin_Page {
 	/**
 	 * Renders the create-collection form.
 	 *
-	 * The GUI counterpart of `collection create`: a slug, an optional display
-	 * name, a maximum width (pre-filled from `kntnt_photo_drop_default_max_width`,
-	 * with an explicit "No limit" choice), and a quality (pre-filled from
-	 * `kntnt_photo_drop_default_quality`). There is deliberately no format field
-	 * (always WebP) and no thumbnail-width field (filter-driven). A prominent
-	 * irreversibility warning sits above the two contract fields.
+	 * The GUI counterpart of `collection create`: a slug, an optional display name,
+	 * and the six rendition fields — the immutable upload width/quality contract and
+	 * the re-derivable full and thumbnail width/quality pairs — each pre-filled from
+	 * its `kntnt_photo_drop_default_*` filter via `Rendition_Defaults`. The upload
+	 * width offers an explicit "Original dimensions" choice. There is deliberately no
+	 * format field (always WebP); the mutable path-components template is not on the
+	 * create form (its editing is a later issue). A prominent irreversibility warning
+	 * sits above the two upload-contract fields only.
 	 *
 	 * @since 0.5.0
 	 */
 	private function render_create_form(): void {
-
-		// Pre-fill the two contract fields from the default filters, so the form
-		// opens on sensible, site-overridable values.
-		$default_width   = $this->default_max_width();
-		$default_quality = $this->default_quality();
 
 		echo '<h1>' . esc_html__( 'Create collection', 'kntnt-photo-drop' ) . '</h1>';
 		settings_errors( self::NOTICE_SLUG );
@@ -738,12 +876,14 @@ final class Admin_Page {
 
 		echo '</tbody></table>';
 
-		// The irreversibility warning sits directly above the two contract fields so
-		// it cannot be missed before they are set.
+		// The irreversibility warning sits directly above the two upload-contract
+		// fields so it cannot be missed before they are set; only the upload pair is
+		// permanent (ADR-0013).
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$warning_lead = __( 'These two settings fix the collection’s output contract and cannot be changed afterwards.', 'kntnt-photo-drop' );
+		$warning_lead = __( 'The upload width and quality fix the collection’s immutable output contract and cannot be changed afterwards.', 'kntnt-photo-drop' );
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$warning_body = __( 'Images are downscaled and re-encoded at ingestion and the originals are never kept, so the maximum width and quality below are permanent.', 'kntnt-photo-drop' );
+		$warning_body = __( 'The main image is downscaled and re-encoded at ingestion and the original is never kept, so these two values are permanent. The full and thumbnail renditions below are re-derived from the main and can be changed later.', 'kntnt-photo-drop' );
+		echo '<h2>' . esc_html__( 'Upload contract (immutable)', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<div class="notice notice-warning inline"><p><strong>';
 		echo esc_html( $warning_lead );
 		echo '</strong> ';
@@ -752,48 +892,59 @@ final class Admin_Page {
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		// Maximum width — required; a radio chooses between a pixel ceiling and an
-		// explicit "No limit", and the number input carries the default.
-		$width_label = __( 'Maximum width', 'kntnt-photo-drop' );
+		// Upload width — a radio chooses between a pixel ceiling and the explicit
+		// "Original dimensions" choice, with the number input carrying the filter
+		// default.
+		$width_label = __( 'Upload width', 'kntnt-photo-drop' );
 		echo '<tr><th scope="row">' . esc_html( $width_label ) . '</th><td>';
 		echo '<fieldset><legend class="screen-reader-text">' . esc_html( $width_label ) . '</legend>';
-		echo '<label><input type="radio" name="max_width_mode" value="limit" checked /> ';
+		echo '<label><input type="radio" name="upload_width_mode" value="limit" checked /> ';
 		echo esc_html__( 'Limit to', 'kntnt-photo-drop' ) . ' ';
 		printf(
-			'<input name="max_width" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
-			esc_attr( (string) $default_width ),
+			'<input name="upload_width" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			esc_attr( $this->prefill_width( Rendition_Defaults::upload_width() ) ),
 			esc_html__( 'pixels', 'kntnt-photo-drop' ),
 		);
 		echo '</label><br />';
-		echo '<label><input type="radio" name="max_width_mode" value="' . esc_attr( self::NO_LIMIT_VALUE ) . '" /> ';
-		echo esc_html__( 'No limit', 'kntnt-photo-drop' );
+		echo '<label><input type="radio" name="upload_width_mode" value="' . esc_attr( self::NO_LIMIT_VALUE ) . '"';
+		echo Rendition_Defaults::upload_width() === null ? ' checked' : '';
+		echo ' /> ';
+		echo esc_html__( 'Original dimensions', 'kntnt-photo-drop' );
 		echo '</label></fieldset></td></tr>';
 
-		// Quality — required; pre-filled from the default-quality filter.
-		$quality_label = __( 'Quality', 'kntnt-photo-drop' );
-		$quality_help  = __( 'WebP compression quality, 0–100.', 'kntnt-photo-drop' );
-		echo '<tr><th scope="row"><label for="kntnt-photo-drop-quality">';
-		echo esc_html( $quality_label ) . '</label></th><td>';
-		echo '<input name="quality" id="kntnt-photo-drop-quality" type="number" min="0" max="100" ';
-		echo 'step="1" value="' . esc_attr( (string) $default_quality ) . '" class="small-text" required />';
-		echo '<p class="description">' . esc_html( $quality_help ) . '</p>';
-		echo '</td></tr>';
+		// Upload quality — pre-filled from its filter default.
+		$this->render_quality_field(
+			'upload_quality',
+			__( 'Upload quality', 'kntnt-photo-drop' ),
+			Rendition_Defaults::upload_quality(),
+		);
 
-		// Uploader folders — checked by default; fixed at establishment like the
-		// contract above. When on, every Drop Zone upload lands under a folder
-		// named for the uploader; when off, uploads land at the collection root.
-		$folders_label = __( 'Uploader folders', 'kntnt-photo-drop' );
-		$folders_text  = __( 'Namespace Drop Zone uploads under a per-uploader folder', 'kntnt-photo-drop' );
-		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$folders_help = __( 'When on, each Drop Zone upload is placed under a folder named for the uploader; when off, uploads land at the collection root. Fixed when the collection is established and cannot be changed afterwards.', 'kntnt-photo-drop' );
-		echo '<tr><th scope="row">' . esc_html( $folders_label ) . '</th><td>';
-		echo '<label for="kntnt-photo-drop-uploader-folders">';
-		echo '<input name="uploader_folders" id="kntnt-photo-drop-uploader-folders" ';
-		echo 'type="checkbox" value="1" checked /> ';
-		echo esc_html( $folders_text ) . '</label>';
-		echo '<p class="description">' . esc_html( $folders_help ) . '</p>';
-		echo '</td></tr>';
+		echo '</tbody></table>';
 
+		// The re-derivable renditions sit in their own section, without the
+		// irreversibility warning, because they can be regenerated later.
+		echo '<h2>' . esc_html__( 'Renditions (re-derivable)', 'kntnt-photo-drop' ) . '</h2>';
+		echo '<table class="form-table" role="presentation"><tbody>';
+		$this->render_width_field(
+			'full_width',
+			__( 'Full width', 'kntnt-photo-drop' ),
+			Rendition_Defaults::full_width(),
+		);
+		$this->render_quality_field(
+			'full_quality',
+			__( 'Full quality', 'kntnt-photo-drop' ),
+			Rendition_Defaults::full_quality(),
+		);
+		$this->render_width_field(
+			'thumbnail_width',
+			__( 'Thumbnail width', 'kntnt-photo-drop' ),
+			Rendition_Defaults::thumbnail_width(),
+		);
+		$this->render_quality_field(
+			'thumbnail_quality',
+			__( 'Thumbnail quality', 'kntnt-photo-drop' ),
+			Rendition_Defaults::thumbnail_quality(),
+		);
 		echo '</tbody></table>';
 
 		submit_button( __( 'Create collection', 'kntnt-photo-drop' ) );
@@ -802,13 +953,88 @@ final class Admin_Page {
 	}
 
 	/**
+	 * Renders one positive-integer width field pre-filled from its default.
+	 *
+	 * Shared by the create form's full and thumbnail width rows. The field name is
+	 * the raw POST key the handler reads; the value carries the filter default.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $name    The form field name (and id stem).
+	 * @param string $label   The translated field label.
+	 * @param int    $fallback The filter-resolved default width to pre-fill.
+	 */
+	private function render_width_field( string $name, string $label, int $fallback ): void {
+
+		// A plain number input pre-filled with the default; the handler parses it as
+		// a positive integer.
+		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		printf(
+			'<input name="%s" id="%s" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			esc_attr( $name ),
+			esc_attr( $id ),
+			esc_attr( (string) $fallback ),
+			esc_html__( 'pixels', 'kntnt-photo-drop' ),
+		);
+		echo '</td></tr>';
+
+	}
+
+	/**
+	 * Renders one 0–100 quality field pre-filled from its default.
+	 *
+	 * Shared by the create form's upload, full, and thumbnail quality rows. The
+	 * field name is the raw POST key the handler reads; the value carries the filter
+	 * default.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $name    The form field name (and id stem).
+	 * @param string $label   The translated field label.
+	 * @param int    $fallback The filter-resolved default quality to pre-fill.
+	 */
+	private function render_quality_field( string $name, string $label, int $fallback ): void {
+
+		// A bounded number input pre-filled with the default; the handler parses it
+		// as a 0–100 integer.
+		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		printf(
+			'<input name="%s" id="%s" type="number" min="0" max="100" step="1" value="%s" class="small-text" />',
+			esc_attr( $name ),
+			esc_attr( $id ),
+			esc_attr( (string) $fallback ),
+		);
+		echo ' <span class="description">' . esc_html__( 'WebP quality, 0–100.', 'kntnt-photo-drop' ) . '</span>';
+		echo '</td></tr>';
+
+	}
+
+	/**
+	 * Returns the pre-fill string for the upload-width number input.
+	 *
+	 * The "Original dimensions" default (`null`) leaves the number input blank (the
+	 * radio defaults to that choice instead); a concrete ceiling pre-fills the input
+	 * with its value so a builder who flips back to "Limit to" sees a usable number.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param int|null $fallback The filter-resolved default upload width.
+	 * @return string The value attribute for the number input.
+	 */
+	private function prefill_width( ?int $fallback ): string {
+		return $fallback === null ? '' : (string) $fallback;
+	}
+
+	/**
 	 * Renders the edit (rename) form for one collection.
 	 *
-	 * Only the display name is editable; the contract fields — max width, quality,
-	 * format, thumbnail width(s) — are shown disabled with a note that the
-	 * contract is immutable and thumbnail width is changed via the filter plus
-	 * `collection doctor --repair --force`. An unknown slug shows an error and a
-	 * link back to the list.
+	 * Only the display name is editable; the six rendition fields — the immutable
+	 * upload width/quality, the re-derivable full and thumbnail width/quality, and
+	 * the always-WebP format — are shown disabled with a note (their editable
+	 * re-derive flow is a later issue). An unknown slug shows an error and a link
+	 * back to the list.
 	 *
 	 * @since 0.5.0
 	 *
@@ -849,25 +1075,31 @@ final class Admin_Page {
 
 		echo '</tbody></table>';
 
-		// The contract is immutable; show the fixed values disabled with a note so
-		// the administrator sees the contract but cannot change it through the UI.
+		// Show the collection's renditions disabled with a note: the upload contract
+		// is permanent, and the re-derivable full/thumbnail renditions are read-only
+		// here (their editable re-derive flow is a later issue).
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$contract_note = __( 'The output contract was fixed when the collection was established and cannot be changed. Thumbnail width is filter-driven (kntnt_photo_drop_thumbnail_width); change it by re-running “collection doctor --repair --force”.', 'kntnt-photo-drop' );
-		echo '<h2>' . esc_html__( 'Output contract (immutable)', 'kntnt-photo-drop' ) . '</h2>';
+		$contract_note = __( 'The upload width and quality were fixed when the collection was established and cannot be changed. The full and thumbnail renditions are re-derivable but are shown read-only here.', 'kntnt-photo-drop' );
+		echo '<h2>' . esc_html__( 'Renditions', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<p class="description">' . esc_html( $contract_note ) . '</p>';
 
-		// Render the four immutable contract values as disabled fields.
+		// Render the six rendition values plus the always-WebP format as disabled
+		// fields; none POSTs, so a save touches only the display name.
 		echo '<table class="form-table" role="presentation"><tbody>';
 		$this->render_disabled_row(
-			__( 'Maximum width', 'kntnt-photo-drop' ),
-			$this->format_max_width( $descriptor->max_width ),
+			__( 'Upload width', 'kntnt-photo-drop' ),
+			$this->format_upload_width( $descriptor->upload_width ),
 		);
-		$this->render_disabled_row( __( 'Quality', 'kntnt-photo-drop' ), (string) $descriptor->quality );
-		$this->render_disabled_row( __( 'Format', 'kntnt-photo-drop' ), __( 'WebP', 'kntnt-photo-drop' ) );
+		$this->render_disabled_row( __( 'Upload quality', 'kntnt-photo-drop' ), (string) $descriptor->upload_quality );
 		$this->render_disabled_row(
-			__( 'Thumbnail width', 'kntnt-photo-drop' ),
-			$this->format_thumbnail_widths( $descriptor->thumbnail_widths ),
+			__( 'Full image', 'kntnt-photo-drop' ),
+			$this->format_rendition( $descriptor->full_width, $descriptor->full_quality ),
 		);
+		$this->render_disabled_row(
+			__( 'Thumbnail', 'kntnt-photo-drop' ),
+			$this->format_rendition( $descriptor->thumbnail_width, $descriptor->thumbnail_quality ),
+		);
+		$this->render_disabled_row( __( 'Format', 'kntnt-photo-drop' ), __( 'WebP', 'kntnt-photo-drop' ) );
 		echo '</tbody></table>';
 
 		submit_button( __( 'Save display name', 'kntnt-photo-drop' ) );
@@ -947,9 +1179,9 @@ final class Admin_Page {
 	/**
 	 * Renders one read-only contract row as a disabled text input.
 	 *
-	 * Used by the edit view to display each immutable contract value (max width,
-	 * quality, format, thumbnail width) without making it editable. The disabled
-	 * input never POSTs, so the value survives a save untouched.
+	 * Used by the edit view to display each rendition value (upload width/quality,
+	 * full, thumbnail, format) without making it editable. The disabled input never
+	 * POSTs, so the value survives a save untouched.
 	 *
 	 * @since 0.5.0
 	 *
@@ -987,19 +1219,19 @@ final class Admin_Page {
 	/**
 	 * Reports whether a request carries any immutable-contract field.
 	 *
-	 * The edit form renders the contract fields disabled and never submits them, so
-	 * their presence in a POST signals a tampered request. The two contract fields
-	 * (`max_width`, `quality`) mirror the CLI's immutable contract flags, so the
-	 * page and the CLI judge a contract change by the same rule; either present on
-	 * an update is a tampered contract change.
+	 * The edit form renders the immutable upload-contract fields disabled and never
+	 * submits them, so their presence in a POST signals a tampered request. The two
+	 * fields (`upload_width`, `upload_quality`) mirror the CLI's immutable contract
+	 * flags, so the page and the CLI judge a contract change by the same rule; either
+	 * present on an update is a tampered contract change.
 	 *
 	 * @since 0.5.0
 	 *
 	 * @param array<int,int|string> $keys The request's field names (e.g. `array_keys( $_POST )`).
-	 * @return bool True when a contract field is present.
+	 * @return bool True when an immutable upload-contract field is present.
 	 */
 	private function has_contract_field( array $keys ): bool {
-		return in_array( 'max_width', $keys, true ) || in_array( 'quality', $keys, true );
+		return in_array( 'upload_width', $keys, true ) || in_array( 'upload_quality', $keys, true );
 	}
 
 	/**
@@ -1077,80 +1309,61 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Resolves the pre-fill maximum width from the default-max-width filter.
+	 * Formats an upload-width value for display.
 	 *
-	 * Defaults to 1920; the `kntnt_photo_drop_default_max_width` filter overrides
-	 * it. A non-positive or non-integer filter return falls back to the default so
-	 * the form always opens on a usable value.
-	 *
-	 * @since 0.5.0
-	 *
-	 * @return int The default maximum width in pixels.
-	 */
-	private function default_max_width(): int {
-		$filtered = apply_filters( self::DEFAULT_MAX_WIDTH_FILTER, 1920 );
-		return is_int( $filtered ) && $filtered > 0 ? $filtered : 1920;
-	}
-
-	/**
-	 * Resolves the pre-fill quality from the default-quality filter.
-	 *
-	 * Defaults to 80; the `kntnt_photo_drop_default_quality` filter overrides it.
-	 * A filter return outside 0–100 (or non-integer) falls back to the default.
+	 * A `null` ceiling renders as the translatable "Original dimensions"; a positive
+	 * integer renders as its pixel count with a "px" suffix.
 	 *
 	 * @since 0.5.0
 	 *
-	 * @return int The default WebP quality (0–100).
+	 * @param int|null $upload_width The immutable upload ceiling, or null for the source's own dimensions.
+	 * @return string A display string such as "1920 px" or "Original dimensions".
 	 */
-	private function default_quality(): int {
-		$filtered = apply_filters( self::DEFAULT_QUALITY_FILTER, 80 );
-		return is_int( $filtered ) && $filtered >= 0 && $filtered <= 100 ? $filtered : 80;
-	}
-
-	/**
-	 * Formats a max-width value for display.
-	 *
-	 * A `null` ceiling renders as the translatable "No limit"; a positive integer
-	 * renders as its pixel count with a "px" suffix.
-	 *
-	 * @since 0.5.0
-	 *
-	 * @param int|null $max_width The contract ceiling, or null for no limit.
-	 * @return string A display string such as "1920 px" or "No limit".
-	 */
-	private function format_max_width( ?int $max_width ): string {
-		return $max_width === null
-			? __( 'No limit', 'kntnt-photo-drop' )
+	private function format_upload_width( ?int $upload_width ): string {
+		return $upload_width === null
+			? __( 'Original dimensions', 'kntnt-photo-drop' )
 			/* translators: %d: width in pixels. */
-			: sprintf( __( '%d px', 'kntnt-photo-drop' ), $max_width );
+			: sprintf( __( '%d px', 'kntnt-photo-drop' ), $upload_width );
 	}
 
 	/**
-	 * Formats the thumbnail-width list for display.
+	 * Formats a rendition's width and quality as one "W px, quality Q" string.
 	 *
-	 * An empty list (the "no thumbnail" canonical shape) renders as a dash; one or
-	 * more widths render as a comma-separated "px" list, e.g. "320 px, 640 px".
+	 * Used for the re-derivable full and thumbnail renditions in the list and edit
+	 * views.
 	 *
-	 * @since 0.5.0
+	 * @since 0.7.0
 	 *
-	 * @param array<int,int> $widths The canonical thumbnail widths.
-	 * @return string A display string such as "640 px" or "—".
+	 * @param int $width   The rendition width in pixels.
+	 * @param int $quality The rendition WebP quality (0–100).
+	 * @return string A display string such as "1920 px, quality 85".
 	 */
-	private function format_thumbnail_widths( array $widths ): string {
+	private function format_rendition( int $width, int $quality ): string {
+		/* translators: 1: rendition width in pixels; 2: WebP quality, 0–100. */
+		return sprintf( __( '%1$d px, quality %2$d', 'kntnt-photo-drop' ), $width, $quality );
+	}
 
-		// An empty list is the canonical "no thumbnail" marker; show a dash.
-		if ( $widths === [] ) {
-			return '—';
-		}
+	/**
+	 * Formats the upload rendition's width and quality for the list cell.
+	 *
+	 * Like `format_rendition()` but the width half honours the nullable upload
+	 * ceiling — "Original dimensions" when unbounded — since the upload width is the
+	 * only nullable rendition.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param int|null $width   The upload ceiling, or null for the source's own dimensions.
+	 * @param int      $quality The upload WebP quality (0–100).
+	 * @return string A display string such as "1920 px, quality 95".
+	 */
+	private function format_rendition_or_source( ?int $width, int $quality ): string {
 
-		return implode(
-			', ',
-			array_map(
-				/* translators: %d: width in pixels. */
-				fn ( int $width ): string => sprintf( __( '%d px', 'kntnt-photo-drop' ), $width ),
-				$widths,
-			),
-		);
+		// The width half honours the nullable upload ceiling; the quality is appended
+		// as a plain integer.
+		$width_label = $this->format_upload_width( $width );
+
+		/* translators: 1: upload width (a pixel count or "Original dimensions"); 2: WebP quality, 0–100. */
+		return sprintf( __( '%1$s, quality %2$d', 'kntnt-photo-drop' ), $width_label, $quality );
 
 	}
 

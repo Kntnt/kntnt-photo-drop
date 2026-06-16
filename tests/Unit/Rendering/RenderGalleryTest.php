@@ -241,6 +241,43 @@ function seed_gallery_collection( string $basedir, string $slug, Descriptor $des
 }
 
 /**
+ * Builds a three-rendition descriptor for the render tests, overriding fields.
+ *
+ * The render tests care about the upload ceiling (the main width) and the
+ * full/thumbnail widths the srcset is built from. The defaults — upload 1920,
+ * full 1280, thumbnail 320 — keep a typical main producing a thumbnail and a
+ * full candidate (ADR-0013); a test that exercises the tier boundaries overrides
+ * the relevant widths.
+ *
+ * @param array<string,mixed> $overrides Field overrides keyed by constructor parameter name.
+ * @return Descriptor The descriptor under test.
+ */
+function gallery_descriptor( array $overrides = [] ): Descriptor {
+	$fields = array_merge(
+		[
+			'name'              => 'Photos',
+			'upload_width'      => 1920,
+			'upload_quality'    => 80,
+			'full_width'        => 1280,
+			'full_quality'      => 80,
+			'thumbnail_width'   => 320,
+			'thumbnail_quality' => 75,
+		],
+		$overrides,
+	);
+	return new Descriptor(
+		$fields['name'],
+		$fields['upload_width'],
+		$fields['upload_quality'],
+		$fields['full_width'],
+		$fields['full_quality'],
+		$fields['thumbnail_width'],
+		$fields['thumbnail_quality'],
+		'%year%',
+	);
+}
+
+/**
  * Writes a real WebP main image of given dimensions into a collection folder.
  *
  * @param string $collection_path The absolute collection root.
@@ -325,19 +362,26 @@ function render_seeded_gallery(
 }
 
 // ---------------------------------------------------------------------------
-// srcset — every thumbnail width plus the main, at real pixel widths
+// srcset — the thumbnail and the bounded full; the wider main is download-only
 // ---------------------------------------------------------------------------
 
-test( 'the srcset lists every thumbnail width below the main plus the main, at real widths', function (): void {
+test( 'the srcset lists the thumbnail and the bounded full, not the wider main', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320, 640 ] );
-	$html       = render_seeded_gallery(
+	// A 4000px main bounded by a 1280 full: the srcset candidates are the 320
+	// thumbnail and the 1280 full, both from the hidden width directories, and the
+	// download-only 4000px main never appears (ADR-0013).
+	$descriptor = gallery_descriptor( [
+		'upload_width'    => null,
+		'full_width'      => 1280,
+		'thumbnail_width' => 320,
+	] );
+	$html = render_seeded_gallery(
 		[],
 		[
 			[
 				'path'   => 'wide.jpg.webp',
-				'width'  => 1200,
-				'height' => 800,
+				'width'  => 4000,
+				'height' => 2400,
 			],
 		],
 		$descriptor,
@@ -345,27 +389,31 @@ test( 'the srcset lists every thumbnail width below the main plus the main, at r
 		basedir_out: $basedir,
 	);
 
-	// Both thumbnail widths are below the main width, so each is a candidate at its
-	// real width, and the main is always the final candidate at its own width.
 	expect( $html )->toContain( '320w' );
-	expect( $html )->toContain( '640w' );
-	expect( $html )->toContain( '1200w' );
+	expect( $html )->toContain( '1280w' );
+	expect( $html )->not->toContain( '4000w' );
 	expect( $html )->toContain( '/.kntnt-thumbnails/320/' );
-	expect( $html )->toContain( '/.kntnt-thumbnails/640/' );
+	expect( $html )->toContain( '/.kntnt-thumbnails/1280/' );
 
 	gallery_remove_tree( $basedir );
 } );
 
-test( 'a thumbnail width at or above the main width is dropped from the srcset', function (): void {
+test( 'a main no wider than the full is the full candidate, served from the main url', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320, 2000 ] );
-	$html       = render_seeded_gallery(
+	// A 900px main no wider than the 1920 full is itself the full rendition, so it
+	// is a candidate at its own width served from the main URL (no separate 900px
+	// width directory), alongside the 320 thumbnail (ADR-0013).
+	$descriptor = gallery_descriptor( [
+		'full_width'      => 1920,
+		'thumbnail_width' => 320,
+	] );
+	$html = render_seeded_gallery(
 		[],
 		[
 			[
-				'path'   => 'small.jpg.webp',
-				'width'  => 500,
-				'height' => 400,
+				'path'   => 'mid.jpg.webp',
+				'width'  => 900,
+				'height' => 600,
 			],
 		],
 		$descriptor,
@@ -373,11 +421,10 @@ test( 'a thumbnail width at or above the main width is dropped from the srcset',
 		basedir_out: $basedir,
 	);
 
-	// 320 is below the 500px main and is a candidate; 2000 is above it and would be
-	// an upscale, so it is dropped — the browser never upscales a thumbnail.
 	expect( $html )->toContain( '320w' );
-	expect( $html )->toContain( '500w' );
-	expect( $html )->not->toContain( '2000w' );
+	expect( $html )->toContain( '900w' );
+	expect( $html )->toContain( '/.kntnt-thumbnails/320/' );
+	expect( $html )->not->toContain( '/.kntnt-thumbnails/900/' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -388,7 +435,7 @@ test( 'a thumbnail width at or above the main width is dropped from the srcset',
 
 test( 'the grid layout derives one sizes hint from the minimum column width', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'             => 'grid',
@@ -417,7 +464,7 @@ test( 'the grid layout derives one sizes hint from the minimum column width', fu
 
 test( 'the justified layout derives a per-image sizes hint from the natural tile width', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'          => 'justified',
@@ -449,7 +496,7 @@ test( 'the justified layout derives a per-image sizes hint from the natural tile
 
 test( 'each image carries its stored dimensions and loads lazily', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[],
 		[
@@ -474,7 +521,7 @@ test( 'each image carries its stored dimensions and loads lazily', function (): 
 
 test( 'the grid layout sets an aspect-ratio from the stored dimensions by default', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'layout' => 'grid' ],
 		[
@@ -502,7 +549,7 @@ test( 'the grid layout sets an aspect-ratio from the stored dimensions by defaul
 
 test( 'every image is wrapped in an anchor to its full main image', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [ 320 ] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[],
 		[
@@ -543,7 +590,7 @@ test( 'every image is wrapped in an anchor to its full main image', function ():
 
 test( 'recursive ordering is natural sort by full relative path, ascending', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'recursive' => true,
@@ -584,7 +631,7 @@ test( 'recursive ordering is natural sort by full relative path, ascending', fun
 
 test( 'descending order reverses the natural sort', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'recursive' => true,
@@ -615,7 +662,7 @@ test( 'descending order reverses the natural sort', function (): void {
 
 test( 'this-folder-only excludes images in sub-folders', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'recursive' => false ],
 		[
@@ -649,7 +696,7 @@ test( 'this-folder-only excludes images in sub-folders', function (): void {
 
 test( 'the start path scopes the gallery to a sub-folder', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'startPath' => 'morning',
@@ -681,7 +728,7 @@ test( 'the start path scopes the gallery to a sub-folder', function (): void {
 
 test( 'a traversing start path is rejected and renders nothing for the public', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'startPath' => '../../etc' ],
 		[
@@ -709,7 +756,7 @@ test( 'a request-time path superglobal is ignored — only the attribute is read
 	// them entirely and use only the stored startPath attribute (ADR-0005).
 	$_GET['startPath']     = '../../etc';
 	$_REQUEST['startPath'] = '../../etc';
-	$descriptor            = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor            = gallery_descriptor();
 	$html                  = render_seeded_gallery(
 		[ 'startPath' => '' ],
 		[
@@ -738,7 +785,7 @@ test( 'a request-time path superglobal is ignored — only the attribute is read
 
 test( 'the grid layout emits the grid container and a min-column variable', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'             => 'grid',
@@ -764,7 +811,7 @@ test( 'the grid layout emits the grid container and a min-column variable', func
 
 test( 'the justified layout emits per-image flex-grow and flex-basis', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'          => 'justified',
@@ -797,7 +844,7 @@ test( 'the justified layout emits per-image flex-grow and flex-basis', function 
 
 test( 'the grid layout reads the blockGap spacing support into its gap variable', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout' => 'grid',
@@ -824,7 +871,7 @@ test( 'the grid layout reads the blockGap spacing support into its gap variable'
 
 test( 'the justified layout reads the blockGap spacing support into its gap variable', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout' => 'justified',
@@ -849,7 +896,7 @@ test( 'the justified layout reads the blockGap spacing support into its gap vari
 
 test( 'a blockGap spacing preset is rewritten to its custom-property reference', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout' => 'grid',
@@ -876,7 +923,7 @@ test( 'a blockGap spacing preset is rewritten to its custom-property reference',
 
 test( 'with no blockGap set, both layouts fall back to the default gap', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'layout' => 'grid' ],
 		[
@@ -902,7 +949,7 @@ test( 'with no blockGap set, both layouts fall back to the default gap', functio
 
 test( 'a filename caption renders the humanised name as an anchored overlay', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'captionContent' => 'filename' ],
 		[
@@ -929,7 +976,7 @@ test( 'a filename caption renders the humanised name as an anchored overlay', fu
 
 test( 'a path caption renders a breadcrumb with the collection name and separator', function (): void {
 
-	$descriptor = new Descriptor( 'Holiday Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor( [ 'name' => 'Holiday Photos' ] );
 	$html       = render_seeded_gallery(
 		[
 			'captionContent'               => 'path',
@@ -957,7 +1004,7 @@ test( 'a path caption renders a breadcrumb with the collection name and separato
 
 test( 'the caption overlay carries the chosen nine-point anchor', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'captionContent' => 'filename',
@@ -982,7 +1029,7 @@ test( 'the caption overlay carries the chosen nine-point anchor', function (): v
 
 test( 'custom caption colour and typography land on the figcaption, not the wrapper', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'captionContent' => 'filename',
@@ -1017,7 +1064,7 @@ test( 'custom caption colour and typography land on the figcaption, not the wrap
 
 test( 'a preset caption colour adds the preset classname to the figcaption', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'captionContent' => 'filename',
@@ -1045,7 +1092,7 @@ test( 'a preset caption colour adds the preset classname to the figcaption', fun
 
 test( 'border and shadow block supports land on each image, not the caption', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'captionContent' => 'filename',
@@ -1081,7 +1128,7 @@ test( 'border and shadow block supports land on each image, not the caption', fu
 
 test( 'the none caption content emits no figcaption at all', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'captionContent' => 'none' ],
 		[
@@ -1185,7 +1232,7 @@ test( 'an unset collection renders the no-collection notice for a user who can e
 
 test( 'an imageless but valid collection shows the default message to the public', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[],
 		[],
@@ -1206,7 +1253,7 @@ test( 'an imageless but valid collection shows the default message to the public
 
 test( 'an imageless collection honours a custom emptyMessage for the public', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'emptyMessage' => 'No snaps yet — check back after the race.' ],
 		[],
@@ -1229,7 +1276,7 @@ test( 'an imageless collection honours a custom emptyMessage for the public', fu
 
 test( 'the lightbox is wired by default: the overlay, init hook, and flags are present', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[],
 		[
@@ -1262,7 +1309,7 @@ test( 'the lightbox is wired by default: the overlay, init hook, and flags are p
 
 test( 'the no-JS anchor fallback still wraps every image when the lightbox is on', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'lightbox' => true ],
 		[
@@ -1292,7 +1339,7 @@ test( 'the no-JS anchor fallback still wraps every image when the lightbox is on
 
 test( 'cell 1 — both off: flags off, init suppression hook bound, no overlay, no icon', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox' => false,
@@ -1330,7 +1377,7 @@ test( 'cell 1 — both off: flags off, init suppression hook bound, no overlay, 
 
 test( 'cell 2 — lightbox on, download off: lightbox wired, no download affordance', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox' => true,
@@ -1363,7 +1410,7 @@ test( 'cell 2 — lightbox on, download off: lightbox wired, no download afforda
 
 test( 'cell 3 — lightbox off, download on: the icon anchor is the sole download trigger', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox' => false,
@@ -1399,7 +1446,7 @@ test( 'cell 3 — lightbox off, download on: the icon anchor is the sole downloa
 
 test( 'cell 3 — the download icon carries the chosen size, colours, and anchor', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox'               => false,
@@ -1433,7 +1480,7 @@ test( 'cell 3 — the download icon carries the chosen size, colours, and anchor
 
 test( 'cell 3 — the download icon uses the documented defaults when no controls are set', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox' => false,
@@ -1463,7 +1510,7 @@ test( 'cell 3 — the download icon uses the documented defaults when no control
 
 test( 'cell 4 — both on: no icon on the thumbnail; the icon and download live in the lightbox', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox' => true,
@@ -1507,7 +1554,7 @@ test( 'cell 4 — both on: no icon on the thumbnail; the icon and download live 
 
 test( 'a justified gallery binds the init hook even with the lightbox off', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'   => 'justified',
@@ -1542,7 +1589,7 @@ test( 'a justified gallery binds the init hook even with the lightbox off', func
 
 test( 'the lightbox carries a mirrored caption element when on and content is not none', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox'       => true,
@@ -1575,7 +1622,7 @@ test( 'the lightbox carries a mirrored caption element when on and content is no
 
 test( 'the lightbox caption mirrors the colour and typography block-support projection', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox'       => true,
@@ -1608,7 +1655,7 @@ test( 'the lightbox caption mirrors the colour and typography block-support proj
 
 test( 'the lightbox carries no caption element when the caption content is none', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox'       => true,
@@ -1658,7 +1705,7 @@ function gallery_image_specs( int $count ): array {
 
 test( 'the editor preview caps the gallery at six figures even with more images present', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'isEditorPreview' => true ],
 		gallery_image_specs( 20 ),
@@ -1679,7 +1726,7 @@ test( 'the editor preview caps the gallery at six figures even with more images 
 
 test( 'the editor preview suppresses the lightbox entirely, even with it enabled', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'isEditorPreview' => true,
@@ -1706,7 +1753,7 @@ test( 'the editor preview suppresses the lightbox entirely, even with it enabled
 
 test( 'the editor preview with lightbox+download on shows no thumbnail icon or anchor download', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'isEditorPreview' => true,
@@ -1732,7 +1779,7 @@ test( 'the editor preview with lightbox+download on shows no thumbnail icon or a
 
 test( 'the editor preview shows the download icon in the download-on cell but binds no init', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'isEditorPreview' => true,
@@ -1758,7 +1805,7 @@ test( 'the editor preview shows the download icon in the download-on cell but bi
 
 test( 'the editor preview of an imageless collection renders an empty string for its placeholders', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'isEditorPreview' => true ],
 		[],
@@ -1798,7 +1845,7 @@ test( 'the editor preview of a dangling collection renders an empty string, not 
 
 test( 'the frontend render is unaffected by the preview cap: all images and the lightbox remain', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[],
 		gallery_image_specs( 20 ),
@@ -1837,7 +1884,7 @@ test( 'a dangling collection on the frontend still shows the editor notice (prev
 
 test( 'a malicious download-icon background falls back to the default colour', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'lightbox'               => false,
@@ -1866,7 +1913,7 @@ test( 'a malicious download-icon background falls back to the default colour', f
 
 test( 'a malicious minimum column width falls back to the default length', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'             => 'grid',
@@ -1893,7 +1940,7 @@ test( 'a malicious minimum column width falls back to the default length', funct
 
 test( 'a malicious blockGap falls back to the default gap', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout' => 'grid',
@@ -1919,7 +1966,7 @@ test( 'a malicious blockGap falls back to the default gap', function (): void {
 
 test( 'a malicious aspect ratio falls back to the stored per-image ratio', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'      => 'grid',
@@ -1951,7 +1998,7 @@ test( 'a malicious aspect ratio falls back to the stored per-image ratio', funct
 
 test( 'the justified packing accepts a rem blockGap (converted at 16px) rather than the fallback', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'layout'          => 'justified',
@@ -1985,7 +2032,7 @@ test( 'the justified packing accepts a rem blockGap (converted at 16px) rather t
 
 test( 'the default render carries no slideshow markup at all', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[],
 		[
@@ -2010,7 +2057,7 @@ test( 'the default render carries no slideshow markup at all', function (): void
 
 test( 'button mode emits the hidden default-labelled button, the wrapper flags, and the overlay', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'slideshow' => 'button' ],
 		[
@@ -2047,7 +2094,7 @@ test( 'button mode emits the hidden default-labelled button, the wrapper flags, 
 
 test( 'the button label attribute replaces the default label', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'slideshow'            => 'button',
@@ -2072,7 +2119,7 @@ test( 'the button label attribute replaces the default label', function (): void
 
 test( 'custom mode emits the overlay and flags but no built-in button', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'slideshow' => 'custom' ],
 		[
@@ -2096,7 +2143,7 @@ test( 'custom mode emits the overlay and flags but no built-in button', function
 
 test( 'an unrecognised slideshow mode renders as off', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[ 'slideshow' => 'autoplay' ],
 		[
@@ -2119,7 +2166,7 @@ test( 'an unrecognised slideshow mode renders as off', function (): void {
 
 test( 'the per-slide seconds are clamped to at least one and default when malformed', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'slideshow'        => 'custom',
@@ -2167,7 +2214,7 @@ test( 'the per-slide seconds are clamped to at least one and default when malfor
 
 test( 'the editor preview shows the button visible but wires no slideshow', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'slideshow'       => 'button',
@@ -2198,7 +2245,7 @@ test( 'the editor preview shows the button visible but wires no slideshow', func
 
 test( 'the slideshow overlay mirrors the gallery caption when the content is not none', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'slideshow'      => 'button',
@@ -2230,7 +2277,7 @@ test( 'the slideshow overlay mirrors the gallery caption when the content is not
 
 test( 'the block HTML anchor is mirrored onto the wrapper id', function (): void {
 
-	$descriptor = new Descriptor( 'Photos', 1920, 80, [] );
+	$descriptor = gallery_descriptor();
 	$html       = render_seeded_gallery(
 		[
 			'slideshow' => 'custom',

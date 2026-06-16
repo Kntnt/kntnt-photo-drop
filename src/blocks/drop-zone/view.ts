@@ -90,8 +90,8 @@ interface DropZoneStrings {
 /**
  * The per-block Interactivity context emitted by `Render_Drop_Zone`.
  *
- * Carries the collection slug, the contract (`maxWidth`/`quality`) that configures
- * the downscale and the WebP encode, the absolute REST `uploadUrl`, the `wp_rest`
+ * Carries the collection slug, the upload width/quality that configure the
+ * downscale and the WebP encode, the absolute REST `uploadUrl`, the `wp_rest`
  * `nonce`, the admin-ajax URL the nonce-refresh endpoint lives behind, the
  * collection display name, and the pre-translated strings.
  *
@@ -99,9 +99,9 @@ interface DropZoneStrings {
  */
 interface DropZoneContext {
 	readonly slug: string;
-	/** The contract ceiling in pixels, or `null` for no limit. */
-	readonly maxWidth: number | null;
-	readonly quality: number;
+	/** The upload-width ceiling in pixels, or `null` for the source's own dimensions. */
+	readonly uploadWidth: number | null;
+	readonly uploadQuality: number;
 	readonly uploadUrl: string;
 	readonly nonce: string;
 	/** The `admin-ajax.php` URL core's `rest-nonce` action answers on. */
@@ -580,8 +580,8 @@ async function processFile(
 	);
 	const blob = await optimiseToWebp(
 		queued.file,
-		context.maxWidth,
-		context.quality
+		context.uploadWidth,
+		context.uploadQuality
 	);
 	await uploadBlob( blob, queued, context, session, status );
 }
