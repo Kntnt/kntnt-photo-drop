@@ -194,31 +194,39 @@ final class Collection_Command {
 	}
 
 	/**
-	 * Renames a collection, changing only its mutable display name.
+	 * Updates a collection's mutable fields — the display name and placement template.
 	 *
 	 * The immutable upload contract (`upload-width`, `upload-quality`) is fixed at
 	 * establishment, so passing either is rejected rather than silently ignored —
-	 * the user must not believe a frozen value was changed (ADR-0013). Only the
-	 * display name is rewritten here; the re-derivable full/thumbnail settings and
-	 * the mutable path-components template carry over untouched (their editable
-	 * re-derive flow is a later issue).
+	 * the user must not believe a frozen value was changed (ADR-0013). The display
+	 * name is rewritten, and `--path-components` mutates the placement template (it
+	 * affects only future uploads, so it is safe to change; ADR-0014), normalised
+	 * and validated by the same gate the admin page uses — a stray `%` or an unsafe
+	 * template is rejected. An absent `--path-components` carries the current
+	 * template over. The re-derivable full/thumbnail settings carry over untouched
+	 * (their editable re-derive flow is a later issue).
 	 *
 	 * ## OPTIONS
 	 *
 	 * <slug>
-	 * : The collection identity to rename.
+	 * : The collection identity to update.
 	 *
 	 * --name=<name>
 	 * : The new human display name. Required.
 	 *
+	 * [--path-components=<template>]
+	 * : The Drop Zone placement template. Mutates only future uploads. A stray "%"
+	 * or an unsafe ("..", absolute) template is rejected.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp kntnt-photo-drop collection update spring-2024 --name="Spring 2024 — Field Trip"
+	 *     wp kntnt-photo-drop collection update spring-2024 --name="Spring 2024" --path-components="%year%/%uploader%"
 	 *
 	 * @since 0.2.0
 	 *
 	 * @param array<int,string>         $args       Positional arguments: the slug.
-	 * @param array<string,string|bool> $assoc_args Associative arguments: name (and rejected immutable flags).
+	 * @param array<string,string|bool> $assoc_args Associative arguments: name, path-components (immutable rejected).
 	 */
 	public function update( array $args, array $assoc_args ): void {
 
@@ -249,17 +257,24 @@ final class Collection_Command {
 		}
 
 		// Read the current descriptor so the rewrite preserves the immutable
-		// contract values exactly and touches only the name.
+		// contract values exactly and touches only the mutable fields.
 		$current = Descriptor::read( $path );
 		if ( $current === null ) {
 			WP_CLI::error( "Cannot read the descriptor for '{$slug}'; refusing to overwrite it." );
 			return;
 		}
 
-		// Rewrite the descriptor with only the name replaced; the immutable upload
-		// contract, the re-derivable full/thumbnail pairs, and the path-components
-		// template all carry over untouched (their editable re-derive flow is a
-		// later issue).
+		// Resolve the placement template: an explicit --path-components is normalised
+		// and validated (a rejected template halts here), while its absence carries
+		// the current template over so a plain rename never disturbs it (ADR-0014).
+		$path_components = isset( $assoc_args['path-components'] )
+			? $this->resolve_path_components( $assoc_args )
+			: $current->path_components;
+
+		// Rewrite the descriptor with the name and the (possibly mutated) placement
+		// template replaced; the immutable upload contract and the re-derivable
+		// full/thumbnail pairs carry over untouched (their editable re-derive flow is
+		// a later issue).
 		$updated = new Descriptor(
 			$name,
 			$current->upload_width,
@@ -268,14 +283,14 @@ final class Collection_Command {
 			$current->full_quality,
 			$current->thumbnail_width,
 			$current->thumbnail_quality,
-			$current->path_components,
+			$path_components,
 		);
 		if ( ! $updated->write( $path ) ) {
 			WP_CLI::error( "Failed to write the updated descriptor for '{$slug}'." );
 			return;
 		}
 
-		WP_CLI::success( "Renamed collection '{$slug}' to '{$name}'." );
+		WP_CLI::success( "Updated collection '{$slug}'." );
 
 	}
 
@@ -635,25 +650,38 @@ final class Collection_Command {
 	}
 
 	/**
-	 * Resolves the `--path-components` flag to the placement template.
+	 * Resolves the `--path-components` flag to a normalised, validated template.
 	 *
 	 * An absent or blank flag means the default template (ADR-0014); a supplied
-	 * value is taken verbatim. The template's lexical validation and its
-	 * server-side expansion are later concerns (issue #48); this surface only
-	 * stores what it is handed.
+	 * value is normalised (separator structure canonicalised) and validated through
+	 * the shared `Descriptor::normalize_path_components()` gate — the same gate the
+	 * admin page uses — which rejects a stray `%` (the `%`-reservation) and a
+	 * template whose sample expansion fails the `Path_Guard` lexical checks. A
+	 * rejected template halts the command via `WP_CLI::error()` before any directory
+	 * is made, so a broken template never seeds a collection. The post-error return
+	 * is unreachable (WP_CLI::error() exits; the test double throws) but satisfies
+	 * the declared return type.
 	 *
 	 * @since 0.7.0
 	 *
 	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
-	 * @return string The resolved placement template.
+	 * @return string The normalised, validated placement template.
 	 */
 	private function resolve_path_components( array $assoc_args ): string {
 
-		// A missing or blank flag is the documented default; anything else is taken
-		// verbatim (its validation/expansion is a later issue).
-		$raw = isset( $assoc_args['path-components'] ) ? (string) $assoc_args['path-components'] : '';
+		// A missing flag takes the documented default; a present one is normalised
+		// and validated, and a rejected template halts before any write.
+		$raw        = isset( $assoc_args['path-components'] ) ? (string) $assoc_args['path-components'] : '';
+		$normalised = Descriptor::normalize_path_components( $raw );
+		if ( $normalised === false ) {
+			WP_CLI::error(
+				'The --path-components template is invalid: remove any stray "%" '
+				. '(only %year%, %month%, %day%, %uploader% are recognised) and any ".." or absolute path.'
+			);
+			return Descriptor::DEFAULT_PATH_COMPONENTS;
+		}
 
-		return $raw === '' ? Descriptor::DEFAULT_PATH_COMPONENTS : $raw;
+		return $normalised;
 
 	}
 
