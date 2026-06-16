@@ -75,9 +75,8 @@ const FRONT_CLASS = 'kntnt-photo-drop-slideshow__image--front';
 /**
  * The overlay elements the controller drives, resolved once on construction.
  *
- * The caption is optional: the server emits it only when the gallery's shared
- * Caption content is not "none", so it is `null` otherwise and the controller
- * skips updating it.
+ * The slideshow is overlay-free (ADR-0015), so there is no breadcrumb or icon
+ * element here — only the two crossfading images and the close affordance.
  *
  * @since 0.7.0
  */
@@ -86,8 +85,6 @@ interface SlideshowRefs {
 	/** The two stacked slide images the dissolve crossfades between. */
 	readonly images: readonly [ HTMLImageElement, HTMLImageElement ];
 	readonly close: HTMLButtonElement;
-	/** The mirrored caption figcaption, or `null` when the gallery has no caption. */
-	readonly caption: HTMLElement | null;
 }
 
 /**
@@ -112,12 +109,7 @@ function resolveOverlay( overlay: HTMLElement ): SlideshowRefs | null {
 		return null;
 	}
 
-	// The caption is optional chrome; resolve it when present and leave it null
-	// otherwise.
-	const caption = overlay.querySelector< HTMLElement >(
-		'.kntnt-photo-drop-slideshow__caption'
-	);
-	return { overlay, images: [ first, second ], close, caption };
+	return { overlay, images: [ first, second ], close };
 }
 
 /**
@@ -574,7 +566,6 @@ export class GallerySlideshow {
 		}
 		this.#awaitingFirst = false;
 		this.#front.classList.add( FRONT_CLASS );
-		this.#setCaption( this.#slides[ this.#index ] );
 		this.#beginVisible();
 	}
 
@@ -706,14 +697,12 @@ export class GallerySlideshow {
 	/**
 	 * Crossfades to the pending slide and schedules the swap's finalisation.
 	 *
-	 * The caption switches at dissolve start (a single overlay cannot crossfade
-	 * its text), and the swap completes on {@link DISSOLVE_MS} — or instantly
-	 * under reduced motion, where the CSS transition is also collapsed.
+	 * The swap completes on {@link DISSOLVE_MS} — or instantly under reduced
+	 * motion, where the CSS transition is also collapsed.
 	 *
 	 * @since 0.7.0
 	 */
 	#dissolve(): void {
-		this.#setCaption( this.#slides[ this.#pending ] );
 		this.#back.classList.add( FRONT_CLASS );
 		this.#front.classList.remove( FRONT_CLASS );
 		this.#dissolveTimer = setTimeout( () => {
@@ -751,21 +740,5 @@ export class GallerySlideshow {
 		}
 		image.alt = slide.label;
 		image.src = slide.url;
-	}
-
-	/**
-	 * Mirrors a slide's caption onto the overlay's figcaption, when the gallery
-	 * has one.
-	 *
-	 * @since 0.7.0
-	 *
-	 * @param slide - The slide whose caption to show, or `undefined` to skip.
-	 */
-	#setCaption( slide: GallerySlide | undefined ): void {
-		if ( ! this.#refs.caption || ! slide ) {
-			return;
-		}
-		this.#refs.caption.textContent = slide.caption;
-		this.#refs.caption.hidden = slide.caption === '';
 	}
 }

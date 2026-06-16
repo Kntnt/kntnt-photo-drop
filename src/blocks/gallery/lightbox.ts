@@ -20,16 +20,16 @@
  * `actionForKey`, `actionForSwipe`) what to do, and reflects the result back
  * onto the overlay. The overlay markup itself is emitted server-side by
  * `Render_Gallery` and escaped there; the controller only fills in the live
- * `src`/`srcset`, caption, counter, loading/error state, and `aria` state.
+ * `src`/`srcset`, breadcrumb, counter, loading/error state, and `aria` state.
  *
- * When download is on (issue #34), the overlay carries a download-icon anchor —
- * the sole download trigger. The controller points its `href` at the current
- * slide's full image and intercepts a plain click to save the slide
- * programmatically ({@link saveFile} — a blob download no link-rewriting theme
- * or cross-origin host can turn into a new tab); a click on the enlarged image
- * outside the icon does nothing. When the gallery has a caption, the controller
- * mirrors each slide's caption text onto the lightbox's caption figcaption (the
- * same overlay element, anchor, and styling the gallery figures use).
+ * When the download overlay reaches the lightbox (ADR-0015), the overlay carries
+ * a download-icon anchor. The controller points its `href` at the current slide's
+ * full image and intercepts a plain click to save the slide programmatically
+ * ({@link saveFile} — a blob download no link-rewriting theme or cross-origin
+ * host can turn into a new tab); a click on the enlarged image outside the icon
+ * does nothing. When the breadcrumb overlay reaches the lightbox, the controller
+ * mirrors each slide's breadcrumb text onto the lightbox's breadcrumb figcaption
+ * (the same overlay element, anchor, and styling the gallery figures use).
  *
  * @since 0.7.0
  */
@@ -81,9 +81,9 @@ const ERROR_CLASS = 'kntnt-photo-drop-lightbox--error';
 /**
  * The overlay elements the controller drives, resolved once on construction.
  *
- * The download anchor and the caption figcaption are optional: the server emits
- * them only when download / a caption is on, so they are `null` otherwise and the
- * controller simply skips updating them.
+ * The download anchor and the breadcrumb figcaption are optional: the server
+ * emits them only when the download / breadcrumb overlay reaches the lightbox, so
+ * they are `null` otherwise and the controller simply skips updating them.
  *
  * @since 0.7.0
  */
@@ -95,10 +95,10 @@ interface OverlayRefs {
 	readonly forward: HTMLButtonElement;
 	readonly dismiss: HTMLButtonElement;
 	readonly failure: HTMLElement;
-	/** The download-icon anchor, or `null` when download is off. */
+	/** The download-icon anchor, or `null` when the download overlay is off the lightbox. */
 	readonly download: HTMLAnchorElement | null;
-	/** The mirrored caption figcaption, or `null` when the gallery has no caption. */
-	readonly caption: HTMLElement | null;
+	/** The mirrored breadcrumb figcaption, or `null` when breadcrumbs are off the lightbox. */
+	readonly breadcrumbs: HTMLElement | null;
 }
 
 /**
@@ -140,13 +140,13 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		return null;
 	}
 
-	// The download anchor and the caption figcaption are optional chrome; resolve
-	// them when present and leave them null otherwise.
+	// The download anchor and the breadcrumb figcaption are optional chrome;
+	// resolve them when present and leave them null otherwise.
 	const download = overlay.querySelector< HTMLAnchorElement >(
 		'.kntnt-photo-drop-lightbox__download'
 	);
-	const caption = overlay.querySelector< HTMLElement >(
-		'.kntnt-photo-drop-lightbox__caption'
+	const breadcrumbs = overlay.querySelector< HTMLElement >(
+		'.kntnt-photo-drop-lightbox__breadcrumbs'
 	);
 	return {
 		overlay,
@@ -157,7 +157,7 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		dismiss,
 		failure,
 		download,
-		caption,
+		breadcrumbs,
 	};
 }
 
@@ -544,11 +544,11 @@ export class GalleryLightbox {
 			this.#refs.download.href = slide.url;
 		}
 
-		// Mirror the gallery caption onto the lightbox figure when a caption element
-		// exists; the text comes from the slide's mirrored caption data.
-		if ( this.#refs.caption ) {
-			this.#refs.caption.textContent = slide.caption;
-			this.#refs.caption.hidden = slide.caption === '';
+		// Mirror the gallery breadcrumb onto the lightbox figure when a breadcrumb
+		// element exists; the text comes from the slide's mirrored breadcrumb data.
+		if ( this.#refs.breadcrumbs ) {
+			this.#refs.breadcrumbs.textContent = slide.breadcrumbs;
+			this.#refs.breadcrumbs.hidden = slide.breadcrumbs === '';
 		}
 
 		// Announce the position via the live-region counter (1-based for humans).

@@ -105,26 +105,6 @@
       "type": "boolean",
       "default": true
     },
-    "download": {
-      "type": "boolean",
-      "default": false
-    },
-    "downloadIconSize": {
-      "type": "string",
-      "default": "2rem"
-    },
-    "downloadIconBackground": {
-      "type": "string",
-      "default": "#00000080"
-    },
-    "downloadIconForeground": {
-      "type": "string",
-      "default": "#ffffff"
-    },
-    "downloadIconAnchor": {
-      "type": "string",
-      "default": "top-left"
-    },
     "slideshow": {
       "type": "string",
       "default": "off"
@@ -137,25 +117,49 @@
       "type": "number",
       "default": 5
     },
-    "captionContent": {
+    "breadcrumbsVisibility": {
       "type": "string",
-      "default": "none"
+      "default": "off"
     },
-    "captionHumanize": {
-      "type": "boolean",
-      "default": true
+    "breadcrumbsPosition": {
+      "type": "string",
+      "default": "bottom-left"
     },
-    "captionIncludeCollectionName": {
-      "type": "boolean",
-      "default": false
+    "breadcrumbsHideCount": {
+      "type": "number",
+      "default": 0
     },
-    "captionSeparator": {
+    "breadcrumbsSeparator": {
       "type": "string",
       "default": "›"
     },
-    "captionAnchor": {
+    "downloadVisibility": {
       "type": "string",
-      "default": "bottom-left"
+      "default": "off"
+    },
+    "downloadPosition": {
+      "type": "string",
+      "default": "top-left"
+    },
+    "addToMediaVisibility": {
+      "type": "string",
+      "default": "off"
+    },
+    "addToMediaPosition": {
+      "type": "string",
+      "default": "top-right"
+    },
+    "trashVisibility": {
+      "type": "string",
+      "default": "off"
+    },
+    "trashPosition": {
+      "type": "string",
+      "default": "top-right"
+    },
+    "iconSize": {
+      "type": "string",
+      "default": "2rem"
     },
     "isEditorPreview": {
       "type": "boolean",

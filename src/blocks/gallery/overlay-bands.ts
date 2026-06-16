@@ -47,18 +47,20 @@ export type OverlayBand = 'top' | 'middle' | 'bottom';
  *
  * @since 0.11.0
  */
-const BANDS: readonly { readonly band: OverlayBand; readonly positions: readonly OverlayPosition[] }[] =
-	[
-		{ band: 'top', positions: [ 'top-left', 'top-center', 'top-right' ] },
-		{
-			band: 'middle',
-			positions: [ 'middle-left', 'middle-center', 'middle-right' ],
-		},
-		{
-			band: 'bottom',
-			positions: [ 'bottom-left', 'bottom-center', 'bottom-right' ],
-		},
-	];
+const BANDS: readonly {
+	readonly band: OverlayBand;
+	readonly positions: readonly OverlayPosition[];
+}[] = [
+	{ band: 'top', positions: [ 'top-left', 'top-center', 'top-right' ] },
+	{
+		band: 'middle',
+		positions: [ 'middle-left', 'middle-center', 'middle-right' ],
+	},
+	{
+		band: 'bottom',
+		positions: [ 'bottom-left', 'bottom-center', 'bottom-right' ],
+	},
+];
 
 /**
  * Returns the band a nine-point position falls into.

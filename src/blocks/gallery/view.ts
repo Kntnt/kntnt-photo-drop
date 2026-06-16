@@ -6,22 +6,25 @@
  * enhances it via the WordPress Interactivity API. The baseline is no-JS: every
  * thumbnail is wrapped in an `<a href="<main>.webp">` by `render.php`, so a
  * click navigates to the full image even with this module inert or absent. The
- * wrapper carries two flags the `init` callback reads to apply the click matrix
- * (issue #34): `data-kntnt-photo-drop-lightbox` and
- * `data-kntnt-photo-drop-download`. The download trigger is always the overlay
- * download-icon anchor alone — a click on the image outside the icon never
- * downloads.
+ * wrapper carries the `data-kntnt-photo-drop-lightbox` flag the `init` callback
+ * reads to decide the base tile click; the overlays (ADR-0015) are per-figure
+ * icons layered on top, and a click on the image outside an icon never triggers
+ * an overlay action. The download overlay is the sole download trigger.
  *
  * - Lightbox on → a {@link GalleryLightbox} controller turns the anchors into a
  *   modal image viewer (open/close, prev/next, keyboard, swipe, neighbour
  *   preload, focus trap, `aria`) and suppresses the navigation so browser history
- *   is never touched (ADR-0007). When download is also on, the lightbox carries
- *   the download-icon anchor and only a click on it saves the current slide.
- * - Lightbox off + download on → the thumbnail click is suppressed (the image
- *   does nothing) and each figure's icon anchor saves its image programmatically
- *   ({@link saveFile} — a blob download no environment can turn into a new tab).
- * - Lightbox off + download off → the click is suppressed so it does nothing
- *   (the no-JS fallback would navigate, but with JS the gallery is inert).
+ *   is never touched (ADR-0007). When the download overlay reaches the lightbox,
+ *   the lightbox carries the download-icon anchor and only a click on it saves
+ *   the current slide.
+ * - Lightbox off → the thumbnail click is suppressed (the image does nothing
+ *   rather than navigate); the no-JS fallback would navigate, but with JS the
+ *   image itself is inert.
+ *
+ * Independently of the lightbox, any download-overlay icon present on the
+ * figures is wired so a plain click saves its image programmatically
+ * ({@link saveFile} — a blob download no environment can turn into a new tab),
+ * leaving the `<a download>` semantics as the no-JS fallback.
  *
  * For the justified layout, `init` additionally corrects the server's last-row
  * flags: the server packs rows against an assumed container width, so the
@@ -303,14 +306,17 @@ function suppressNavigation( wrapper: HTMLElement ): void {
 }
 
 /**
- * Wires the figures' download-icon anchors to the programmatic blob download.
+ * Wires the figures' download-overlay anchors to the programmatic blob download.
  *
  * One delegated listener on the wrapper intercepts a plain primary click on any
- * icon anchor and saves its image via {@link saveFile} instead of the anchor's
- * own `download` navigation — a blob download cannot be turned into a new tab
- * by a link-rewriting theme or a cross-origin media host, which native
- * `<a download>` can. Modified clicks are left to the browser, and without
- * JavaScript the anchor's `download` attribute is the fallback.
+ * download-overlay icon anchor and saves its image via {@link saveFile} instead
+ * of the anchor's own `download` navigation — a blob download cannot be turned
+ * into a new tab by a link-rewriting theme or a cross-origin media host, which
+ * native `<a download>` can. Modified clicks are left to the browser, and without
+ * JavaScript the anchor's `download` attribute is the fallback. The lightbox
+ * overlay's own download icon is wired separately by the lightbox controller, so
+ * this targets the gallery figures' icons only (the lightbox overlay is a sibling
+ * of the figures' layout container, never inside it).
  *
  * @since 0.5.0
  *
@@ -332,9 +338,14 @@ function wireIconDownloads( wrapper: HTMLElement ): void {
 			return;
 		}
 		const icon = target.closest< HTMLAnchorElement >(
-			'.kntnt-photo-drop-gallery__download'
+			'.kntnt-photo-drop-gallery__icon--download'
 		);
-		if ( ! icon ) {
+		// The lightbox controller owns the lightbox's own download icon; skip it
+		// here so a click is not handled twice.
+		if (
+			! icon ||
+			icon.classList.contains( 'kntnt-photo-drop-lightbox__download' )
+		) {
 			return;
 		}
 		event.preventDefault();
@@ -407,23 +418,22 @@ store( 'kntnt-photo-drop/gallery', {
 	callbacks: {
 		/**
 		 * Enhances one gallery wrapper: the justified last-row correction, the
-		 * slideshow, and the click matrix (lightbox, native download, or inert).
+		 * slideshow, the overlay icon downloads, and the lightbox.
 		 *
 		 * The correction is wired whenever the gallery uses the justified
-		 * layout, independent of the click flags. The slideshow mounts whenever
-		 * the wrapper carries a slideshow mode — a third surface orthogonal to
-		 * the click matrix (ADR-0009). The click matrix then
-		 * branches on the two wrapper flags (issue #34): with the lightbox on,
-		 * a {@link GalleryLightbox} controller mounts (the overlay carries the
-		 * download-icon anchor when download is on); with the lightbox off,
-		 * the thumbnail clicks are suppressed so a click on the image does
-		 * nothing, and — when download is on — the figures' icon anchors are
-		 * wired to the programmatic blob download. In every lightbox bail path
-		 * the no-JS fallback markup stands.
+		 * layout, independent of the lightbox. The slideshow mounts whenever the
+		 * wrapper carries a slideshow mode — a third surface orthogonal to the
+		 * overlays (ADR-0009). Any download-overlay icons on the figures are
+		 * wired to the programmatic blob download regardless of the lightbox.
+		 * The base tile click then branches on the lightbox flag: with the
+		 * lightbox on, a {@link GalleryLightbox} controller mounts (carrying the
+		 * download icon when the download overlay reaches the lightbox); with it
+		 * off, the thumbnail clicks are suppressed so a click on the image does
+		 * nothing. In every lightbox bail path the no-JS fallback markup stands.
 		 *
 		 * @since 0.7.0
-		 * @since 0.4.0 Branches on the lightbox + download click matrix.
-		 * @since 0.5.0 The icon anchor is the sole download trigger.
+		 * @since 0.4.0 Branches on the lightbox click; the overlays are per-figure.
+		 * @since 0.11.0 Wires the download-overlay icons independent of the lightbox.
 		 */
 		init(): void {
 			// Resolve the wrapper and guard against a double-init re-hydration.
@@ -446,22 +456,20 @@ store( 'kntnt-photo-drop/gallery', {
 			}
 
 			// Mount the slideshow when the wrapper asks for one — a third surface
-			// orthogonal to the click matrix below (ADR-0009).
+			// orthogonal to the overlays (ADR-0009).
 			wireSlideshow( ref );
 
-			const lightbox = ref.dataset.kntntPhotoDropLightbox === 'true';
-			const download = ref.dataset.kntntPhotoDropDownload === 'true';
+			// Wire any download-overlay icons on the figures to the programmatic
+			// blob download, independent of the lightbox; the delegated listener
+			// is harmless when there are no icons.
+			wireIconDownloads( ref );
 
 			// Lightbox off: suppress the plain thumbnail click via one delegated
-			// listener so a click on the image does nothing rather than navigate;
-			// with download on, additionally wire the figures' icon anchors to the
-			// programmatic blob download. Neither branch needs the anchors
-			// materialised.
+			// listener so a click on the image does nothing rather than navigate.
+			// This branch needs no anchors materialised.
+			const lightbox = ref.dataset.kntntPhotoDropLightbox === 'true';
 			if ( ! lightbox ) {
 				suppressNavigation( ref );
-				if ( download ) {
-					wireIconDownloads( ref );
-				}
 				return;
 			}
 

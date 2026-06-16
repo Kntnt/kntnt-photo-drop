@@ -51,11 +51,11 @@
 	}
 
 	&__media {
-		// The media wrapper holds the enlarged image and the overlay download-icon
-		// anchor (the gallery's `__download` badge, the sole download trigger) when
-		// download is on. As a flex item of the figure it shrink-wraps the image,
-		// so the badge's nine-point anchor places it inside the image's own box
-		// rather than the whole viewport. A click on the image itself does nothing.
+		// The media wrapper holds the enlarged image and the full-surface overlays
+		// (the breadcrumb and the action-icon clusters, ADR-0015) so they anchor
+		// inside the image's own box rather than the whole viewport. As a flex item
+		// of the figure it shrink-wraps the image. A click on the image itself does
+		// nothing — only an overlay icon acts.
 		position: relative;
 		display: block;
 	}
@@ -201,7 +201,8 @@
 
 	&__figure {
 		// The figure spans the surface and is the positioning context for the two
-		// stacked images and the anchored caption overlay.
+		// stacked images. The slideshow is overlay-free (ADR-0015), so there is
+		// nothing else to position here.
 		position: absolute;
 		inset: 0;
 		margin: 0;
