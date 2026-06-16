@@ -118,6 +118,46 @@ if ( ! class_exists( 'WP_Error' ) ) {
 	}
 }
 
+if ( ! class_exists( 'WP_User' ) ) {
+	/**
+	 * Minimal stand-in for WordPress's WP_User class.
+	 *
+	 * The upload controller derives the `%uploader%` placeholder from the current
+	 * user's `user_nicename` server-side (never client-named), falling back to the
+	 * numeric `ID`. The tests stub `wp_get_current_user()` to return one of these;
+	 * only the two public properties the controller reads are modelled.
+	 *
+	 * @since 0.7.0
+	 */
+	class WP_User {
+
+		/**
+		 * The user id (0 for a logged-out request).
+		 *
+		 * @var int
+		 */
+		public int $ID;
+
+		/**
+		 * The URL-safe nicename WordPress derives from the display name.
+		 *
+		 * @var string
+		 */
+		public string $user_nicename;
+
+		/**
+		 * Records the id and nicename the test wants the controller to read.
+		 *
+		 * @param int    $id            The user id.
+		 * @param string $user_nicename The user nicename.
+		 */
+		public function __construct( int $id = 0, string $user_nicename = '' ) {
+			$this->ID            = $id;
+			$this->user_nicename = $user_nicename;
+		}
+	}
+}
+
 if ( ! class_exists( 'WP_REST_Response' ) ) {
 	/**
 	 * Minimal stand-in for WordPress's WP_REST_Response class.

@@ -93,6 +93,65 @@ function wire_upload_stubs(
 		}
 	);
 
+	// The placement template is expanded server-side (ADR-0014): the date comes
+	// from the site timezone, the uploader from the current user's nicename. The
+	// defaults — UTC and the `admin` nicename — keep every non-placement test
+	// deterministic; a test that probes the timezone or the nicename overrides
+	// these stubs locally.
+	Functions\when( 'wp_timezone' )->justReturn( new \DateTimeZone( 'UTC' ) );
+	Functions\when( 'wp_get_current_user' )->justReturn( new \WP_User( 1, 'admin' ) );
+
+}
+
+/**
+ * The fixed upload instant every placement test expands against (UTC).
+ *
+ * 2024-06-16 12:00:00 UTC — far from a date boundary so the default UTC stub
+ * yields a stable `2024/06/16` prefix, while the timezone test overrides the
+ * timezone stub to push the calendar date across midnight.
+ *
+ * @var int
+ */
+const FIXED_UPLOAD_TS = 1_718_539_200;
+
+/**
+ * Builds an upload controller whose upload instant is pinned to FIXED_UPLOAD_TS.
+ *
+ * The real controller stamps each upload with `time()`; pinning it through the
+ * overridable seam makes the expanded `%year%/%month%/%day%` prefix deterministic
+ * so a placement assertion can name the exact folder. The nicename and timezone
+ * still flow from the stubbed WordPress seams.
+ *
+ * @param Repository $repository The collection read/resolve side.
+ * @return Upload_Controller A controller with a frozen upload clock.
+ */
+function fixed_clock_controller( Repository $repository ): Upload_Controller {
+	return new class( $repository ) extends Upload_Controller {
+
+		/**
+		 * Returns the frozen upload instant instead of the wall clock.
+		 *
+		 * @return int The fixed Unix timestamp.
+		 */
+		protected function upload_timestamp(): int {
+			return FIXED_UPLOAD_TS;
+		}
+	};
+}
+
+/**
+ * Returns the expanded default-template prefix the fixed clock produces.
+ *
+ * The default template is `%year%/%month%/%day%/%uploader%`; with the frozen
+ * UTC instant and the `admin` nicename stub it expands to `2024/06/16/admin`.
+ * Placement assertions join this prefix with the client relative path.
+ *
+ * @param string $collection_path The collection root.
+ * @param string $nicename        The expected uploader segment (default `admin`).
+ * @return string The absolute directory the default template places uploads in.
+ */
+function placed_dir( string $collection_path, string $nicename = 'admin' ): string {
+	return $collection_path . '/2024/06/16/' . $nicename;
 }
 
 /**
@@ -455,44 +514,133 @@ test( 'an accepted nested relativePath is confined inside the collection root', 
 } );
 
 // ---------------------------------------------------------------------------
-// Placement and confinement — the client path is ingested as given
+// Placement — the pathComponents template is expanded server-side (ADR-0014)
 // ---------------------------------------------------------------------------
 //
-// The retired uploaderFolders boolean is replaced by the descriptor's mutable
-// pathComponents template (ADR-0014), whose server-side expansion — the
-// year/month/day/uploader prefix prepended ahead of the client path — is a
-// separate concern (issue #48). Until then the Upload_Controller ingests the
-// client path verbatim, so the placement is simply the source-relative path;
-// the Path_Guard confinement below is unchanged and still load-bearing.
+// The descriptor's mutable pathComponents template is expanded at upload time
+// and prepended ahead of each file's own source-relative path:
+// %year%/%month%/%day% from the upload date in the site timezone, %uploader%
+// from the authenticated uploader's nicename (server-derived, never
+// client-named). The whole assembled path is then Path_Guard-confined, so the
+// confinement below stays load-bearing.
 
-test( 'an upload lands at its client relative path under the collection root', function (): void {
+test( 'an upload lands under the expanded default template and its own relative path', function (): void {
 
-	// With no template expansion yet (issue #48), the file lands at exactly the
-	// client-supplied relative path beneath the collection root.
+	// The default template expands to <year>/<month>/<day>/<nicename> and is
+	// prepended ahead of the client relative path, so the dropped-folder hierarchy
+	// is preserved after the prefix (ADR-0014).
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
 	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
-	$controller = new Upload_Controller( new Repository() );
+	$controller = fixed_clock_controller( new Repository() );
 
-	$response = $controller->upload( rest_request( 'photos', 'trip/IMG.jpg', rest_jpeg( 800, 600 ) ) );
+	$response = $controller->upload( rest_request( 'photos', 'trip/day-1/IMG.jpg', rest_jpeg( 800, 600 ) ) );
 
 	expect( $response->get_status() )->toBe( 200 );
-	expect( is_file( $path . '/trip/IMG.jpg.webp' ) )->toBeTrue();
+	expect( is_file( placed_dir( $path ) . '/trip/day-1/IMG.jpg.webp' ) )->toBeTrue();
 
 	rest_remove_tree( $basedir );
 } );
 
-test( 'a hostile relativePath is rejected and writes nothing', function ( string $hostile ): void {
+test( 'an upload to a collection with no folder hierarchy still nests under the template', function (): void {
 
-	// A traversal payload that would climb out of the collection root is rejected
-	// by Path_Guard, with nothing written anywhere — independent of any future
-	// template expansion.
+	// A bare filename (no client sub-path) lands directly under the expanded
+	// prefix — there is no flat-at-root placement, every Drop Zone upload nests
+	// under at least the template (ADR-0014).
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
 	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
-	$controller = new Upload_Controller( new Repository() );
+	$controller = fixed_clock_controller( new Repository() );
+
+	$controller->upload( rest_request( 'photos', 'loose.jpg', rest_jpeg( 800, 600 ) ) );
+
+	expect( is_file( placed_dir( $path ) . '/loose.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $path . '/loose.jpg.webp' ) )->toBeFalse();
+
+	rest_remove_tree( $basedir );
+} );
+
+test( 'the date segments use the site timezone, not UTC', function (): void {
+
+	// %year%/%month%/%day% come from the site timezone (a human-facing folder),
+	// not UTC. The frozen instant is 2024-06-16 12:00 UTC; in Pacific/Kiritimati
+	// (UTC+14) that is already 2024-06-17, so a UTC expansion would place the file
+	// under 06/16 and a correct site-timezone expansion under 06/17 (ADR-0014).
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	Functions\when( 'wp_timezone' )->justReturn( new \DateTimeZone( 'Pacific/Kiritimati' ) );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, '%year%/%month%/%day%' );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = fixed_clock_controller( new Repository() );
+
+	$controller->upload( rest_request( 'photos', 'IMG.jpg', rest_jpeg( 800, 600 ) ) );
+
+	// The site-timezone date (06/17) is used, never the UTC date (06/16).
+	expect( is_file( $path . '/2024/06/17/IMG.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $path . '/2024/06/16/IMG.jpg.webp' ) )->toBeFalse();
+
+	rest_remove_tree( $basedir );
+} );
+
+test( 'the uploader segment is the server-derived nicename, not a client value', function (): void {
+
+	// %uploader% is the authenticated user's nicename read server-side, so a
+	// client cannot spoof it. The current user's nicename is `field-photographer`;
+	// the client also sends a `uploader` form field, which must be ignored
+	// (ADR-0014).
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	Functions\when( 'wp_get_current_user' )->justReturn( new \WP_User( 7, 'field-photographer' ) );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, '%uploader%' );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = fixed_clock_controller( new Repository() );
+
+	$request = rest_request( 'photos', 'IMG.jpg', rest_jpeg( 800, 600 ) );
+	$request->set_param( 'uploader', 'attacker' );
+	$controller->upload( $request );
+
+	// The file lands under the server nicename, never under a client-named segment.
+	expect( is_file( $path . '/field-photographer/IMG.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $path . '/attacker/IMG.jpg.webp' ) )->toBeFalse();
+
+	rest_remove_tree( $basedir );
+} );
+
+test( 'the uploader segment falls back to the user id when the nicename is empty', function (): void {
+
+	// A user whose nicename is somehow empty still yields a non-empty, safe
+	// segment: the numeric id, prefixed so it reads as a folder rather than a bare
+	// number (ADR-0014).
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	Functions\when( 'wp_get_current_user' )->justReturn( new \WP_User( 42, '' ) );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, '%uploader%' );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = fixed_clock_controller( new Repository() );
+
+	$controller->upload( rest_request( 'photos', 'IMG.jpg', rest_jpeg( 800, 600 ) ) );
+
+	expect( is_file( $path . '/user-42/IMG.jpg.webp' ) )->toBeTrue();
+
+	rest_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Confinement — the assembled (prefix + client) path is Path_Guard-confined
+// ---------------------------------------------------------------------------
+
+test( 'a hostile relativePath is rejected and writes nothing', function ( string $hostile ): void {
+
+	// A traversal payload that would climb out of the collection root is rejected
+	// by Path_Guard once the expanded prefix and the client path are assembled,
+	// with nothing written anywhere — the realpath confinement is unchanged.
+	$basedir    = fresh_upload_basedir();
+	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
+	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
+	$controller = fixed_clock_controller( new Repository() );
 
 	$sanitize = capture_route_config( $controller )['args']['relativePath']['sanitize_callback'];
 	$response = $controller->upload( rest_request( 'photos', $sanitize( $hostile ), rest_jpeg( 400, 300 ) ) );
@@ -504,7 +652,8 @@ test( 'a hostile relativePath is rejected and writes nothing', function ( string
 	rest_remove_tree( $basedir );
 } )->with( [
 	'climb out of the collection root' => [ '../escape.jpg' ],
-	'deep traversal'                   => [ '../../../../etc/passwd.jpg' ],
+	'deep traversal'                   => [ '../../../../escape.jpg' ],
+	'climb out from the prefix tail'   => [ '../../../../../../escape.jpg' ],
 	'encoded traversal'                => [ '%2e%2e%2f%2e%2e%2fescape.jpg' ],
 	'double-encoded'                   => [ '%252e%252e%252fescape.jpg' ],
 ] );
