@@ -394,12 +394,13 @@ test( 'the capability gate honours the upload_capability filter', function (): v
 test( 'an over-ceiling JPEG POSTed directly is stored conforming as a downscaled WebP', function (): void {
 
 	// A 3000px JPEG bypassing the browser is downscaled to the 1920 ceiling and
-	// converted to WebP server-side; the outcome reports the re-encode.
+	// converted to WebP server-side; the outcome reports the re-encode. The stored
+	// main lands under the expanded default-template prefix (ADR-0014).
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
 	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 320, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
-	$controller = new Upload_Controller( new Repository() );
+	$controller = fixed_clock_controller( new Repository() );
 
 	$response = $controller->upload( rest_request( 'photos', 'IMG_2024.jpg', rest_jpeg( 3000, 1500 ) ) );
 
@@ -407,8 +408,8 @@ test( 'an over-ceiling JPEG POSTed directly is stored conforming as a downscaled
 	expect( $response->get_status() )->toBe( 200 );
 	expect( $response->get_data()['outcome'] )->toBe( 'reencoded' );
 	expect( $response->get_data()['storedName'] )->toBe( 'IMG_2024.jpg.webp' );
-	expect( is_file( $path . '/IMG_2024.jpg.webp' ) )->toBeTrue();
-	expect( (int) getimagesize( $path . '/IMG_2024.jpg.webp' )[0] )->toBe( 1920 );
+	expect( is_file( placed_dir( $path ) . '/IMG_2024.jpg.webp' ) )->toBeTrue();
+	expect( (int) getimagesize( placed_dir( $path ) . '/IMG_2024.jpg.webp' )[0] )->toBe( 1920 );
 
 	rest_remove_tree( $basedir );
 } );
@@ -416,19 +417,20 @@ test( 'an over-ceiling JPEG POSTed directly is stored conforming as a downscaled
 test( 'an already-conforming WebP POSTed directly is stored as-is with a stored outcome', function (): void {
 
 	// A WebP within the ceiling is accepted byte-for-byte (no second lossy pass),
-	// so the outcome is stored, not reencoded, and the name is not doubled.
+	// so the outcome is stored, not reencoded, and the name is not doubled. The
+	// stored bytes land under the expanded default-template prefix (ADR-0014).
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
 	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
 	$source     = rest_webp( 800, 600 );
-	$controller = new Upload_Controller( new Repository() );
+	$controller = fixed_clock_controller( new Repository() );
 
 	$response = $controller->upload( rest_request( 'photos', 'sunset.webp', $source ) );
 
 	expect( $response->get_data()['outcome'] )->toBe( 'stored' );
 	expect( $response->get_data()['storedName'] )->toBe( 'sunset.webp' );
-	expect( file_get_contents( $path . '/sunset.webp' ) )->toBe( $source );
+	expect( file_get_contents( placed_dir( $path ) . '/sunset.webp' ) )->toBe( $source );
 
 	rest_remove_tree( $basedir );
 } );
@@ -496,19 +498,19 @@ test( 'a hostile relativePath is rejected with nothing written outside the root'
 
 test( 'an accepted nested relativePath is confined inside the collection root', function (): void {
 
-	// A benign nested path recreates its sub-tree under the root and the realpath
-	// of the created directory stays inside the collection root.
+	// A benign nested path recreates its sub-tree under the expanded prefix and the
+	// realpath of the created directory stays inside the collection root.
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
 	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
-	$controller = new Upload_Controller( new Repository() );
+	$controller = fixed_clock_controller( new Repository() );
 
 	$response = $controller->upload( rest_request( 'photos', 'trip/day1/IMG.jpg', rest_jpeg( 1000, 800 ) ) );
 
 	expect( $response->get_status() )->toBe( 200 );
-	expect( is_file( $path . '/trip/day1/IMG.jpg.webp' ) )->toBeTrue();
-	expect( realpath( $path . '/trip/day1' ) )->toStartWith( realpath( $path ) );
+	expect( is_file( placed_dir( $path ) . '/trip/day1/IMG.jpg.webp' ) )->toBeTrue();
+	expect( realpath( placed_dir( $path ) . '/trip/day1' ) )->toStartWith( realpath( $path ) );
 
 	rest_remove_tree( $basedir );
 } );
@@ -701,20 +703,22 @@ test( 'a request with no uploaded file is a 400', function (): void {
 test( 'an existing path skips by default and reports the skipped outcome', function (): void {
 
 	// A first upload stores the main; a second to the same path skips it untouched
-	// (the default), so the bytes are unchanged and the outcome is skipped.
+	// (the default), so the bytes are unchanged and the outcome is skipped. The
+	// fixed clock keeps both uploads landing on the same expanded prefix, so the
+	// second genuinely collides with the first (ADR-0014).
 	$basedir    = fresh_upload_basedir();
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
 	$descriptor = new Descriptor( 'Photos', 1920, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
-	$controller = new Upload_Controller( new Repository() );
+	$controller = fixed_clock_controller( new Repository() );
 
 	$controller->upload( rest_request( 'photos', 'photo.jpg', rest_jpeg( 1000, 800 ) ) );
-	$after_first = file_get_contents( $path . '/photo.jpg.webp' );
+	$after_first = file_get_contents( placed_dir( $path ) . '/photo.jpg.webp' );
 	$second      = $controller->upload( rest_request( 'photos', 'photo.jpg', rest_jpeg( 1200, 900 ) ) );
 
 	expect( $second->get_status() )->toBe( 200 );
 	expect( $second->get_data()['outcome'] )->toBe( 'skipped' );
-	expect( file_get_contents( $path . '/photo.jpg.webp' ) )->toBe( $after_first );
+	expect( file_get_contents( placed_dir( $path ) . '/photo.jpg.webp' ) )->toBe( $after_first );
 
 	rest_remove_tree( $basedir );
 } );
@@ -731,14 +735,17 @@ test( 'the handler writes main plus derived renditions but never writes the inde
 	wire_upload_stubs( $basedir, nonce_ok: true, cap_ok: true );
 	$descriptor = new Descriptor( 'Photos', 1920, 80, 1280, 80, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
 	$path       = seed_upload_collection( $basedir, 'photos', $descriptor );
-	$controller = new Upload_Controller( new Repository() );
+	$controller = fixed_clock_controller( new Repository() );
 
 	$response = $controller->upload( rest_request( 'photos', 'photo.jpg', rest_jpeg( 2000, 1200 ) ) );
 
+	// The derived renditions and the (absent) index live in the hidden directory
+	// beside the main, under the expanded prefix (ADR-0014).
+	$thumbs = placed_dir( $path ) . '/' . Index::THUMBNAILS_DIRNAME;
 	expect( $response->get_data()['thumbnails'] )->toBe( 2 );
-	expect( is_file( $path . '/' . Index::THUMBNAILS_DIRNAME . '/1280/photo.jpg.webp' ) )->toBeTrue();
-	expect( is_file( $path . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
-	expect( is_file( $path . '/' . Index::THUMBNAILS_DIRNAME . '/' . Index::FILENAME ) )->toBeFalse();
+	expect( is_file( $thumbs . '/1280/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $thumbs . '/640/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $thumbs . '/' . Index::FILENAME ) )->toBeFalse();
 
 	rest_remove_tree( $basedir );
 } );
