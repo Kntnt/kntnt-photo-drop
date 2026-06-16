@@ -67,18 +67,18 @@ test( 'import stores a JPEG as a conforming <name>.jpg.webp main', function () u
 
 test( 'import generates the thumbnail under .kntnt-thumbnails/<width>/', function () use ( $slug, &$fixtures ): void {
 
-	// Import a fresh fixture, then demand one thumbnail per width recorded in
-	// the descriptor (the widths are filter-derived, so read, not assumed).
+	// Import a fresh fixture, then demand the thumbnail at the width recorded in
+	// the descriptor (the width defaults from its filter, so read, not assumed).
+	// The 1600px source is capped to the 1200 upload ceiling, so the main (1200)
+	// is wider than the default 640 thumbnail and a 640 thumbnail is written.
 	write_jpeg( "{$fixtures}/thumbed.jpg", 1600, 900 );
 	$result = import_images( $slug, [ to_container_path( "{$fixtures}/thumbed.jpg" ) ] );
 	expect( $result['exit_code'] )->toBe( 0 );
-	$widths = read_descriptor( $slug )['thumbnailWidths'];
-	expect( $widths )->not->toBeEmpty();
-	foreach ( $widths as $width ) {
-		$thumbnail = collection_path( $slug ) . "/.kntnt-thumbnails/{$width}/thumbed.jpg.webp";
-		expect( is_file( $thumbnail ) )->toBeTrue();
-		expect( getimagesize( $thumbnail )[0] )->toBe( $width );
-	}
+	$width = read_descriptor( $slug )['thumbnailWidth'];
+	expect( $width )->toBeGreaterThan( 0 );
+	$thumbnail = collection_path( $slug ) . "/.kntnt-thumbnails/{$width}/thumbed.jpg.webp";
+	expect( is_file( $thumbnail ) )->toBeTrue();
+	expect( getimagesize( $thumbnail )[0] )->toBe( $width );
 
 } );
 

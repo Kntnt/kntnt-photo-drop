@@ -33,17 +33,17 @@ test( 'collection create writes a valid descriptor with the given contract and n
 		create_collection( $slug, '1200', 70, 'Field Trip' );
 
 		// The descriptor on disk must carry the schema, the verbatim name, the
-		// exact contract, and a canonical (sorted positive ints) width list.
+		// immutable upload contract, and the re-derivable full/thumbnail renditions
+		// plus the default path-components template.
 		$descriptor = read_descriptor( $slug );
 		expect( $descriptor )->not->toBeNull();
 		expect( $descriptor['schema'] )->toBe( 1 );
 		expect( $descriptor['name'] )->toBe( 'Field Trip' );
-		expect( $descriptor['maxWidth'] )->toBe( 1200 );
-		expect( $descriptor['quality'] )->toBe( 70 );
-		expect( $descriptor['thumbnailWidths'] )->toBeArray();
-		foreach ( $descriptor['thumbnailWidths'] as $width ) {
-			expect( $width )->toBeInt()->toBeGreaterThan( 0 );
-		}
+		expect( $descriptor['uploadWidth'] )->toBe( 1200 );
+		expect( $descriptor['uploadQuality'] )->toBe( 70 );
+		expect( $descriptor['fullWidth'] )->toBeInt()->toBeGreaterThan( 0 );
+		expect( $descriptor['thumbnailWidth'] )->toBeInt()->toBeGreaterThan( 0 );
+		expect( $descriptor['pathComponents'] )->toBe( '%year%/%month%/%day%/%uploader%' );
 	} finally {
 		delete_collection( $slug );
 	}
@@ -94,11 +94,11 @@ test( 'collection update rejects an attempt to change the immutable contract', f
 	$slug = unique_slug();
 	try {
 
-		// The contract is immutable; passing a contract flag to update must
+		// The upload contract is immutable; passing an upload flag to update must
 		// fail hard and leave the descriptor untouched.
 		create_collection( $slug, '1200', 70 );
 		$before = read_descriptor( $slug );
-		$result = run_cli( [ 'kntnt-photo-drop', 'collection', 'update', $slug, '--name=X', '--max-width=999' ] );
+		$result = run_cli( [ 'kntnt-photo-drop', 'collection', 'update', $slug, '--name=X', '--upload-width=999' ] );
 		expect( $result['exit_code'] )->not->toBe( 0 );
 		expect( read_descriptor( $slug ) )->toBe( $before );
 
@@ -121,19 +121,25 @@ test( 'collection delete --yes removes the whole directory', function (): void {
 
 } );
 
-test( 'collection create requires --max-width and --quality', function (): void {
+test( 'collection create defaults every rendition flag when none is given', function (): void {
 
-	// The contract is irreversible, so create must refuse to default either
-	// flag: each omission exits non-zero and writes nothing to disk.
-	$slug    = unique_slug();
-	$missing = [
-		[ 'kntnt-photo-drop', 'collection', 'create', $slug, '--quality=70' ],
-		[ 'kntnt-photo-drop', 'collection', 'create', $slug, '--max-width=1200' ],
-	];
-	foreach ( $missing as $arguments ) {
-		$result = run_cli( $arguments );
-		expect( $result['exit_code'] )->not->toBe( 0 );
-		expect( is_dir( collection_path( $slug ) ) )->toBeFalse();
+	// Every rendition flag is optional and falls back to its filter (ADR-0013):
+	// a bare create succeeds and writes the documented defaults — an unbounded
+	// upload width (the source's own dimensions), upload quality 95, a 1920/85
+	// full, and a 640/75 thumbnail.
+	$slug = unique_slug();
+	try {
+
+		$result = run_cli( [ 'kntnt-photo-drop', 'collection', 'create', $slug ] );
+		expect( $result['exit_code'] )->toBe( 0 );
+		$descriptor = read_descriptor( $slug );
+		expect( $descriptor['uploadWidth'] )->toBeNull();
+		expect( $descriptor['uploadQuality'] )->toBe( 95 );
+		expect( $descriptor['fullWidth'] )->toBe( 1920 );
+		expect( $descriptor['thumbnailWidth'] )->toBe( 640 );
+
+	} finally {
+		delete_collection( $slug );
 	}
 
 } );

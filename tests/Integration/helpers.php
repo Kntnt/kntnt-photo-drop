@@ -383,17 +383,16 @@ function unique_slug(): string {
  *
  * Seeding is setup, not subject-under-test, so a failure here throws with the
  * CLI's own words instead of letting later assertions fail confusingly. The
- * uploader-folders placement rule is left at its default (on) unless the caller
- * passes `false`, which adds `--no-uploader-folders` so the collection lands
- * Drop Zone uploads at its root (ADR-0008).
+ * `$max_width` value seeds the immutable upload-width contract; the full and
+ * thumbnail renditions and the path-components template take their documented
+ * defaults (ADR-0013, ADR-0014).
  *
  * @since 0.3.0
  *
- * @param string      $slug             The collection slug.
- * @param string      $max_width        The contract ceiling in pixels, or "none".
- * @param int         $quality          The WebP quality (0–100).
- * @param string|null $name             Optional display name; null humanises the slug.
- * @param bool        $uploader_folders Whether Drop Zone uploads namespace per uploader.
+ * @param string      $slug      The collection slug.
+ * @param string      $max_width The upload-width ceiling in pixels, or "none".
+ * @param int         $quality   The upload WebP quality (0–100).
+ * @param string|null $name      Optional display name; null humanises the slug.
  * @throws \RuntimeException When the CLI refuses to create the collection.
  */
 function create_collection(
@@ -401,24 +400,20 @@ function create_collection(
 	string $max_width = '1200',
 	int $quality = 70,
 	?string $name = null,
-	bool $uploader_folders = true,
 ): void {
 
-	// Assemble the create command, adding --name only when the caller set one and
-	// the negation flag only when the placement rule is explicitly turned off.
+	// Assemble the create command from the immutable upload pair (the full and
+	// thumbnail renditions default), adding --name only when the caller set one.
 	$arguments = [
 		'kntnt-photo-drop',
 		'collection',
 		'create',
 		$slug,
-		"--max-width={$max_width}",
-		"--quality={$quality}",
+		"--upload-width={$max_width}",
+		"--upload-quality={$quality}",
 	];
 	if ( $name !== null ) {
 		$arguments[] = "--name={$name}";
-	}
-	if ( ! $uploader_folders ) {
-		$arguments[] = '--no-uploader-folders';
 	}
 
 	// Run it and surface any failure as a hard setup error.
@@ -433,25 +428,24 @@ function create_collection(
  * Creates a collection through the admin create form over HTTP.
  *
  * Drives the real `admin-post.php` create handler exactly as a browser would:
- * a logged-in admin session POSTs the nonce-protected create form, so the
- * uploader-folders checkbox travels the same superglobal path the page reads in
- * production. The checkbox is present only when ticked; omitting it models an
- * unchecked box, which the handler reads as "off" (ADR-0008). Returns nothing —
+ * a logged-in admin session POSTs the nonce-protected six-rendition create form.
+ * The `$max_width` value seeds the immutable upload-width contract (its radio
+ * picks the explicit pixel ceiling or "Original dimensions"); the full and
+ * thumbnail rendition fields are left blank so the handler defaults them, exactly
+ * as a builder who keeps the pre-filled values would submit. Returns nothing —
  * the caller asserts the resulting `collection.json` on disk.
  *
  * @since 0.5.0
  *
- * @param string $slug             The collection slug.
- * @param string $max_width        The contract ceiling in pixels, or "none".
- * @param int    $quality          The WebP quality (0–100).
- * @param bool   $uploader_folders Whether to tick the uploader-folders checkbox.
+ * @param string $slug      The collection slug.
+ * @param string $max_width The upload-width ceiling in pixels, or "none".
+ * @param int    $quality   The upload WebP quality (0–100).
  * @throws \RuntimeException When the admin POST does not establish the collection.
  */
 function create_collection_via_admin(
 	string $slug,
 	string $max_width = '1200',
 	int $quality = 70,
-	bool $uploader_folders = true,
 ): void {
 
 	// Mint a session and a matching admin-post nonce for the create action, the
@@ -459,21 +453,22 @@ function create_collection_via_admin(
 	$session = admin_session();
 	$nonce   = admin_post_nonce( $session['jar'], 'kntnt_photo_drop_create_collection' );
 
-	// Build the form fields. "none" selects the no-limit radio; any other width is
-	// the limit mode. The checkbox field is included only when it should be ticked,
-	// mirroring how an HTML checkbox submits nothing when unchecked.
+	// Build the form fields. "none" selects the "Original dimensions" radio; any
+	// other width is the limit mode. The full and thumbnail fields are left blank so
+	// the handler defaults each from its filter.
 	$fields = [
-		'action'         => 'kntnt_photo_drop_create_collection',
-		'_wpnonce'       => $nonce,
-		'slug'           => $slug,
-		'name'           => '',
-		'max_width_mode' => $max_width === 'none' ? 'none' : 'limit',
-		'max_width'      => $max_width === 'none' ? '' : $max_width,
-		'quality'        => (string) $quality,
+		'action'            => 'kntnt_photo_drop_create_collection',
+		'_wpnonce'          => $nonce,
+		'slug'              => $slug,
+		'name'              => '',
+		'upload_width_mode' => $max_width === 'none' ? 'none' : 'limit',
+		'upload_width'      => $max_width === 'none' ? '' : $max_width,
+		'upload_quality'    => (string) $quality,
+		'full_width'        => '',
+		'full_quality'      => '',
+		'thumbnail_width'   => '',
+		'thumbnail_quality' => '',
 	];
-	if ( $uploader_folders ) {
-		$fields['uploader_folders'] = '1';
-	}
 
 	// POST to admin-post.php with the session cookie; the handler redirects on
 	// completion, so the descriptor on disk — not the HTTP body — is the proof.

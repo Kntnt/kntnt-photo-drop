@@ -127,18 +127,14 @@ test.describe( 'Drop Zone upload', () => {
 			page.locator( '.kntnt-photo-drop-drop-zone__summary' )
 		).toHaveText( '1 uploaded · 0 skipped · 0 failed' );
 
-		// Server truth: the collection namespaces per uploader by default
-		// (ADR-0008), so the admin's upload is served from under the admin
-		// nicename folder, as WebP — never from the bare collection root.
+		// Server truth: until the pathComponents template is expanded
+		// server-side (issue #48), the upload lands at its source-relative path
+		// beneath the collection root and is served from there, as WebP.
 		const stored = await page.request.get(
-			storedImageUrl( slug, FIXTURE_ALPHA, 'admin' )
+			storedImageUrl( slug, FIXTURE_ALPHA )
 		);
 		expect( stored.ok() ).toBeTruthy();
 		expect( stored.headers()[ 'content-type' ] ).toContain( 'image/webp' );
-		const bare = await page.request.get(
-			storedImageUrl( slug, FIXTURE_ALPHA )
-		);
-		expect( bare.ok() ).toBeFalsy();
 	} );
 
 	test( 're-uploading the same file is skipped by name dedup', async ( {
