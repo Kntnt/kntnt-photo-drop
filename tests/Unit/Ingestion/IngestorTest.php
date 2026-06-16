@@ -115,6 +115,40 @@ function gd_ingestor( string $root, Descriptor $descriptor ): Ingestor {
 	return new Ingestor( $root, $descriptor, new Optimizer( $codec ), new Thumbnailer( $codec ) );
 }
 
+/**
+ * Builds a three-rendition descriptor, overriding individual fields.
+ *
+ * The upload pair fixes the contract (the main width and quality); the full and
+ * thumbnail pairs drive which derived files the ingestor writes (ADR-0013). The
+ * defaults make a wide main produce both a full (1280) and a thumbnail (320).
+ *
+ * @param array<string,mixed> $overrides Field overrides keyed by constructor parameter name.
+ * @return Descriptor The descriptor under test.
+ */
+function ingest_descriptor( array $overrides = [] ): Descriptor {
+	$fields = array_merge(
+		[
+			'upload_width'      => 1920,
+			'upload_quality'    => 80,
+			'full_width'        => 1280,
+			'full_quality'      => 80,
+			'thumbnail_width'   => 320,
+			'thumbnail_quality' => 75,
+		],
+		$overrides,
+	);
+	return new Descriptor(
+		'X',
+		$fields['upload_width'],
+		$fields['upload_quality'],
+		$fields['full_width'],
+		$fields['full_quality'],
+		$fields['thumbnail_width'],
+		$fields['thumbnail_quality'],
+		'%year%',
+	);
+}
+
 // ---------------------------------------------------------------------------
 // The four outcomes
 // ---------------------------------------------------------------------------
@@ -122,7 +156,7 @@ function gd_ingestor( string $root, Descriptor $descriptor ): Ingestor {
 test( 'an over-ceiling JPEG is stored as a downscaled WebP main with a reencoded outcome', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [ 320 ] );
+	$descriptor = ingest_descriptor();
 
 	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 3000, 1500 ), 'IMG_2024.jpg' );
 
@@ -139,7 +173,7 @@ test( 'an over-ceiling JPEG is stored as a downscaled WebP main with a reencoded
 test( 'an already-conforming WebP is stored byte-identical with a stored outcome', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = ingest_descriptor();
 	$source     = ingest_webp( 800, 600 );
 
 	$result = gd_ingestor( $root, $descriptor )->ingest( $source, 'sunset.webp' );
@@ -156,7 +190,7 @@ test( 'an already-conforming WebP is stored byte-identical with a stored outcome
 test( 'an existing target is skipped without overwrite and forced with it', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = ingest_descriptor();
 	$ingestor   = gd_ingestor( $root, $descriptor );
 
 	// First ingest writes the main; a second without overwrite must skip it
@@ -179,7 +213,7 @@ test( 'an existing target is skipped without overwrite and forced with it', func
 test( 'an undecodable source is rejected with nothing written', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = ingest_descriptor();
 
 	$result = gd_ingestor( $root, $descriptor )->ingest( 'not an image', 'broken.jpg' );
 
@@ -193,7 +227,7 @@ test( 'an undecodable source is rejected with nothing written', function (): voi
 test( 'a decompression bomb declaring huge dimensions is a per-file rejection, not a fatal', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = ingest_descriptor();
 
 	// A PNG header declaring 100000×100000 pixels with no body: the probe
 	// reports ten gigapixels, so the ingestion path must reject this one file
@@ -217,7 +251,7 @@ test( 'a decompression bomb declaring huge dimensions is a per-file rejection, n
 test( 'a relative path recreates its sub-directories confined inside the root', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = ingest_descriptor();
 
 	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 1000, 800 ), 'photos/2024/IMG.jpg' );
 
@@ -232,7 +266,7 @@ test( 'a relative path recreates its sub-directories confined inside the root', 
 test( 'a hostile traversal path is rejected and writes nothing outside the root', function ( string $hostile ): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [] );
+	$descriptor = ingest_descriptor();
 
 	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 800, 600 ), $hostile );
 
@@ -251,40 +285,42 @@ test( 'a hostile traversal path is rejected and writes nothing outside the root'
 ] );
 
 // ---------------------------------------------------------------------------
-// Thumbnails are derived; the index is never written
+// The full and thumbnail renditions are derived; the index is never written
 // ---------------------------------------------------------------------------
 
-test( 'ingestion derives thumbnails but never writes the index', function (): void {
+test( 'ingestion derives the full and thumbnail renditions but never writes the index', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [ 320, 640 ] );
+	$descriptor = ingest_descriptor();
 
 	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 2000, 1200 ), 'photo.jpg' );
 
-	// Both thumbnails are written under the hidden directory, but no index.json is
+	// The 2000px source is downscaled to the 1920 upload ceiling, so the main (1920)
+	// is wider than the 1280 full and the 1280 full wider than the 320 thumbnail:
+	// both derived files appear under the hidden directory, but no index.json is
 	// created — the index self-heals on the next gallery view (ADR-0006).
 	expect( $result->thumbnails )->toHaveCount( 2 );
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280/photo.jpg.webp' ) )->toBeTrue();
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp' ) )->toBeTrue();
-	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/' . Index::FILENAME ) )->toBeFalse();
 
 	ingest_remove_tree( $root );
 } );
 
 // ---------------------------------------------------------------------------
-// Mains and thumbnails are published atomically
+// Mains and derived renditions are published atomically
 // ---------------------------------------------------------------------------
 
-test( 'a stored main and its thumbnails leave no staging files behind', function (): void {
+test( 'a stored main and its derived renditions leave no staging files behind', function (): void {
 	wire_ingestor_stubs();
 	$root       = fresh_collection_root();
-	$descriptor = new Descriptor( 'X', 1920, 80, [ 320 ] );
+	$descriptor = ingest_descriptor();
 
 	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 1000, 800 ), 'photo.jpg' );
 
 	// The atomic writer stages every file as `<target>.tmp-<random>` beside its
-	// target; a clean ingest publishes the main and thumbnail and removes every
-	// staging file from both locations.
+	// target; a clean ingest publishes the main and its derived renditions and
+	// removes every staging file from both locations.
 	expect( $result->outcome )->toBe( Ingest_Outcome::Reencoded );
 	expect( glob( $root . '/*.tmp-*' ) )->toBe( [] );
 	expect( glob( $root . '/' . Index::THUMBNAILS_DIRNAME . '/*/*.tmp-*' ) )->toBe( [] );
