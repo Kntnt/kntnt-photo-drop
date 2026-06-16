@@ -76,14 +76,14 @@ final readonly class Overlay_Renderer {
 	 *
 	 * @since 0.11.0
 	 *
-	 * @param bool $lightbox Whether the gallery's lightbox is on (gates the full surface).
-	 * @param Overlay_Placement $breadcrumbs The breadcrumb overlay placement.
-	 * @param array<string,Overlay_Placement> $icons The action-icon placements, keyed by icon name.
-	 * @param int $hide_count The breadcrumb leading-crumb hide count.
-	 * @param string $separator The breadcrumb separator (free text).
-	 * @param string $breadcrumb_class The pre-escaped breadcrumb class (base + presets).
-	 * @param string $breadcrumb_style The pre-escaped breadcrumb inline style, or ''.
-	 * @param string $cluster_style The pre-escaped icon-cluster inline style (custom properties), or ''.
+	 * @param bool                            $lightbox Whether the lightbox is on (gates the full surface).
+	 * @param Overlay_Placement               $breadcrumbs The breadcrumb overlay placement.
+	 * @param array<string,Overlay_Placement> $icons The action-icon placements, keyed by name.
+	 * @param int                             $hide_count The breadcrumb leading-crumb hide count.
+	 * @param string                          $separator The breadcrumb separator (free text).
+	 * @param string                          $breadcrumb_class The pre-escaped breadcrumb class.
+	 * @param string                          $breadcrumb_style The pre-escaped breadcrumb style, or ''.
+	 * @param string                          $cluster_style The pre-escaped icon-cluster style, or ''.
 	 */
 	private function __construct(
 		private bool $lightbox,
