@@ -1,12 +1,13 @@
 /**
- * Gallery download end-to-end spec — the icon-only download trigger.
+ * Gallery download end-to-end spec — the download overlay (ADR-0015).
  *
- * A logged-out visitor exercises both download-on cells of the click matrix:
- * with the lightbox off, a click on the thumbnail image does nothing while a
- * click on the overlay icon saves the image — without navigating and without
- * opening a new tab (the regression this spec pins); with the lightbox on,
- * the icon lives inside the lightbox, a click on the enlarged image does
- * nothing, and only the icon click saves the current slide.
+ * A logged-out visitor exercises the download overlay on both surfaces: a
+ * thumbnail-visibility download icon with the lightbox off — a click on the
+ * thumbnail image does nothing while a click on the overlay icon saves the image
+ * without navigating and without opening a new tab (the regression this spec
+ * pins); and a full-visibility download icon with the lightbox on — the icon
+ * lives inside the lightbox, a click on the enlarged image does nothing, and
+ * only the icon click saves the current slide.
  *
  * @since 0.5.0
  */
@@ -39,17 +40,17 @@ test.describe( 'Gallery download', () => {
 		importFixture( slug, FIXTURE_ALPHA );
 		importFixture( slug, FIXTURE_BETA );
 
-		// One page per matrix cell with download on: lightbox off puts the icon
-		// on each thumbnail, lightbox on (the default) moves it into the lightbox.
+		// One page per surface: the download overlay on the thumbnail with the
+		// lightbox off, and on the lightbox ("full") with the lightbox on (default).
 		const thumbnailPage = await requestUtils.createPage( {
 			title: `E2E Download thumbnail ${ slug }`,
-			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","lightbox":false,"download":true} /-->`,
+			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","lightbox":false,"downloadVisibility":"thumbnail"} /-->`,
 			status: 'publish',
 		} );
 		thumbnailPageId = thumbnailPage.id;
 		const lightboxPage = await requestUtils.createPage( {
 			title: `E2E Download lightbox ${ slug }`,
-			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","download":true} /-->`,
+			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","downloadVisibility":"full"} /-->`,
 			status: 'publish',
 		} );
 		lightboxPageId = lightboxPage.id;
@@ -97,7 +98,7 @@ test.describe( 'Gallery download', () => {
 		// page neither navigates nor opens a tab while the file downloads.
 		const downloadPromise = page.waitForEvent( 'download' );
 		await page
-			.locator( '.kntnt-photo-drop-gallery__download' )
+			.locator( '.kntnt-photo-drop-gallery__icon--download' )
 			.first()
 			.click();
 		const download = await downloadPromise;

@@ -4,36 +4,18 @@
  * Mirrors the canonical schema in `block.json` and `docs/blocks.md`. The slug is
  * the only durable reference to a collection; everything else is presentation —
  * the start path and recursion that select which images render, the ordering, the
- * two layout modes and their knobs, the click behaviour (lightbox + download) and
- * the download-icon styling, and the caption settings. The interface is shared by
- * the edit component and the inspector panels so a single source of truth pins
- * every attribute's type.
+ * two layout modes and their knobs, the lightbox toggle, the slideshow trigger,
+ * and the unified overlay framework (ADR-0015): four overlays — breadcrumbs,
+ * download, add-to-media, trash — each with a visibility and a nine-point
+ * position, plus the breadcrumb's hide-count and separator and one shared icon
+ * size. The overlays' shared appearance (foreground/background, the breadcrumb
+ * font, per-image border/shadow) comes from the block-support panels via
+ * skip-serialization, not from bespoke attributes. The interface is shared by the
+ * edit component and the inspector panels so a single source of truth pins every
+ * attribute's type.
  *
  * @since 0.6.0
  */
-
-/**
- * The caption content modes: no caption, the filename, or a folder breadcrumb.
- *
- * @since 0.6.0
- */
-export type CaptionContent = 'none' | 'filename' | 'path';
-
-/**
- * The nine anchor points for the always-overlay caption.
- *
- * @since 0.6.0
- */
-export type CaptionAnchor =
-	| 'top-left'
-	| 'top-center'
-	| 'top-right'
-	| 'middle-left'
-	| 'middle-center'
-	| 'middle-right'
-	| 'bottom-left'
-	| 'bottom-center'
-	| 'bottom-right';
 
 /**
  * The two layout modes: a uniform grid (A) or justified rows (B).
@@ -52,14 +34,29 @@ export type GalleryLayout = 'grid' | 'justified';
 export type SlideshowTrigger = 'off' | 'button' | 'custom';
 
 /**
- * The nine anchor points for the overlay download icon.
+ * The four visibilities of an overlay (ADR-0015): nowhere, on the grid
+ * thumbnail, on the lightbox ("full") image, or on both. "Full" requires the
+ * lightbox to be on, and the slideshow never shows overlays.
  *
- * The same nine-point vocabulary as {@link CaptionAnchor}; kept a distinct alias
- * so the download icon's anchor reads as its own concept at every call site.
- *
- * @since 0.4.0
+ * @since 0.11.0
  */
-export type DownloadIconAnchor = CaptionAnchor;
+export type OverlayVisibility = 'off' | 'thumbnail' | 'full' | 'both';
+
+/**
+ * The nine anchor points an overlay can be positioned at.
+ *
+ * @since 0.11.0
+ */
+export type OverlayPosition =
+	| 'top-left'
+	| 'top-center'
+	| 'top-right'
+	| 'middle-left'
+	| 'middle-center'
+	| 'middle-right'
+	| 'bottom-left'
+	| 'bottom-center'
+	| 'bottom-right';
 
 /**
  * The persisted attributes of the Photo Gallery block.
@@ -93,38 +90,40 @@ export interface GalleryAttributes {
 	targetRowHeight: number;
 	/** Whether the Interactivity-API lightbox is wired (the no-JS fallback is always present). */
 	lightbox: boolean;
-	/** Whether clicking an image downloads the full main image (lightbox image when both are on). */
-	download: boolean;
-	/** The overlay download icon's size (a CSS length, e.g. `2rem`). */
-	downloadIconSize: string;
-	/** The overlay download icon's background colour (a CSS colour). */
-	downloadIconBackground: string;
-	/** The overlay download icon's foreground (glyph) colour (a CSS colour). */
-	downloadIconForeground: string;
-	/** The nine-point anchor that places the overlay download icon inside the image. */
-	downloadIconAnchor: DownloadIconAnchor;
 	/** The slideshow trigger mode: off, the built-in button, or a custom element (ADR-0009). */
 	slideshow: SlideshowTrigger;
 	/** The built-in slideshow button's label; `''` = the translated default. */
 	slideshowButtonLabel: string;
 	/** How long each slide stands fully visible, in whole seconds (≥ 1). */
 	slideshowSeconds: number;
+	/** Where the breadcrumbs overlay shows. */
+	breadcrumbsVisibility: OverlayVisibility;
+	/** The breadcrumbs overlay's nine-point position; its horizontal half also sets text alignment. */
+	breadcrumbsPosition: OverlayPosition;
+	/** How many leading crumbs to hide (`0` = all, the collection name first). */
+	breadcrumbsHideCount: number;
+	/** The breadcrumb separator (free text). */
+	breadcrumbsSeparator: string;
+	/** Where the download overlay shows. */
+	downloadVisibility: OverlayVisibility;
+	/** The download overlay's nine-point position. */
+	downloadPosition: OverlayPosition;
+	/** Where the add-to-media overlay shows (rendered front-end only for capable users). */
+	addToMediaVisibility: OverlayVisibility;
+	/** The add-to-media overlay's nine-point position. */
+	addToMediaPosition: OverlayPosition;
+	/** Where the trash overlay shows (rendered front-end only for capable users). */
+	trashVisibility: OverlayVisibility;
+	/** The trash overlay's nine-point position. */
+	trashPosition: OverlayPosition;
+	/** The shared size (a CSS length) of all three action icons, independent of the breadcrumb font. */
+	iconSize: string;
 	/**
 	 * The block's HTML anchor, injected by core's `supports.anchor` rather than
 	 * declared in `block.json`. A custom slideshow trigger targets the gallery
 	 * by this id (ADR-0009).
 	 */
 	anchor?: string;
-	/** The caption content mode. */
-	captionContent: CaptionContent;
-	/** Whether to humanise filenames and path segments. */
-	captionHumanize: boolean;
-	/** Whether a path breadcrumb is prefixed with the collection name. */
-	captionIncludeCollectionName: boolean;
-	/** The breadcrumb separator (free text). */
-	captionSeparator: string;
-	/** The nine-point anchor of the always-overlay caption. */
-	captionAnchor: CaptionAnchor;
 	/**
 	 * Render-time-only flag the editor sets on the `ServerSideRender` preview to
 	 * cap the figures and suppress the lightbox. It is never written through

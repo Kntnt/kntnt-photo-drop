@@ -5,7 +5,8 @@
  * The Gallery declares its colour, typography, border, and shadow supports with
  * `__experimentalSkipSerialization`, so WordPress does **not** write those values
  * onto the block wrapper — the block owns where they land (the core Image-block
- * pattern). Caption colour and typography belong on each `<figcaption>`; border
+ * pattern). The overlay colour and typography belong on the breadcrumb
+ * `<figcaption>` (and the colour pair is shared with the icon overlays); border
  * and shadow belong on each `<img>`. This helper is that projection: given the
  * block attributes, it slices out the right style subtree and the right preset
  * shorthand attributes for one sub-element and hands them to the core style
@@ -35,32 +36,36 @@ namespace Kntnt\Photo_Drop\Rendering;
  * Slices block-support style values for one gallery sub-element.
  *
  * A pure projection over the block attributes: it never touches the filesystem
- * and reaches WordPress only through the style engine. The two entry points map
- * to the two sub-elements the gallery styles — `caption()` for the figcaption
- * (colour + typography) and `image()` for each image (border + shadow) — and
- * each returns an `array{ style: string, class: string }` the renderer escapes
- * and emits. The two never overlap, so a caption never inherits a border and an
- * image never inherits the caption colour.
+ * and reaches WordPress only through the style engine. The entry points map to
+ * the gallery's styled sub-elements — `overlay()` for the breadcrumb figcaption
+ * (colour + typography), `image()` for each image (border + shadow), and
+ * `overlay_colors()` for the shared foreground/background the icon overlays carry
+ * as custom properties — each returning the inline style and classnames the
+ * renderer escapes and emits. They never overlap, so a breadcrumb never inherits
+ * a border and an image never inherits the overlay colour.
  *
  * @since 0.4.0
  */
 final class Block_Style_Support {
 
 	/**
-	 * Builds the inline style and preset classes for the caption sub-element.
+	 * Builds the inline style and preset classes for the breadcrumb overlay.
 	 *
 	 * Slices the colour (text, background, gradient) and the whole typography
 	 * subtree out of the attributes — both the custom values under `style` and the
 	 * preset shorthand attributes (`textColor`, `backgroundColor`, `gradient`,
 	 * `fontSize`, `fontFamily`) — and projects them through the style engine. The
-	 * result lands on each `<figcaption>`, never on the block wrapper.
+	 * result lands on the breadcrumb `<figcaption>`, never on the block wrapper.
 	 *
 	 * @since 0.4.0
+	 * @since 0.11.0 Renamed from `caption()`; the gallery's text overlay is now the
+	 *               breadcrumb (ADR-0015), but the colour/typography projection is
+	 *               unchanged.
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
-	 * @return array{style:string,class:string} The figcaption inline style and classnames.
+	 * @return array{style:string,class:string} The breadcrumb inline style and classnames.
 	 */
-	public static function caption( array $attributes ): array {
+	public static function overlay( array $attributes ): array {
 
 		// Start from the custom colour/typography subtrees, then fold in any preset
 		// shorthand the palette/font-size pickers wrote at the top level.
@@ -71,6 +76,47 @@ final class Block_Style_Support {
 		];
 
 		return self::project( $block_styles );
+
+	}
+
+	/**
+	 * Resolves the shared overlay foreground and background as raw CSS values.
+	 *
+	 * The action icons (download, add-to-media, trash) are CSS-masked glyphs that
+	 * share the Colour support's foreground (the text colour) and background, fed
+	 * to the icon cluster as the `--kntnt-photo-drop-overlay-fg` /
+	 * `--kntnt-photo-drop-overlay-bg` custom properties. Unlike {@see overlay()},
+	 * which hands the engine a subtree for a figcaption's `style`, the icons need
+	 * the two values as plain CSS lengths, so this resolves each: a custom value
+	 * verbatim, a palette preset rewritten to its `var( --wp--preset--color--… )`
+	 * reference. An unset colour yields the empty string so the renderer omits the
+	 * property and the stylesheet's own default overlay colour applies.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param array<string,mixed> $attributes The block attributes.
+	 * @return array{fg:string,bg:string} The resolved foreground and background, or `''`.
+	 */
+	public static function overlay_colors( array $attributes ): array {
+
+		// Reuse the same colour subtree the breadcrumb projection builds — custom
+		// values plus the palette presets as engine tokens — then resolve the text
+		// (foreground) and background entries to plain CSS values for the icons.
+		$style   = self::as_array( $attributes['style'] ?? null );
+		$colors  = self::color_subtree( $style, $attributes );
+		$resolve = static function ( mixed $value ): string {
+			if ( ! is_string( $value ) || $value === '' ) {
+				return '';
+			}
+			return preg_match( '/^var:preset\|color\|(.+)$/', $value, $matches ) === 1
+				? sprintf( 'var(--wp--preset--color--%s)', $matches[1] )
+				: $value;
+		};
+
+		return [
+			'fg' => $resolve( $colors['text'] ?? '' ),
+			'bg' => $resolve( $colors['background'] ?? '' ),
+		];
 
 	}
 

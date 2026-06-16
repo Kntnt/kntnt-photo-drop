@@ -6,18 +6,19 @@
  * creates or reconfigures a collection. This component owns the inspector — a
  * Collection panel (selector from the editor REST list, start-path control, and a
  * "this folder only" toggle), an Ordering panel, a Layout panel whose revealed
- * controls depend on the mode, a Captions panel whose controls reveal with the
- * content, a Click behaviour panel (the Lightbox and Download toggles plus the
- * download-icon styling that reveals with Download), and a Slideshow panel (the
- * three-state trigger choice with its mode-dependent controls; ADR-0009) — plus
- * an in-canvas
- * `ServerSideRender` preview, so the canvas shows the same markup `Render_Gallery`
- * emits on the frontend. The preview runs in editor-preview mode: it sends the
- * render-time-only `isEditorPreview` flag so the server caps the figures and
- * suppresses the lightbox (clicks stay inert; a collection of thousands never
- * floods the canvas). When there is nothing to render — no collection chosen, a
- * dangling slug, an empty collection, or while the preview loads — a grid of grey
- * placeholders stands in for the gallery rather than a bare notice.
+ * controls depend on the mode, a Lightbox panel, an Overlays panel (one control
+ * group per overlay — breadcrumbs, download, add-to-media, trash — each a
+ * visibility and a nine-point position, with the breadcrumb's hide-count and
+ * separator and one shared icon size, and the mutual band-exclusion between the
+ * breadcrumb and the icon positions; ADR-0015), and a Slideshow panel — plus an
+ * in-canvas `ServerSideRender` preview, so the canvas shows the same markup
+ * `Render_Gallery` emits on the frontend. The preview runs in editor-preview
+ * mode: it sends the render-time-only `isEditorPreview` flag so the server caps
+ * the figures and suppresses the lightbox (clicks stay inert; a collection of
+ * thousands never floods the canvas). When there is nothing to render — no
+ * collection chosen, a dangling slug, an empty collection, or while the preview
+ * loads — a grid of grey placeholders stands in for the gallery rather than a
+ * bare notice.
  *
  * The collection list comes from the editor-only endpoint
  * `kntnt-photo-drop/v1/collections` (gated by `edit_posts`), the same list the
@@ -26,11 +27,7 @@
  * @since 0.6.0
  */
 
-import {
-	useBlockProps,
-	InspectorControls,
-	PanelColorSettings,
-} from '@wordpress/block-editor';
+import { useBlockProps, InspectorControls } from '@wordpress/block-editor';
 import {
 	PanelBody,
 	SelectControl,
@@ -57,12 +54,12 @@ import type { JSX } from '@wordpress/element';
 
 import type {
 	GalleryAttributes,
-	CaptionContent,
-	CaptionAnchor,
-	DownloadIconAnchor,
 	GalleryLayout,
+	OverlayPosition,
+	OverlayVisibility,
 	SlideshowTrigger,
 } from './attributes';
+import { bandOf, disabledPositions, type OverlayBand } from './overlay-bands';
 
 /**
  * One collection as returned by the editor list endpoint.
@@ -138,16 +135,29 @@ function PreviewPlaceholders(): JSX.Element {
 }
 
 /**
- * The nine overlay anchor options, paired with their translated labels.
+ * The four overlay visibility options, paired with their translated labels.
  *
- * Shared by the caption anchor and the download-icon anchor — both use the same
- * nine-point vocabulary, so one option list drives both selects.
+ * @since 0.11.0
  *
- * @since 0.6.0
- *
- * @return The anchor select options.
+ * @return The visibility select options.
  */
-function anchorOptions(): { value: CaptionAnchor; label: string }[] {
+function visibilityOptions(): { value: OverlayVisibility; label: string }[] {
+	return [
+		{ value: 'off', label: __( 'Off', 'kntnt-photo-drop' ) },
+		{ value: 'thumbnail', label: __( 'Thumbnail', 'kntnt-photo-drop' ) },
+		{ value: 'full', label: __( 'Lightbox', 'kntnt-photo-drop' ) },
+		{ value: 'both', label: __( 'Both', 'kntnt-photo-drop' ) },
+	];
+}
+
+/**
+ * The nine position options, paired with their translated labels.
+ *
+ * @since 0.11.0
+ *
+ * @return The position select options.
+ */
+function positionOptions(): { value: OverlayPosition; label: string }[] {
 	return [
 		{ value: 'top-left', label: __( 'Top left', 'kntnt-photo-drop' ) },
 		{ value: 'top-center', label: __( 'Top centre', 'kntnt-photo-drop' ) },
@@ -180,6 +190,90 @@ function anchorOptions(): { value: CaptionAnchor; label: string }[] {
 }
 
 /**
+ * The props of one overlay's visibility + position control group.
+ *
+ * @since 0.11.0
+ */
+interface OverlayControlProps {
+	/** The control group's translated heading. */
+	readonly label: string;
+	/** The overlay's current visibility. */
+	readonly visibility: OverlayVisibility;
+	/** The overlay's current position. */
+	readonly position: OverlayPosition;
+	/** The positions disabled because the other overlays occupy their band. */
+	readonly disabled: readonly OverlayPosition[];
+	/** Commits a new visibility. */
+	readonly onVisibility: ( value: OverlayVisibility ) => void;
+	/** Commits a new position. */
+	readonly onPosition: ( value: OverlayPosition ) => void;
+	/** Optional extra controls (the breadcrumb's hide-count and separator). */
+	readonly children?: JSX.Element;
+}
+
+/**
+ * One overlay's inspector control group: a visibility select and a position
+ * select, the position options of any band-excluded position disabled.
+ *
+ * The position select is shown only when the overlay is not off (an off overlay
+ * has nowhere to sit), and a disabled position carries a note so the builder
+ * sees why a band is unavailable — the mutual band-exclusion between the
+ * breadcrumb and the icons (ADR-0015).
+ *
+ * @since 0.11.0
+ *
+ * @param props - The control group props.
+ * @return The control group markup.
+ */
+function OverlayControl( props: OverlayControlProps ): JSX.Element {
+	const { label, visibility, position, disabled, onVisibility, onPosition } =
+		props;
+	const isOff = visibility === 'off';
+	const options = positionOptions().map( ( option ) => ( {
+		...option,
+		disabled: disabled.includes( option.value ),
+		label: disabled.includes( option.value )
+			? /* translators: %s: a nine-point position label. */
+			  __( '%s (used by another overlay)', 'kntnt-photo-drop' ).replace(
+					'%s',
+					option.label
+			  )
+			: option.label,
+	} ) );
+
+	return (
+		<div className="kntnt-photo-drop-gallery-editor__overlay">
+			<p className="kntnt-photo-drop-gallery-editor__overlay-label">
+				{ label }
+			</p>
+			<SelectControl
+				__next40pxDefaultSize
+				__nextHasNoMarginBottom
+				label={ __( 'Show', 'kntnt-photo-drop' ) }
+				value={ visibility }
+				options={ visibilityOptions() }
+				onChange={ ( value: string ) =>
+					onVisibility( value as OverlayVisibility )
+				}
+			/>
+			{ ! isOff && (
+				<SelectControl
+					__next40pxDefaultSize
+					__nextHasNoMarginBottom
+					label={ __( 'Position', 'kntnt-photo-drop' ) }
+					value={ position }
+					options={ options }
+					onChange={ ( value: string ) =>
+						onPosition( value as OverlayPosition )
+					}
+				/>
+			) }
+			{ ! isOff && props.children }
+		</div>
+	);
+}
+
+/**
  * Edit component for the Photo Gallery block.
  *
  * Fetches the collection list, drives every inspector panel, and renders the
@@ -209,20 +303,21 @@ export function GalleryEdit( {
 		aspectRatio,
 		targetRowHeight,
 		lightbox,
-		download,
-		downloadIconSize,
-		downloadIconBackground,
-		downloadIconForeground,
-		downloadIconAnchor,
 		slideshow,
 		slideshowButtonLabel,
 		slideshowSeconds,
 		anchor,
-		captionContent,
-		captionHumanize,
-		captionIncludeCollectionName,
-		captionSeparator,
-		captionAnchor,
+		breadcrumbsVisibility,
+		breadcrumbsPosition,
+		breadcrumbsHideCount,
+		breadcrumbsSeparator,
+		downloadVisibility,
+		downloadPosition,
+		addToMediaVisibility,
+		addToMediaPosition,
+		trashVisibility,
+		trashPosition,
+		iconSize,
 	} = attributes;
 	const blockProps = useBlockProps( {
 		className: 'kntnt-photo-drop-gallery-editor',
@@ -283,7 +378,26 @@ export function GalleryEdit( {
 	}
 
 	const isGrid = layout === 'grid';
-	const isPath = captionContent === 'path';
+
+	// Resolve the mutual band-exclusion (ADR-0015). The breadcrumb occupies a whole
+	// band, so the bands the visible icon overlays occupy are excluded from the
+	// breadcrumb's position picker, and the band the visible breadcrumb occupies is
+	// excluded from each icon picker. An overlay turned off frees its band.
+	const iconBands: OverlayBand[] = [];
+	if ( downloadVisibility !== 'off' ) {
+		iconBands.push( bandOf( downloadPosition ) );
+	}
+	if ( addToMediaVisibility !== 'off' ) {
+		iconBands.push( bandOf( addToMediaPosition ) );
+	}
+	if ( trashVisibility !== 'off' ) {
+		iconBands.push( bandOf( trashPosition ) );
+	}
+	const breadcrumbDisabled = disabledPositions( iconBands );
+	const iconDisabled =
+		breadcrumbsVisibility !== 'off'
+			? disabledPositions( [ bandOf( breadcrumbsPosition ) ] )
+			: [];
 
 	return (
 		<div { ...blockProps }>
@@ -396,7 +510,7 @@ export function GalleryEdit( {
 							} )
 						}
 						help={ __(
-							'Images sort by their full path (natural order), so each folder stays together.',
+							'A pre-order tree traversal: a folder’s own images come before its sub-folders. Descending reverses within each level.',
 							'kntnt-photo-drop'
 						) }
 					/>
@@ -522,105 +636,7 @@ export function GalleryEdit( {
 				</PanelBody>
 
 				<PanelBody
-					title={ __( 'Captions', 'kntnt-photo-drop' ) }
-					initialOpen={ false }
-				>
-					<SelectControl
-						__next40pxDefaultSize
-						__nextHasNoMarginBottom
-						label={ __( 'Caption content', 'kntnt-photo-drop' ) }
-						value={ captionContent }
-						options={ [
-							{
-								value: 'none',
-								label: __( 'None', 'kntnt-photo-drop' ),
-							},
-							{
-								value: 'filename',
-								label: __( 'Filename', 'kntnt-photo-drop' ),
-							},
-							{
-								value: 'path',
-								label: __(
-									'Path breadcrumb',
-									'kntnt-photo-drop'
-								),
-							},
-						] }
-						onChange={ ( value: string ) =>
-							setAttributes( {
-								captionContent: value as CaptionContent,
-							} )
-						}
-					/>
-					{ captionContent !== 'none' && (
-						<>
-							<ToggleControl
-								__nextHasNoMarginBottom
-								label={ __( 'Humanise', 'kntnt-photo-drop' ) }
-								checked={ captionHumanize }
-								onChange={ ( value: boolean ) =>
-									setAttributes( { captionHumanize: value } )
-								}
-								help={ __(
-									'Strip the extension and turn separators into spaces.',
-									'kntnt-photo-drop'
-								) }
-							/>
-							{ isPath && (
-								<>
-									<ToggleControl
-										__nextHasNoMarginBottom
-										label={ __(
-											'Include collection name',
-											'kntnt-photo-drop'
-										) }
-										checked={ captionIncludeCollectionName }
-										onChange={ ( value: boolean ) =>
-											setAttributes( {
-												captionIncludeCollectionName:
-													value,
-											} )
-										}
-									/>
-									<TextControl
-										__next40pxDefaultSize
-										__nextHasNoMarginBottom
-										label={ __(
-											'Separator',
-											'kntnt-photo-drop'
-										) }
-										value={ captionSeparator }
-										onChange={ ( value: string ) =>
-											setAttributes( {
-												captionSeparator: value,
-											} )
-										}
-									/>
-								</>
-							) }
-							<SelectControl
-								__next40pxDefaultSize
-								__nextHasNoMarginBottom
-								label={ __( 'Anchor', 'kntnt-photo-drop' ) }
-								value={ captionAnchor }
-								options={ anchorOptions() }
-								onChange={ ( value: string ) =>
-									setAttributes( {
-										captionAnchor: value as CaptionAnchor,
-									} )
-								}
-								help={ __(
-									'The caption sits over the image; the anchor places it. Set its colour and font under the Color and Typography panels, and per-image borders and shadow under Border.',
-									'kntnt-photo-drop'
-								) }
-							/>
-						</>
-					) }
-				</PanelBody>
-
-				<PanelBody
-					title={ __( 'Click behaviour', 'kntnt-photo-drop' ) }
+					title={ __( 'Lightbox', 'kntnt-photo-drop' ) }
 					initialOpen={ false }
 				>
 					<ToggleControl
@@ -631,95 +647,128 @@ export function GalleryEdit( {
 							setAttributes( { lightbox: value } )
 						}
 						help={ __(
-							'When on, clicking an image opens it in a modal viewer. A no-JS link to the full image is always present.',
+							'When on, clicking an image opens it in a modal viewer and gates the “Lightbox” overlay surface. A no-JS link to the full image is always present.',
 							'kntnt-photo-drop'
 						) }
 					/>
-					<ToggleControl
-						__nextHasNoMarginBottom
-						label={ __( 'Download', 'kntnt-photo-drop' ) }
-						checked={ download }
-						onChange={ ( value: boolean ) =>
-							setAttributes( { download: value } )
+				</PanelBody>
+
+				<PanelBody
+					title={ __( 'Overlays', 'kntnt-photo-drop' ) }
+					initialOpen={ false }
+				>
+					<OverlayControl
+						label={ __( 'Breadcrumbs', 'kntnt-photo-drop' ) }
+						visibility={ breadcrumbsVisibility }
+						position={ breadcrumbsPosition }
+						disabled={ breadcrumbDisabled }
+						onVisibility={ ( value ) =>
+							setAttributes( { breadcrumbsVisibility: value } )
 						}
-						help={
-							lightbox
-								? __(
-										'When on, a download icon appears inside the lightbox and clicking the enlarged image downloads the full image.',
-										'kntnt-photo-drop'
-								  )
-								: __(
-										'When on, a download icon overlays each image and clicking it downloads the full image.',
-										'kntnt-photo-drop'
-								  )
+						onPosition={ ( value ) =>
+							setAttributes( { breadcrumbsPosition: value } )
 						}
-					/>
-					{ download && (
+					>
 						<>
-							<UnitControl
+							<NumberControl
 								__next40pxDefaultSize
 								label={ __(
-									'Download icon size',
+									'Hide first N crumbs',
 									'kntnt-photo-drop'
 								) }
-								value={ downloadIconSize }
-								onChange={ ( value: string | undefined ) =>
+								value={ breadcrumbsHideCount }
+								min={ 0 }
+								step={ 1 }
+								onChange={ (
+									value: string | number | undefined
+								) => {
+									const parsed =
+										typeof value === 'number'
+											? value
+											: parseInt( value ?? '', 10 );
 									setAttributes( {
-										downloadIconSize: value ?? '2rem',
-									} )
-								}
+										breadcrumbsHideCount:
+											Number.isFinite( parsed ) &&
+											parsed >= 0
+												? Math.trunc( parsed )
+												: 0,
+									} );
+								} }
+								help={ __(
+									'0 shows all, starting with the collection name; 1 hides the collection name; 2 hides it and the next crumb.',
+									'kntnt-photo-drop'
+								) }
 							/>
-							<SelectControl
+							<TextControl
 								__next40pxDefaultSize
 								__nextHasNoMarginBottom
-								label={ __(
-									'Download icon anchor',
-									'kntnt-photo-drop'
-								) }
-								value={ downloadIconAnchor }
-								options={ anchorOptions() }
+								label={ __( 'Separator', 'kntnt-photo-drop' ) }
+								value={ breadcrumbsSeparator }
 								onChange={ ( value: string ) =>
 									setAttributes( {
-										downloadIconAnchor:
-											value as DownloadIconAnchor,
+										breadcrumbsSeparator: value,
 									} )
 								}
 							/>
-							<PanelColorSettings
-								__experimentalIsRenderedInSidebar
-								title={ __(
-									'Download icon colours',
-									'kntnt-photo-drop'
-								) }
-								colorSettings={ [
-									{
-										value: downloadIconBackground,
-										onChange: ( value?: string ) =>
-											setAttributes( {
-												downloadIconBackground:
-													value ?? '#00000080',
-											} ),
-										label: __(
-											'Background',
-											'kntnt-photo-drop'
-										),
-									},
-									{
-										value: downloadIconForeground,
-										onChange: ( value?: string ) =>
-											setAttributes( {
-												downloadIconForeground:
-													value ?? '#ffffff',
-											} ),
-										label: __(
-											'Foreground',
-											'kntnt-photo-drop'
-										),
-									},
-								] }
-							/>
 						</>
-					) }
+					</OverlayControl>
+
+					<OverlayControl
+						label={ __( 'Download', 'kntnt-photo-drop' ) }
+						visibility={ downloadVisibility }
+						position={ downloadPosition }
+						disabled={ iconDisabled }
+						onVisibility={ ( value ) =>
+							setAttributes( { downloadVisibility: value } )
+						}
+						onPosition={ ( value ) =>
+							setAttributes( { downloadPosition: value } )
+						}
+					/>
+
+					<OverlayControl
+						label={ __(
+							'Add to Media Library',
+							'kntnt-photo-drop'
+						) }
+						visibility={ addToMediaVisibility }
+						position={ addToMediaPosition }
+						disabled={ iconDisabled }
+						onVisibility={ ( value ) =>
+							setAttributes( { addToMediaVisibility: value } )
+						}
+						onPosition={ ( value ) =>
+							setAttributes( { addToMediaPosition: value } )
+						}
+					/>
+
+					<OverlayControl
+						label={ __( 'Trash', 'kntnt-photo-drop' ) }
+						visibility={ trashVisibility }
+						position={ trashPosition }
+						disabled={ iconDisabled }
+						onVisibility={ ( value ) =>
+							setAttributes( { trashVisibility: value } )
+						}
+						onPosition={ ( value ) =>
+							setAttributes( { trashPosition: value } )
+						}
+					/>
+
+					<UnitControl
+						__next40pxDefaultSize
+						label={ __( 'Icon size', 'kntnt-photo-drop' ) }
+						value={ iconSize }
+						onChange={ ( value: string | undefined ) =>
+							setAttributes( { iconSize: value ?? '2rem' } )
+						}
+					/>
+					<p className="kntnt-photo-drop-gallery-editor__hint">
+						{ __(
+							'The overlays share one foreground and background from the Color panel and the breadcrumb font from Typography; per-image borders and shadow come from Border. Add to Media and Trash appear on the published page only for users who can use them.',
+							'kntnt-photo-drop'
+						) }
+					</p>
 				</PanelBody>
 
 				<PanelBody
@@ -844,8 +893,8 @@ export function GalleryEdit( {
 					// Wrap the server-rendered preview in Disabled (core's own pattern
 					// for SSR blocks, e.g. latest-posts) so a click on a preview
 					// thumbnail never navigates the editor canvas — clicking an image
-					// in the editor does nothing (#32/#34). The placeholders are
-					// already interactivity-free.
+					// in the editor does nothing. The placeholders are already
+					// interactivity-free.
 					<Disabled>
 						<ServerSideRender
 							block="kntnt-photo-drop/gallery"
