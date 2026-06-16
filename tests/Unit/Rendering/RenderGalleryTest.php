@@ -1151,6 +1151,51 @@ test( 'the dangling notice is gated on the edit_posts capability specifically', 
 	gallery_remove_tree( $basedir );
 } );
 
+test( 'the editor notice capability is filterable: a custom capability opens the notice', function (): void {
+
+	// Re-gate the notice through its dedicated filter to a bespoke capability the
+	// user holds, while denying every WordPress-standard one (edit_posts
+	// included). The notice can therefore only appear because the gate consulted
+	// the filtered capability rather than the hardcoded default.
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir );
+	Functions\when( 'apply_filters' )->alias(
+		static fn ( string $hook, mixed $value ): mixed => $hook === 'kntnt_photo_drop_editor_notice_capability' ? 'manage_collections' : $value
+	);
+	Functions\when( 'current_user_can' )->alias(
+		static fn ( string $capability ): bool => $capability === 'manage_collections'
+	);
+
+	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
+
+	// The bespoke-capability holder sees the broken-reference notice.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery--notice' );
+	expect( $html )->toContain( 'no collection selected' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor notice capability is filterable: edit_posts no longer opens the notice once re-gated', function (): void {
+
+	// Re-gate the notice to a bespoke capability the user lacks, while granting
+	// the default edit_posts. If the gate still honoured the old hardcoded
+	// capability the notice would leak; the filter must shut it.
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir );
+	Functions\when( 'apply_filters' )->alias(
+		static fn ( string $hook, mixed $value ): mixed => $hook === 'kntnt_photo_drop_editor_notice_capability' ? 'manage_collections' : $value
+	);
+	Functions\when( 'current_user_can' )->alias(
+		static fn ( string $capability ): bool => $capability === 'edit_posts'
+	);
+
+	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
+
+	expect( $html )->toBe( '' );
+
+	gallery_remove_tree( $basedir );
+} );
+
 test( 'an unset collection renders nothing for the public', function (): void {
 
 	$basedir = fresh_gallery_basedir();
