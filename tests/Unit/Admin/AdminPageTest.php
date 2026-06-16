@@ -983,7 +983,7 @@ test( 'unique_slug_default sanitises the display name into a slug', function ():
 	admin_remove_tree( $basedir );
 } );
 
-test( 'unique_slug_default suffixes from -2 against existing slugs', function ( array $existing, string $expected ): void {
+test( 'unique_slug_default suffixes from -2 against existing', function ( array $existing, string $expected ): void {
 	$basedir = fresh_admin_basedir();
 	wire_admin_stubs( $basedir );
 	$page = new Admin_Page( new Repository() );
@@ -994,10 +994,10 @@ test( 'unique_slug_default suffixes from -2 against existing slugs', function ( 
 
 	admin_remove_tree( $basedir );
 } )->with( [
-	'base taken'              => [ [ 'spring' ], 'spring-2' ],
-	'base and -2 taken'       => [ [ 'spring', 'spring-2' ], 'spring-3' ],
+	'base taken'               => [ [ 'spring' ], 'spring-2' ],
+	'base and -2 taken'        => [ [ 'spring', 'spring-2' ], 'spring-3' ],
 	'gap below a taken suffix' => [ [ 'spring', 'spring-3' ], 'spring-2' ],
-	'unrelated slugs ignored' => [ [ 'summer', 'autumn' ], 'spring' ],
+	'unrelated slugs ignored'  => [ [ 'summer', 'autumn' ], 'spring' ],
 ] );
 
 test( 'handle_create with a blank slug establishes the collection at the auto-suffixed default', function (): void {
@@ -1108,7 +1108,7 @@ test( 'handle_create rejects a typed colliding slug instead of auto-suffixing it
 // Create form — slug optional with a live default placeholder + ⚠️ markers (#50)
 // ---------------------------------------------------------------------------
 
-test( 'the create form makes the slug optional and exposes the existing slugs for the on-blur default', function (): void {
+test( 'the create form makes the slug optional and exposes the existing slugs', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_render_stubs( $basedir );
 
@@ -1127,10 +1127,12 @@ test( 'the create form makes the slug optional and exposes the existing slugs fo
 	( new Admin_Page( new Repository() ) )->render_page();
 	$html = (string) ob_get_clean();
 
-	// The slug input is no longer `required`, and the name + slug fields carry the
-	// data hooks the on-blur script reads, with the existing slugs rendered so the
-	// client can compute a unique default without a round-trip.
-	expect( $html )->not->toContain( 'name="slug" id="kntnt-photo-drop-slug" type="text" class="regular-text" required' );
+	// The slug input is present but no longer carries a `required` attribute, so a
+	// blank slug submits; the name + slug fields carry the data hooks the on-blur
+	// script reads, with the existing slugs rendered so the client can compute a
+	// unique default without a round-trip.
+	expect( $html )->toContain( 'name="slug"' );
+	expect( $html )->not->toContain( ' required' );
 	expect( $html )->toContain( 'data-kntnt-photo-drop-slug-input' );
 	expect( $html )->toContain( 'data-kntnt-photo-drop-name-input' );
 	expect( $html )->toContain( 'data-kntnt-photo-drop-existing-slugs' );

@@ -116,6 +116,19 @@ final class Admin_Page {
 	private const REGENERATE_HANDLE = 'kntnt-photo-drop-regenerate';
 
 	/**
+	 * The script handle for the Create page's slug on-blur default.
+	 *
+	 * Enqueued on the Create view only and built by `@wordpress/scripts` into
+	 * `build/admin/slug.js`. It previews the unique `sanitize_title` default in the
+	 * optional Slug field's placeholder, refreshed on-blur of the Display name; the
+	 * server resolves and re-verifies the same default at submit (blocks.md "Create").
+	 *
+	 * @since 0.12.0
+	 * @var string
+	 */
+	private const SLUG_HANDLE = 'kntnt-photo-drop-slug';
+
+	/**
 	 * The literal "Upload width" form value that maps to "source dimensions" (`null`).
 	 *
 	 * The upload contract is irreversible, so the width must be stated explicitly;
@@ -269,13 +282,16 @@ final class Admin_Page {
 		wp_add_inline_script( self::PREVIEW_HANDLE, $this->preview_config_script(), 'before' );
 		wp_add_inline_script( self::PREVIEW_HANDLE, $this->preview_script() );
 
-		// On the Edit view only, enqueue the browser-driven regenerate script that
-		// drives the manage-gated re-derive endpoint (ADR-0013); other views never need
-		// it. The action is a read-only navigational query var (the state-changing POSTs
-		// are nonce-checked in their own handlers).
+		// Each view enqueues only the built script it needs (the action is a read-only
+		// navigational query var; the state-changing POSTs are nonce-checked in their
+		// own handlers): the Edit view drives the manage-gated re-derive endpoint
+		// (ADR-0013), and the Create view previews the slug default on-blur.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only view routing; no state change.
-		if ( $this->read_string( $_GET, 'action' ) === 'edit' ) {
+		$action = $this->read_string( $_GET, 'action' );
+		if ( $action === 'edit' ) {
 			$this->enqueue_regenerate_script();
+		} elseif ( $action === 'create' ) {
+			$this->enqueue_built_admin_script( self::SLUG_HANDLE, 'slug' );
 		}
 
 	}
@@ -283,50 +299,77 @@ final class Admin_Page {
 	/**
 	 * Enqueues the built regenerate script and hands it the REST root.
 	 *
-	 * Loads `build/admin/regenerate.js` (built by `@wordpress/scripts`) with the
-	 * dependencies its generated asset manifest records, then localises the REST root
-	 * onto the page so the script can address the regenerate route under any permalink
-	 * structure (the per-collection `wp_rest` nonce travels on the host element's data
-	 * attribute, not here). A missing build file (an un-built checkout) simply enqueues
-	 * nothing, so the page degrades to read-only rendition fields rather than erroring.
+	 * Loads `build/admin/regenerate.js` through the shared built-asset enqueuer, then —
+	 * when it actually enqueued — localises the REST root onto the page so the script
+	 * can address the regenerate route under any permalink structure (the per-collection
+	 * `wp_rest` nonce travels on the host element's data attribute, not here). A missing
+	 * build file (an un-built checkout) enqueues nothing, so the page degrades to
+	 * read-only rendition fields rather than erroring.
 	 *
 	 * @since 0.11.0
 	 */
 	private function enqueue_regenerate_script(): void {
 
-		// Resolve the built asset and its manifest; an un-built checkout has neither, so
-		// the regenerate UI is simply inert rather than fatal.
-		$plugin_dir = plugin_dir_path( Plugin::get_plugin_file() );
-		$asset_file = $plugin_dir . 'build/admin/regenerate.asset.php';
-		if ( ! is_file( $asset_file ) ) {
+		// Enqueue the built script; only when that succeeded is the REST root worth
+		// localising, since an un-built checkout enqueued nothing to localise onto.
+		if ( ! $this->enqueue_built_admin_script( self::REGENERATE_HANDLE, 'regenerate' ) ) {
 			return;
 		}
-		$asset = require $asset_file;
-		if ( ! is_array( $asset ) ) {
-			return;
-		}
-
-		// Enqueue the script with the manifest's dependencies and content-hash version,
-		// then expose the REST root so the script builds an absolute route URL. The
-		// dependency list is coerced to a string array since the manifest is typed loose.
-		$dependencies = array_values( array_filter(
-			is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [],
-			'is_string',
-		) );
-		$version = is_string( $asset['version'] ?? null ) ? $asset['version'] : null;
-		wp_enqueue_script(
-			self::REGENERATE_HANDLE,
-			plugins_url( 'build/admin/regenerate.js', Plugin::get_plugin_file() ),
-			$dependencies,
-			$version,
-			true,
-		);
 		$rest_config = wp_json_encode( [ 'root' => esc_url_raw( rest_url() ) ] );
 		wp_add_inline_script(
 			self::REGENERATE_HANDLE,
 			'window.wpApiSettings = window.wpApiSettings || ' . $rest_config . ';',
 			'before',
 		);
+
+	}
+
+	/**
+	 * Enqueues one built admin script from its `@wordpress/scripts` asset manifest.
+	 *
+	 * Shared by the Edit-view regenerate UI and the Create-view slug default: it reads
+	 * `build/admin/<name>.asset.php` for the script's dependencies and content-hash
+	 * version and enqueues `build/admin/<name>.js` in the footer. A missing or
+	 * malformed manifest (an un-built checkout) enqueues nothing and returns `false`, so
+	 * every caller degrades to a server that re-validates everything rather than
+	 * erroring. The dependency list is coerced to a string array since the manifest is
+	 * typed loose.
+	 *
+	 * @since 0.12.0
+	 *
+	 * @param string $handle The script handle to register under.
+	 * @param string $name   The build basename under `build/admin/` (no extension).
+	 * @return bool True when the script was enqueued.
+	 */
+	private function enqueue_built_admin_script( string $handle, string $name ): bool {
+
+		// Resolve the built asset and its manifest; an un-built checkout has neither, so
+		// the script is simply not enqueued.
+		$plugin_dir = plugin_dir_path( Plugin::get_plugin_file() );
+		$asset_file = $plugin_dir . "build/admin/{$name}.asset.php";
+		if ( ! is_file( $asset_file ) ) {
+			return false;
+		}
+		$asset = require $asset_file;
+		if ( ! is_array( $asset ) ) {
+			return false;
+		}
+
+		// Enqueue the script with the manifest's dependencies and content-hash version.
+		$dependencies = array_values( array_filter(
+			is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [],
+			'is_string',
+		) );
+		$version = is_string( $asset['version'] ?? null ) ? $asset['version'] : null;
+		wp_enqueue_script(
+			$handle,
+			plugins_url( "build/admin/{$name}.js", Plugin::get_plugin_file() ),
+			$dependencies,
+			$version,
+			true,
+		);
+
+		return true;
 
 	}
 
@@ -400,10 +443,11 @@ final class Admin_Page {
 	 * Handles the create-collection form POST.
 	 *
 	 * Wired to `admin_post_{ACTION_CREATE}`. Verifies the capability and the
-	 * nonce, reads and sanitises the four fields from `$_POST`, then delegates
-	 * the decision logic to `create_collection()`. Always ends by redirecting
-	 * back to the list with a queued notice, so the page follows the
-	 * post/redirect/get pattern and never re-submits on refresh.
+	 * nonce, reads and sanitises the fields from `$_POST`, resolves a blank
+	 * (optional) slug to its unique `sanitize_title` default suffixed against the
+	 * slugs in use, then delegates the decision logic to `create_collection()`.
+	 * Always ends by redirecting back to the list with a queued notice, so the page
+	 * follows the post/redirect/get pattern and never re-submits on refresh.
 	 *
 	 * @since 0.5.0
 	 */
@@ -436,6 +480,15 @@ final class Admin_Page {
 			'thumbnail-quality' => $this->read_string( $_POST, 'thumbnail_quality' ),
 		];
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		// A blank slug field is optional: resolve it to the unique sanitize_title
+		// default of the name, suffixed against the slugs in use so it never collides
+		// (the placeholder previews the same value on-blur). A *typed* slug passes
+		// through untouched, so a typed collision still surfaces as the create error
+		// below rather than being silently auto-suffixed.
+		if ( $slug === '' ) {
+			$slug = $this->unique_slug_default( $name, array_keys( $this->repository->discover() ) );
+		}
 
 		// Run the decision logic and redirect back to the list with its notice.
 		$this->create_collection( $slug, $name, $renditions, $path_components );
@@ -506,21 +559,48 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Computes the unique slug a blank slug field defaults to (RED stub).
+	 * Computes the unique slug a blank Slug field defaults to.
 	 *
-	 * Replaced by the real implementation in the GREEN step; for now it returns the
-	 * empty string so the suffix tests fail with a real assertion failure rather than
-	 * an undefined-method fatal.
+	 * The Create form's Slug field is optional: a blank field falls back to the
+	 * `sanitize_title` of the display name, made unique against the slugs already in
+	 * use by appending the lowest free numeric suffix from `-2` (never `-1`) — the
+	 * same scheme the on-blur placeholder previews client-side, with the server the
+	 * authority (blocks.md "Create"). A name that slugifies to nothing yields the
+	 * empty string, so the caller can reject a blank slug that has no base to default
+	 * from rather than write an empty-named directory. Pure: the existing slugs are
+	 * passed in, so the unit tests drive it over plain arrays.
 	 *
 	 * @since 0.12.0
 	 *
 	 * @param string            $name           The display name to derive the slug from.
 	 * @param array<int,string> $existing_slugs The slugs already in use.
-	 * @return string The unique default slug.
+	 * @return string The unique default slug, or '' when the name slugifies to nothing.
 	 */
 	public function unique_slug_default( string $name, array $existing_slugs ): string {
-		unset( $name, $existing_slugs );
-		return '';
+
+		// Slugify the display name; an empty base means there is nothing to default
+		// from, so the caller must demand a typed slug instead.
+		$base = sanitize_title( $name );
+		if ( $base === '' ) {
+			return '';
+		}
+
+		// The bare base wins when it is free; a flip set makes the membership test
+		// O(1) regardless of how many collections exist.
+		$taken = array_flip( $existing_slugs );
+		if ( ! isset( $taken[ $base ] ) ) {
+			return $base;
+		}
+
+		// Otherwise append the lowest free numeric suffix from -2 upward, advancing
+		// past every taken candidate in turn.
+		$suffix = 2;
+		while ( isset( $taken[ "{$base}-{$suffix}" ] ) ) {
+			++$suffix;
+		}
+
+		return "{$base}-{$suffix}";
+
 	}
 
 	/**
@@ -1105,14 +1185,17 @@ final class Admin_Page {
 	/**
 	 * Renders the create-collection form.
 	 *
-	 * The GUI counterpart of `collection create`: a slug, an optional display name,
-	 * the mutable placement template (with a live expanded-path preview), and the
-	 * six rendition fields — the immutable upload width/quality contract and the
-	 * re-derivable full and thumbnail width/quality pairs — each pre-filled from its
-	 * `kntnt_photo_drop_default_*` filter via `Rendition_Defaults`. The upload width
-	 * offers an explicit "Original dimensions" choice. There is deliberately no
-	 * format field (always WebP). A prominent irreversibility warning sits above the
-	 * two upload-contract fields only.
+	 * The GUI counterpart of `collection create`: an optional display name, an
+	 * optional slug (its placeholder previews the unique `sanitize_title` default,
+	 * refreshed on-blur of the display name), the mutable placement template (with a
+	 * live expanded-path preview), and the six rendition fields — the immutable upload
+	 * width/quality contract and the re-derivable full and thumbnail width/quality
+	 * pairs — each pre-filled from its `kntnt_photo_drop_default_*` filter via
+	 * `Rendition_Defaults`. The upload width offers an explicit "Original dimensions"
+	 * choice. There is deliberately no format field (always WebP). The slug and the
+	 * upload pair carry a permanence ⚠️ marker; a prominent irreversibility warning
+	 * sits above the two upload-contract fields, and a set-once rule line sits beside
+	 * the Save button (blocks.md "Create", ADR-0013).
 	 *
 	 * @since 0.5.0
 	 */
@@ -1127,22 +1210,38 @@ final class Admin_Page {
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		// Slug — required; becomes the directory name and the durable identity.
-		$slug_label = __( 'Slug', 'kntnt-photo-drop' );
-		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$slug_help = __( 'Lowercase letters, digits and single hyphens. Becomes the directory name and permanent identity.', 'kntnt-photo-drop' );
-		echo '<tr><th scope="row"><label for="kntnt-photo-drop-slug">' . esc_html( $slug_label ) . '</label></th><td>';
-		echo '<input name="slug" id="kntnt-photo-drop-slug" type="text" class="regular-text" required ';
-		echo 'pattern="[a-z0-9]+(?:-[a-z0-9]+)*" />';
-		echo '<p class="description">' . esc_html( $slug_help ) . '</p>';
-		echo '</td></tr>';
-
-		// Display name — optional; humanised from the slug when left blank.
+		// Display name — optional; the slug defaults from it (and it falls back to a
+		// humanised slug when both are blank). The data hook lets the on-blur script
+		// recompute the slug placeholder when this field loses focus.
 		$name_label = __( 'Display name', 'kntnt-photo-drop' );
 		$name_help  = __( 'Optional. Defaults to a humanised form of the slug.', 'kntnt-photo-drop' );
 		echo '<tr><th scope="row"><label for="kntnt-photo-drop-name">' . esc_html( $name_label ) . '</label></th><td>';
-		echo '<input name="name" id="kntnt-photo-drop-name" type="text" class="regular-text" />';
+		echo '<input name="name" id="kntnt-photo-drop-name" type="text" class="regular-text" ';
+		echo 'data-kntnt-photo-drop-name-input />';
 		echo '<p class="description">' . esc_html( $name_help ) . '</p>';
+		echo '</td></tr>';
+
+		// Slug — optional and permanent: a blank field defaults to the unique
+		// sanitize_title of the display name (the placeholder previews it, refreshed
+		// on-blur of the display name), while a typed collision is a save-time error.
+		// The existing slugs are rendered so the on-blur compute can suffix against
+		// them without a round-trip; the server re-verifies uniqueness at submit.
+		$slug_label = __( 'Slug', 'kntnt-photo-drop' );
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$slug_help = __( 'Optional. Blank uses the unique default shown as the placeholder. Lowercase letters, digits and single hyphens.', 'kntnt-photo-drop' );
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$slug_reason   = __( 'Permanent: the slug is the collection’s identity and cannot be changed after creation.', 'kntnt-photo-drop' );
+		$existing_json = (string) wp_json_encode( array_keys( $this->repository->discover() ) );
+		echo '<tr><th scope="row"><label for="kntnt-photo-drop-slug">' . esc_html( $slug_label ) . '</label> ';
+		$this->render_permanence_marker( $slug_reason );
+		echo '</th><td>';
+		printf(
+			'<input name="slug" id="kntnt-photo-drop-slug" type="text" class="regular-text"'
+			. ' pattern="[a-z0-9]+(?:-[a-z0-9]+)*" data-kntnt-photo-drop-slug-input'
+			. ' data-kntnt-photo-drop-existing-slugs="%s" />',
+			esc_attr( $existing_json ),
+		);
+		echo '<p class="description">' . esc_html( $slug_help ) . '</p>';
 		echo '</td></tr>';
 
 		// Path components — optional placement template; blank uses the default. An
@@ -1168,11 +1267,18 @@ final class Admin_Page {
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		// Upload width — a radio chooses between a pixel ceiling and the explicit
-		// "Original dimensions" choice, with the number input carrying the filter
-		// default.
+		// The permanence reason shared by the two upload-contract fields names why they
+		// are set once — the source bytes are discarded at ingestion.
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$upload_reason = __( 'Permanent: the main image is downscaled and re-encoded at ingestion and the source is discarded, so this cannot be changed afterwards.', 'kntnt-photo-drop' );
+
+		// Upload width — permanent; a radio chooses between a pixel ceiling and the
+		// explicit "Original dimensions" choice, with the number input carrying the
+		// filter default, and the label carries the ⚠️ permanence marker.
 		$width_label = __( 'Upload width', 'kntnt-photo-drop' );
-		echo '<tr><th scope="row">' . esc_html( $width_label ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html( $width_label ) . ' ';
+		$this->render_permanence_marker( $upload_reason );
+		echo '</th><td>';
 		echo '<fieldset><legend class="screen-reader-text">' . esc_html( $width_label ) . '</legend>';
 		echo '<label><input type="radio" name="upload_width_mode" value="limit" checked /> ';
 		echo esc_html__( 'Limit to', 'kntnt-photo-drop' ) . ' ';
@@ -1188,18 +1294,24 @@ final class Admin_Page {
 		echo esc_html__( 'Original dimensions', 'kntnt-photo-drop' );
 		echo '</label></fieldset></td></tr>';
 
-		// Upload quality — pre-filled from its filter default.
+		// Upload quality — permanent; pre-filled from its filter default and carrying
+		// the same ⚠️ marker.
 		$this->render_quality_field(
 			'upload_quality',
 			__( 'Upload quality', 'kntnt-photo-drop' ),
 			Rendition_Defaults::upload_quality(),
+			$upload_reason,
 		);
 
 		echo '</tbody></table>';
 
 		// The re-derivable renditions sit in their own section, without the
-		// irreversibility warning, because they can be regenerated later.
+		// irreversibility warning, because they can be regenerated later — a mild note
+		// makes that consequence explicit (no permanence marker here; ADR-0013).
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$rederive_note = __( 'These are not permanent, but changing them later regenerates every existing image.', 'kntnt-photo-drop' );
 		echo '<h2>' . esc_html__( 'Renditions (re-derivable)', 'kntnt-photo-drop' ) . '</h2>';
+		echo '<p class="description">' . esc_html( $rederive_note ) . '</p>';
 		echo '<table class="form-table" role="presentation"><tbody>';
 		$this->render_width_field(
 			'full_width',
@@ -1223,7 +1335,13 @@ final class Admin_Page {
 		);
 		echo '</tbody></table>';
 
+		// The Save button carries a rule line stating that the ⚠️-marked fields (the
+		// slug and the upload pair) are set once and cannot be changed afterwards, so
+		// the consequence is stated at the moment of commitment.
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$set_once = __( 'Fields marked ⚠ are set once and cannot be changed after the collection is created.', 'kntnt-photo-drop' );
 		submit_button( __( 'Create collection', 'kntnt-photo-drop' ) );
+		echo '<p class="description kntnt-photo-drop-permanence-rule">' . esc_html( $set_once ) . '</p>';
 		echo '</form>';
 
 	}
@@ -1262,20 +1380,32 @@ final class Admin_Page {
 	 *
 	 * Shared by the create form's upload, full, and thumbnail quality rows. The
 	 * field name is the raw POST key the handler reads; the value carries the filter
-	 * default.
+	 * default. A non-empty permanence reason appends the ⚠️ marker to the label cell —
+	 * supplied for the permanent upload-quality row, omitted for the re-derivable
+	 * full/thumbnail rows.
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param string $name    The form field name (and id stem).
-	 * @param string $label   The translated field label.
-	 * @param int    $fallback The filter-resolved default quality to pre-fill.
+	 * @param string $name           The form field name (and id stem).
+	 * @param string $label          The translated field label.
+	 * @param int    $fallback       The filter-resolved default quality to pre-fill.
+	 * @param string $marker_reason  The permanence reason, or '' for no marker.
 	 */
-	private function render_quality_field( string $name, string $label, int $fallback ): void {
+	private function render_quality_field(
+		string $name,
+		string $label,
+		int $fallback,
+		string $marker_reason = ''
+	): void {
 
 		// A bounded number input pre-filled with the default; the handler parses it
-		// as a 0–100 integer.
+		// as a 0–100 integer. The label cell carries the optional permanence marker.
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
-		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label> ';
+		if ( $marker_reason !== '' ) {
+			$this->render_permanence_marker( $marker_reason );
+		}
+		echo '</th><td>';
 		printf(
 			'<input name="%s" id="%s" type="number" min="0" max="100" step="1" value="%s" class="small-text" />',
 			esc_attr( $name ),
@@ -1285,6 +1415,28 @@ final class Admin_Page {
 		echo ' <span class="description">' . esc_html__( 'WebP quality, 0–100.', 'kntnt-photo-drop' ) . '</span>';
 		echo '</td></tr>';
 
+	}
+
+	/**
+	 * Echoes the ⚠️ permanence marker appended to a permanent field's label.
+	 *
+	 * A small, accessible badge for every field that is set once and cannot be changed
+	 * after the collection is created — the slug and the upload width/quality (blocks.md
+	 * "Create"). The visible glyph is hidden from assistive tech (`aria-hidden`); the
+	 * accessible name and the hover tooltip both carry the supplied reason, so the
+	 * warning reaches sighted, screen-reader, and pointer-hover users alike. The reason
+	 * is escaped at output, so the marker is safe to render directly into a label cell.
+	 *
+	 * @since 0.12.0
+	 *
+	 * @param string $reason The translated explanation of why this field is permanent.
+	 */
+	private function render_permanence_marker( string $reason ): void {
+		printf(
+			'<span class="kntnt-photo-drop-permanence" role="img" aria-label="%1$s" title="%1$s">'
+			. '<span aria-hidden="true">⚠</span></span>',
+			esc_attr( $reason ),
+		);
 	}
 
 	/**
