@@ -5,8 +5,9 @@
  * Backs the block editors: the Drop Zone's collection selector (this issue) and,
  * later, the Gallery's. It exposes one GET route — `collections` — that runs the
  * filesystem discovery scan and returns each collection's slug, display name, and
- * contract fields (max width, quality, thumbnail widths) so the inspector can list
- * collections by name and show the selected contract read-only. It is a pure read:
+ * the three-rendition fields (upload width/quality, full width/quality, thumbnail
+ * width/quality) so the inspector can list collections by name and show the
+ * selected renditions read-only. It is a pure read:
  * it creates nothing, configures nothing, and never touches a main image. The
  * write path is the separate `Upload_Controller`; this controller is gated by
  * `edit_posts` because only someone editing a page needs the list, and the list
@@ -136,16 +137,18 @@ final class Collections_Controller {
 	 * Returns the discovered collections as an editor-friendly list.
 	 *
 	 * Runs the discovery scan and reads each collection's descriptor, emitting one
-	 * object per collection with its `slug`, display `name`, and the three contract
-	 * fields the inspector surfaces: `maxWidth` (an int, or `null` for no limit),
-	 * `quality`, and the `thumbnailWidths` list. A descriptor that cannot be read
-	 * (corrupt or mid-deletion) is skipped rather than failing the whole list, so
-	 * one bad collection never blanks the selector. The list is already slug-sorted
-	 * by the discovery scan, so the editor renders a stable order.
+	 * object per collection with its `slug`, display `name`, and the six rendition
+	 * fields the inspector surfaces: `uploadWidth` (an int, or `null` for the
+	 * source's own dimensions) and `uploadQuality` (the immutable contract),
+	 * `fullWidth`/`fullQuality`, and `thumbnailWidth`/`thumbnailQuality` (the
+	 * re-derivable renditions). A descriptor that cannot be read (corrupt or
+	 * mid-deletion) is skipped rather than failing the whole list, so one bad
+	 * collection never blanks the selector. The list is already slug-sorted by the
+	 * discovery scan, so the editor renders a stable order.
 	 *
 	 * @since 0.5.0
 	 *
-	 * @return \WP_REST_Response The list of `{ slug, name, maxWidth, quality, thumbnailWidths }` objects.
+	 * @return \WP_REST_Response One object per collection: `slug`, `name`, and the six rendition fields.
 	 */
 	public function list_collections(): \WP_REST_Response {
 
@@ -159,11 +162,14 @@ final class Collections_Controller {
 				continue;
 			}
 			$collections[] = [
-				'slug'            => $slug,
-				'name'            => $descriptor->name,
-				'maxWidth'        => $descriptor->max_width,
-				'quality'         => $descriptor->quality,
-				'thumbnailWidths' => $descriptor->thumbnail_widths,
+				'slug'             => $slug,
+				'name'             => $descriptor->name,
+				'uploadWidth'      => $descriptor->upload_width,
+				'uploadQuality'    => $descriptor->upload_quality,
+				'fullWidth'        => $descriptor->full_width,
+				'fullQuality'      => $descriptor->full_quality,
+				'thumbnailWidth'   => $descriptor->thumbnail_width,
+				'thumbnailQuality' => $descriptor->thumbnail_quality,
 			];
 		}
 

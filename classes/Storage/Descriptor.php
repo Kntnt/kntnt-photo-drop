@@ -248,8 +248,8 @@ final readonly class Descriptor {
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param array<string,mixed> $data The decoded descriptor.
-	 * @param string              $key  The integer field name.
+	 * @param array<array-key,mixed> $data The decoded descriptor.
+	 * @param string                 $key  The integer field name.
 	 * @return int The coerced integer value, or 0 when absent or non-integer.
 	 */
 	private static function int_field( array $data, string $key ): int {

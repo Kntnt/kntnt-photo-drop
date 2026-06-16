@@ -100,10 +100,10 @@ test( 'an invalid width filter return falls back to the documented default', fun
 	expect( Rendition_Defaults::full_width() )->toBe( 1920 );
 
 } )->with( [
-	'zero'        => [ 0 ],
-	'negative'    => [ -1 ],
-	'string'      => [ '1600' ],
-	'null'        => [ null ],
+	'zero'     => [ 0 ],
+	'negative' => [ -1 ],
+	'string'   => [ '1600' ],
+	'null'     => [ null ],
 ] );
 
 test( 'an out-of-range quality filter return falls back to the documented default', function ( mixed $bogus ): void {

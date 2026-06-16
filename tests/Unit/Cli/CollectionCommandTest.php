@@ -237,10 +237,10 @@ test( 'create rejects a malformed rendition flag before creating anything', func
 
 	command_remove_tree( $basedir );
 } )->with( [
-	'bad upload width'   => [ [ 'upload-width' => 'wide' ] ],
-	'bad upload quality' => [ [ 'upload-quality' => '101' ] ],
-	'bad full width'     => [ [ 'full-width' => '0' ] ],
-	'bad thumbnail width' => [ [ 'thumbnail-width' => '-5' ] ],
+	'bad upload width'      => [ [ 'upload-width' => 'wide' ] ],
+	'bad upload quality'    => [ [ 'upload-quality' => '101' ] ],
+	'bad full width'        => [ [ 'full-width' => '0' ] ],
+	'bad thumbnail width'   => [ [ 'thumbnail-width' => '-5' ] ],
 	'bad thumbnail quality' => [ [ 'thumbnail-quality' => '200' ] ],
 ] );
 

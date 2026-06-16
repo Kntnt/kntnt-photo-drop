@@ -115,8 +115,8 @@ final class Rendition_Defaults {
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param string $hook    The width filter name.
-	 * @param int    $default The documented default width.
+	 * @param non-empty-string $hook    The width filter name.
+	 * @param int              $default The documented default width.
 	 * @return int The resolved width.
 	 */
 	private static function width( string $hook, int $default ): int {
@@ -132,8 +132,8 @@ final class Rendition_Defaults {
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param string $hook    The quality filter name.
-	 * @param int    $default The documented default quality.
+	 * @param non-empty-string $hook    The quality filter name.
+	 * @param int              $default The documented default quality.
 	 * @return int The resolved quality.
 	 */
 	private static function quality( string $hook, int $default ): int {

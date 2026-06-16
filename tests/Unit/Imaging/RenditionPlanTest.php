@@ -42,7 +42,7 @@ test(
 
 	// Main far wider than both tiers: a separate full at 1920 and a thumbnail at
 	// 640, each at its own quality.
-	'wide main keeps full and thumbnail' => [
+	'wide main keeps full and thumbnail'              => [
 		4000,
 		[
 			[
@@ -57,7 +57,7 @@ test(
 	],
 
 	// Main wider than full: the full is still a separate file (main > 1920).
-	'main just over full keeps both' => [
+	'main just over full keeps both'                  => [
 		1921,
 		[
 			[
@@ -73,7 +73,7 @@ test(
 
 	// Main no wider than full but wider than the thumbnail: no separate full (the
 	// main serves that role), only the thumbnail survives.
-	'main at or below full skips the full tier' => [
+	'main at or below full skips the full tier'       => [
 		1500,
 		[
 			[
@@ -97,7 +97,7 @@ test(
 
 	// Main wider than the thumbnail but with nothing below it: a 700px main keeps
 	// only the 640 thumbnail.
-	'small main keeps only the thumbnail' => [
+	'small main keeps only the thumbnail'             => [
 		700,
 		[
 			[
@@ -115,7 +115,7 @@ test(
 	],
 
 	// Main smaller than the thumbnail width: every tier collapses into the main.
-	'tiny main collapses every tier' => [
+	'tiny main collapses every tier'                  => [
 		400,
 		[],
 	],

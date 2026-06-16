@@ -119,17 +119,32 @@ function write_command_main( string $folder, string $filename, int $width ): str
 }
 
 /**
- * Establishes a collection on disk with a fixed contract and widths.
+ * Establishes a collection on disk with a fixed contract and one thumbnail width.
  *
- * @param string         $root   The canonical collection root.
- * @param string         $slug   The collection slug.
- * @param array<int,int> $widths The thumbnail widths.
+ * The full width is fixed at 1920 — above every main these tests write (1600) —
+ * so the full tier collapses into the main (ADR-0013) and the only derived file
+ * the doctor demands is the thumbnail at the given width, keeping each test's
+ * single-derived-file expectation intact under the three-rendition model.
+ *
+ * @param string $root            The canonical collection root.
+ * @param string $slug            The collection slug.
+ * @param int    $thumbnail_width The single thumbnail width to configure.
  * @return string The absolute collection path.
  */
-function establish_doctor_collection( string $root, string $slug, array $widths ): string {
+function establish_doctor_collection( string $root, string $slug, int $thumbnail_width ): string {
 	$path = $root . $slug;
 	mkdir( $path, 0700, true );
-	( new Descriptor( ucfirst( $slug ), 1920, 80, $widths ) )->write( $path );
+	$descriptor = new Descriptor(
+		ucfirst( $slug ),
+		1920,
+		80,
+		1920,
+		85,
+		$thumbnail_width,
+		75,
+		Descriptor::DEFAULT_PATH_COMPONENTS,
+	);
+	$descriptor->write( $path );
 	return $path;
 }
 
@@ -170,7 +185,7 @@ test( 'doctor rejects an unknown collection', function (): void {
 test( 'doctor rejects --force without --repair', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
-	establish_doctor_collection( $root, 'trip', [ 320 ] );
+	establish_doctor_collection( $root, 'trip', 320 );
 	$command = make_doctor_command();
 
 	$threw = false;
@@ -196,7 +211,7 @@ test( 'doctor rejects --force without --repair', function (): void {
 test( 'doctor report-only renders the findings, changes nothing, and exits non-zero', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
-	$path    = establish_doctor_collection( $root, 'trip', [ 320 ] );
+	$path    = establish_doctor_collection( $root, 'trip', 320 );
 	$main    = write_command_main( $path, 'photo.jpg.webp', 1600 );
 	$command = make_doctor_command();
 
@@ -228,7 +243,7 @@ test( 'doctor report-only renders the findings, changes nothing, and exits non-z
 test( 'doctor report-only exits cleanly when nothing is actionable', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
-	establish_doctor_collection( $root, 'trip', [ 320 ] );
+	establish_doctor_collection( $root, 'trip', 320 );
 	$command = make_doctor_command();
 
 	// A collection with nothing to act on closes with a success — exit 0 — so a
@@ -249,7 +264,7 @@ test( 'doctor report-only exits cleanly when nothing is actionable', function ()
 test( 'doctor --repair creates the thumbnail and reports the effect', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
-	$path    = establish_doctor_collection( $root, 'trip', [ 320 ] );
+	$path    = establish_doctor_collection( $root, 'trip', 320 );
 	write_command_main( $path, 'photo.jpg.webp', 1600 );
 	$command = make_doctor_command();
 
@@ -267,14 +282,14 @@ test( 'doctor --repair creates the thumbnail and reports the effect', function (
 test( 'doctor --repair --force prunes a de-configured width and surfaces it', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
-	$path    = establish_doctor_collection( $root, 'trip', [ 640 ] );
+	$path    = establish_doctor_collection( $root, 'trip', 640 );
 	write_command_main( $path, 'photo.jpg.webp', 1600 );
 	make_doctor_command()->doctor( [ 'trip' ], [ 'repair' => '1' ] );
 	expect( is_file( $path . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
 
 	// The width filter changed to [320]; the documented rollout is a forced
 	// repair, which must also retire the 640 bucket and say so in the summary.
-	( new Descriptor( 'Trip', 1920, 80, [ 320 ] ) )->write( $path );
+	( new Descriptor( 'Trip', 1920, 80, 1920, 85, 320, 75, Descriptor::DEFAULT_PATH_COMPONENTS ) )->write( $path );
 	$command = make_doctor_command();
 	$command->doctor(
 		[ 'trip' ],
@@ -298,7 +313,7 @@ test( 'doctor --repair --force prunes a de-configured width and surfaces it', fu
 test( 'doctor warns about a foreign file and a contract-violating main', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
-	$path    = establish_doctor_collection( $root, 'trip', [ 320 ] );
+	$path    = establish_doctor_collection( $root, 'trip', 320 );
 
 	// A non-WebP main (its bytes are not a WebP image) and a loose text file.
 	file_put_contents( $path . '/raw.webp', 'not really an image' );
@@ -331,7 +346,7 @@ test( 'doctor warns about a foreign file and a contract-violating main', functio
 test( 'doctor hides ignored files by default and reveals them with --show-ignored', function (): void {
 	$basedir = fresh_doctor_command_basedir();
 	$root    = wire_doctor_command_stubs( $basedir );
-	$path    = establish_doctor_collection( $root, 'trip', [ 320 ] );
+	$path    = establish_doctor_collection( $root, 'trip', 320 );
 	file_put_contents( $path . '/.DS_Store', 'junk' );
 	$command = make_doctor_command();
 

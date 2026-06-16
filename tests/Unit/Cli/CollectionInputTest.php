@@ -122,9 +122,9 @@ test( 'humanise_slug turns hyphens into capitalised words', function (): void {
 test( 'find_immutable_flag spots an immutable upload-contract flag', function ( array $args, ?string $expected ): void {
 	expect( ( new Collection_Input() )->find_immutable_flag( $args ) )->toBe( $expected );
 } )->with( [
-	'upload-width'     => [ [ 'upload-width' => '4000' ], 'upload-width' ],
-	'upload-quality'   => [ [ 'upload-quality' => '95' ], 'upload-quality' ],
-	'both prefers width' => [
+	'upload-width'         => [ [ 'upload-width' => '4000' ], 'upload-width' ],
+	'upload-quality'       => [ [ 'upload-quality' => '95' ], 'upload-quality' ],
+	'both prefers width'   => [
 		[
 			'upload-quality' => '95',
 			'upload-width'   => '4000',

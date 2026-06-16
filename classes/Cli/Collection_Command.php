@@ -150,7 +150,11 @@ final class Collection_Command {
 		$full_width   = $this->resolve_width( $assoc_args, 'full-width', Rendition_Defaults::full_width() );
 		$full_qual    = $this->resolve_quality( $assoc_args, 'full-quality', Rendition_Defaults::full_quality() );
 		$thumb_width  = $this->resolve_width( $assoc_args, 'thumbnail-width', Rendition_Defaults::thumbnail_width() );
-		$thumb_qual   = $this->resolve_quality( $assoc_args, 'thumbnail-quality', Rendition_Defaults::thumbnail_quality() );
+		$thumb_qual   = $this->resolve_quality(
+			$assoc_args,
+			'thumbnail-quality',
+			Rendition_Defaults::thumbnail_quality(),
+		);
 
 		// Resolve the placement template and the display name (both caller-supplied or
 		// defaulted) before any filesystem effect, so a successful create writes a
@@ -547,13 +551,16 @@ final class Collection_Command {
 	private function resolve_upload_width( array $assoc_args ): ?int {
 
 		// An absent flag takes the filter default; a present one is parsed (with its
-		// `none` → null form), and a malformed value halts before any write.
+		// `none` → null form), and a malformed value halts before any write. The
+		// post-error null is unreachable — WP_CLI::error() exits the process (and the
+		// test double throws) — but satisfies the declared return type.
 		if ( ! isset( $assoc_args['upload-width'] ) ) {
 			return Rendition_Defaults::upload_width();
 		}
 		$parsed = $this->input->parse_upload_width( (string) $assoc_args['upload-width'] );
 		if ( $parsed === false ) {
 			WP_CLI::error( 'The --upload-width flag must be a positive integer or "none".' );
+			return null;
 		}
 
 		return $parsed;
@@ -572,19 +579,22 @@ final class Collection_Command {
 	 *
 	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
 	 * @param string                    $flag       The flag name (`full-width` or `thumbnail-width`).
-	 * @param int                       $default    The filter-resolved default width.
+	 * @param int                       $fallback   The filter-resolved default width.
 	 * @return int The resolved positive width.
 	 */
-	private function resolve_width( array $assoc_args, string $flag, int $default ): int {
+	private function resolve_width( array $assoc_args, string $flag, int $fallback ): int {
 
 		// An absent flag takes the default; a present one is parsed, and a
-		// non-positive or malformed value halts before any write.
+		// non-positive or malformed value halts before any write. The post-error
+		// return is unreachable (WP_CLI::error() exits; the test double throws) but
+		// satisfies the declared return type.
 		if ( ! isset( $assoc_args[ $flag ] ) ) {
-			return $default;
+			return $fallback;
 		}
 		$parsed = $this->input->parse_width( (string) $assoc_args[ $flag ] );
 		if ( $parsed === false ) {
 			WP_CLI::error( "The --{$flag} flag must be a positive integer." );
+			return $fallback;
 		}
 
 		return $parsed;
@@ -602,19 +612,22 @@ final class Collection_Command {
 	 *
 	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
 	 * @param string                    $flag       The flag name (e.g. `upload-quality`).
-	 * @param int                       $default    The filter-resolved default quality.
+	 * @param int                       $fallback   The filter-resolved default quality.
 	 * @return int The resolved quality.
 	 */
-	private function resolve_quality( array $assoc_args, string $flag, int $default ): int {
+	private function resolve_quality( array $assoc_args, string $flag, int $fallback ): int {
 
 		// An absent flag takes the default; a present one is parsed, and an
-		// out-of-range or malformed value halts before any write.
+		// out-of-range or malformed value halts before any write. The post-error
+		// return is unreachable (WP_CLI::error() exits; the test double throws) but
+		// satisfies the declared return type.
 		if ( ! isset( $assoc_args[ $flag ] ) ) {
-			return $default;
+			return $fallback;
 		}
 		$parsed = $this->input->parse_quality( (string) $assoc_args[ $flag ] );
 		if ( $parsed === false ) {
 			WP_CLI::error( "The --{$flag} flag must be an integer between 0 and 100." );
+			return $fallback;
 		}
 
 		return $parsed;

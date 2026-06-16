@@ -18,8 +18,8 @@
  * with the selected collection's display name and emits that markup as the direct
  * children of the wrapper, which is itself the native drag-drop + click-to-browse
  * drop surface and the styled box. It hands the view module everything
- * it needs as a JSON `data-wp-context` island: the slug, the contract (max width
- * and quality) that configures the client-side Canvas downscale and the
+ * it needs as a JSON `data-wp-context` island: the slug, the upload width
+ * and upload quality that configure the client-side Canvas downscale and the
  * `canvas.toBlob(…, 'image/webp', quality)` encode, the REST URL to POST to, the
  * nonce, and the pre-translated UI strings (the view module cannot reach
  * `@wordpress/i18n`). The client optimisation is a bandwidth optimisation only;
@@ -149,7 +149,7 @@ final class Render_Drop_Zone {
 	 *
 	 * Replaces the collection placeholder in the inner-block markup, then assembles
 	 * the per-block context the view module reads via `getContext()`: the slug, the
-	 * contract (`maxWidth`/`quality`) the client downscale and WebP encode use, the
+	 * contract (`uploadWidth`/`uploadQuality`) the client downscale and WebP encode use, the
 	 * absolute REST `uploadUrl`, the `wp_rest` `nonce`, the admin-ajax URL the
 	 * nonce-refresh action lives behind, and the pre-translated `i18n` strings the
 	 * module surfaces (it cannot import `@wordpress/i18n`). The context is emitted
@@ -198,14 +198,14 @@ final class Render_Drop_Zone {
 		// quality. The i18n map is pre-translated here because view-script modules
 		// cannot reach `@wordpress/i18n`.
 		$context = [
-			'slug'       => $slug,
-			'maxWidth'   => $descriptor->max_width,
-			'quality'    => $descriptor->quality,
-			'uploadUrl'  => rest_url( sprintf( self::UPLOAD_ROUTE_TEMPLATE, $slug ) ),
-			'nonce'      => wp_create_nonce( 'wp_rest' ),
-			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
-			'collection' => $descriptor->name,
-			'i18n'       => self::translations(),
+			'slug'          => $slug,
+			'uploadWidth'   => $descriptor->upload_width,
+			'uploadQuality' => $descriptor->upload_quality,
+			'uploadUrl'     => rest_url( sprintf( self::UPLOAD_ROUTE_TEMPLATE, $slug ) ),
+			'nonce'         => wp_create_nonce( 'wp_rest' ),
+			'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+			'collection'    => $descriptor->name,
+			'i18n'          => self::translations(),
 		];
 		$context_json = wp_json_encode( $context );
 		if ( $context_json === false ) {
