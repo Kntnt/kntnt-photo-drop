@@ -134,6 +134,23 @@ final class Render_Gallery {
 	private const PREVIEW_FIGURE_CAP = 6;
 
 	/**
+	 * The default capability that gates the editor-only broken-reference notice.
+	 *
+	 * The notice prompts a logged-in editor to (re)select a collection when the
+	 * reference is unset or dangling, and must never reach the public. It defaults
+	 * to `edit_posts` — the capability for placing the block in the first place —
+	 * and is resolved through `kntnt_photo_drop_editor_notice_capability` (ADR-0015,
+	 * "The capability-filter rule"). It has its own filter rather than reusing
+	 * `kntnt_photo_drop_list_capability`: who may see a broken-gallery diagnostic
+	 * and who may enumerate collections are different concerns that merely share a
+	 * default.
+	 *
+	 * @since 0.11.0
+	 * @var string
+	 */
+	private const DEFAULT_EDITOR_NOTICE_CAPABILITY = 'edit_posts';
+
+	/**
 	 * Returns the gallery's front-end HTML, or an empty string when nothing renders.
 	 *
 	 * Resolves the collection and reads its descriptor; an unset or dangling
@@ -1399,8 +1416,9 @@ final class Render_Gallery {
 	private static function no_collection_output( bool $is_preview ): string {
 
 		// Hand the preview an empty response (grey placeholders) and show the notice
-		// only to a user who can edit; everyone else — the public — sees nothing.
-		if ( $is_preview || ! current_user_can( 'edit_posts' ) ) {
+		// only to a user who holds the filtered editor-notice capability; everyone
+		// else — the public — sees nothing.
+		if ( $is_preview || ! current_user_can( self::editor_notice_capability() ) ) {
 			return '';
 		}
 
@@ -1411,6 +1429,28 @@ final class Render_Gallery {
 				'kntnt-photo-drop',
 			),
 		);
+
+	}
+
+	/**
+	 * Resolves the editor-notice capability through its dedicated filter.
+	 *
+	 * Defaults to `edit_posts` and is passed through
+	 * `kntnt_photo_drop_editor_notice_capability` (ADR-0015) so a site can re-gate
+	 * the broken-reference notice without touching code. A filter that returns a
+	 * non-string or empty value is a misuse and falls back to the default rather
+	 * than showing the diagnostic behind an empty capability check.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @return string The capability a user must hold to see the editor notice.
+	 */
+	private static function editor_notice_capability(): string {
+
+		// Harden the filter's return: a non-string or empty result falls back to
+		// the default so a buggy filter can never open the gate to the public.
+		$filtered = apply_filters( 'kntnt_photo_drop_editor_notice_capability', self::DEFAULT_EDITOR_NOTICE_CAPABILITY );
+		return is_string( $filtered ) && $filtered !== '' ? $filtered : self::DEFAULT_EDITOR_NOTICE_CAPABILITY;
 
 	}
 
