@@ -56,7 +56,7 @@ function wire_walker_index_stubs(): void {
  *
  * @return string The absolute path of the new directory.
  */
-function fresh_collection_root(): string {
+function fresh_walker_root(): string {
 	$dir = sys_get_temp_dir() . '/kntnt-walker-' . bin2hex( random_bytes( 6 ) );
 	mkdir( $dir, 0700, true );
 	return $dir;
@@ -138,7 +138,7 @@ function walker_remove_tree( string $dir ): void {
 
 test( "a folder's own images come before every subfolder's images, ascending", function (): void {
 	wire_walker_index_stubs();
-	$root = fresh_collection_root();
+	$root = fresh_walker_root();
 
 	// A root image whose name sorts after the subfolder names, plus two
 	// subfolders each holding one image. Under the old natural-sort-by-full-path
@@ -161,7 +161,7 @@ test( "a folder's own images come before every subfolder's images, ascending", f
 
 test( 'subfolders are visited in natural order, each fully before the next', function (): void {
 	wire_walker_index_stubs();
-	$root = fresh_collection_root();
+	$root = fresh_walker_root();
 
 	// Numbered subfolders prove natural (not lexical) ordering of subfolder
 	// names: `2` before `10`. Each subfolder is fully explored — its own image
@@ -184,7 +184,7 @@ test( 'subfolders are visited in natural order, each fully before the next', fun
 
 test( 'own images at a level are natural-sorted among themselves, ascending', function (): void {
 	wire_walker_index_stubs();
-	$root = fresh_collection_root();
+	$root = fresh_walker_root();
 
 	// Three root images with numeric names prove `2` precedes `10` within a
 	// level, and that they all precede the single subfolder's image.
@@ -211,7 +211,7 @@ test( 'own images at a level are natural-sorted among themselves, ascending', fu
 
 test( 'descending reverses each level yet keeps own images before subfolders', function (): void {
 	wire_walker_index_stubs();
-	$root = fresh_collection_root();
+	$root = fresh_walker_root();
 
 	// Two root images and two subfolders, each subfolder holding two images.
 	// Descending must reverse the own-images order (`b2` before `a1`), reverse
@@ -245,7 +245,7 @@ test( 'descending reverses each level yet keeps own images before subfolders', f
 
 test( 'single-folder mode lists only the start folder, natural-sorted, ignoring subfolders', function (): void {
 	wire_walker_index_stubs();
-	$root = fresh_collection_root();
+	$root = fresh_walker_root();
 
 	// The start folder holds numeric-named images and a subfolder. With
 	// recursion off, only the folder's own images appear, naturally sorted, and
@@ -268,7 +268,7 @@ test( 'single-folder mode lists only the start folder, natural-sorted, ignoring 
 
 test( 'single-folder descending reverses the start folder and still ignores subfolders', function (): void {
 	wire_walker_index_stubs();
-	$root = fresh_collection_root();
+	$root = fresh_walker_root();
 
 	// Same single-folder shape, descending: the own images reverse and the
 	// subfolder stays out.
