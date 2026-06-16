@@ -2,14 +2,15 @@
 /**
  * Pure parsing and validation of the collection command's flag inputs.
  *
- * The WP-CLI command above is deliberately thin: every decidable rule that does
- * not touch WP-CLI or the filesystem lives here, in a small, dependency-free
- * value helper that can be unit-tested directly. That includes parsing the
- * `--max-width` flag (with its `none` → `null` "no limit" form), bounding
- * `--quality` to 0–100, defaulting the display name from the slug, and spotting
- * an immutable-contract flag passed to `update`. Keeping these off the command
- * also keeps them off WP-CLI's subcommand reflection, so only the real verbs
- * (`create`, `update`, `delete`) surface as subcommands.
+ * The WP-CLI command is deliberately thin: every decidable rule that does not
+ * touch WP-CLI or the filesystem lives here, in a small, dependency-free value
+ * helper that can be unit-tested directly. That includes parsing the nullable
+ * `--upload-width` flag (with its `none` → `null` "source dimensions" form), the
+ * positive-int `--full-width`/`--thumbnail-width` flags, bounding every quality
+ * flag to 0–100, defaulting the display name from the slug, and spotting an
+ * *immutable* upload-contract flag passed to `update` (ADR-0013). Keeping these
+ * off the command also keeps them off WP-CLI's subcommand reflection, so only the
+ * real verbs surface as subcommands.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.2.0
@@ -32,11 +33,11 @@ namespace Kntnt\Photo_Drop\Cli;
 final class Collection_Input {
 
 	/**
-	 * The literal `--max-width` value that maps to "no limit" (`null`).
+	 * The literal `--upload-width` value that maps to "source dimensions" (`null`).
 	 *
-	 * The contract is irreversible, so a max width must be stated explicitly;
-	 * this keyword is the one explicit way to say "do not cap width" without a
-	 * silent default freezing the contract.
+	 * The upload contract is irreversible, so the ceiling must be stated
+	 * explicitly; this keyword is the one explicit way to say "do not cap width"
+	 * — store the source's own dimensions — without a silent default freezing it.
 	 *
 	 * @since 0.2.0
 	 * @var string
@@ -46,30 +47,32 @@ final class Collection_Input {
 	/**
 	 * The flags fixed at establishment and rejected on `update`.
 	 *
-	 * The two output-contract flags (`max-width`, `quality`) plus the placement
-	 * rule `uploader-folders` are all set once when the collection is created and
-	 * have no update path (ADR-0002, ADR-0008). Probed in this fixed order so the
-	 * update error names a stable offender.
+	 * Only the upload pair (`upload-width`, `upload-quality`) is the immutable
+	 * output contract — the source bytes are discarded once the main is encoded
+	 * (ADR-0013). The full/thumbnail and path-components flags are re-derivable or
+	 * mutable and are *not* listed here. Probed in this fixed order so the update
+	 * error names a stable offender.
 	 *
 	 * @since 0.2.0
 	 * @var array<int,string>
 	 */
-	private const IMMUTABLE_FLAGS = [ 'max-width', 'quality', 'uploader-folders' ];
+	private const IMMUTABLE_FLAGS = [ 'upload-width', 'upload-quality' ];
 
 	/**
-	 * Parses the `--max-width` flag into the contract's nullable ceiling.
+	 * Parses the `--upload-width` flag into the contract's nullable ceiling.
 	 *
-	 * Accepts the literal "none" (case-insensitive) as the explicit "no limit"
-	 * form, mapping it to `null`; otherwise the value must be a strictly positive
-	 * integer. Returns `false` for any other input so the caller can report a
-	 * precise error rather than freezing a contract from a malformed value.
+	 * Accepts the literal "none" (case-insensitive) as the explicit "source
+	 * dimensions" form, mapping it to `null`; otherwise the value must be a
+	 * strictly positive integer. Returns `false` for any other input so the caller
+	 * can report a precise error rather than freezing a contract from a malformed
+	 * value.
 	 *
 	 * @since 0.2.0
 	 *
 	 * @param string $value The raw flag value.
-	 * @return int|null|false The pixel ceiling, null for "no limit", or false when invalid.
+	 * @return int|null|false The pixel ceiling, null for "source dimensions", or false when invalid.
 	 */
-	public function parse_max_width( string $value ): int|null|false {
+	public function parse_upload_width( string $value ): int|null|false {
 
 		// The keyword maps to "no limit"; matched case-insensitively so "None" and
 		// "NONE" are equally accepted.
@@ -79,6 +82,26 @@ final class Collection_Input {
 
 		// Otherwise demand a strictly positive integer: a width is a pixel count,
 		// and zero or a negative is not a meaningful ceiling.
+		return $this->parse_width( $value );
+
+	}
+
+	/**
+	 * Parses a `--full-width`/`--thumbnail-width` flag into a positive integer.
+	 *
+	 * Unlike the upload width, a derived-rendition width is never unbounded, so
+	 * there is no "none" form: the value must be a strictly positive integer.
+	 * Returns `false` for any non-positive or malformed value.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $value The raw flag value.
+	 * @return int|false The positive pixel width, or false when invalid.
+	 */
+	public function parse_width( string $value ): int|false {
+
+		// Require a strictly positive integer with no sign, decimal, leading zero,
+		// or trailing noise; a width is a plain pixel count.
 		if ( preg_match( '/^[1-9][0-9]*$/', $value ) !== 1 ) {
 			return false;
 		}
@@ -88,11 +111,11 @@ final class Collection_Input {
 	}
 
 	/**
-	 * Parses the `--quality` flag into a WebP quality in the range 0–100.
+	 * Parses a quality flag into a WebP quality in the range 0–100.
 	 *
 	 * Returns `false` for any non-integer or out-of-range value so the caller can
 	 * report it precisely. Zero is permitted (a degenerate but valid quality);
-	 * the ceiling is 100.
+	 * the ceiling is 100. Shared by every `--*-quality` flag.
 	 *
 	 * @since 0.2.0
 	 *
@@ -113,40 +136,6 @@ final class Collection_Input {
 		}
 
 		return $quality;
-
-	}
-
-	/**
-	 * Parses the `--uploader-folders` flag into the placement-rule boolean.
-	 *
-	 * The placement rule is fixed at establishment (ADR-0008) and defaults to on,
-	 * so an absent flag (`null`) resolves to `true`. The command folds WP-CLI's
-	 * argument shapes to a string first: a bare `--uploader-folders` and
-	 * `--no-uploader-folders` reach this as `"true"`/`"false"`, an explicit
-	 * `--uploader-folders=<value>` as that value. This accepts the common truthy
-	 * and falsy spellings and returns the parsed boolean; an unrecognised value
-	 * yields `null`, distinct from a valid `false`, so the caller can report a
-	 * precise error rather than freezing the placement rule from a typo.
-	 *
-	 * @since 0.2.0
-	 *
-	 * @param string|null $value The raw flag value, or null when the flag is absent.
-	 * @return bool|null The placement-rule boolean, or null when a present value is undecidable.
-	 */
-	public function parse_uploader_folders( ?string $value ): ?bool {
-
-		// An absent flag keeps the default-on placement rule (ADR-0008).
-		if ( $value === null ) {
-			return true;
-		}
-
-		// Decide on the common truthy and falsy spellings; an unrecognised value
-		// is undecidable (null), kept distinct from a valid false.
-		return match ( strtolower( $value ) ) {
-			'1', 'true', 'yes', 'on' => true,
-			'0', 'false', 'no', 'off', '' => false,
-			default => null,
-		};
 
 	}
 
@@ -190,12 +179,14 @@ final class Collection_Input {
 	}
 
 	/**
-	 * Returns the first establishment-fixed flag present in the arguments, if any.
+	 * Returns the first immutable upload-contract flag present, if any.
 	 *
-	 * The output contract (`max-width`, `quality`) and the placement rule
-	 * (`uploader-folders`) are all fixed when the collection is created; any of
+	 * Only the upload pair (`upload-width`, `upload-quality`) is fixed at
+	 * establishment — the source bytes are discarded once the main is encoded, so
+	 * the ceiling and quality cannot be raised retroactively (ADR-0013). Either of
 	 * them appearing on `update` is an attempt to change a frozen, irreversible
-	 * value (ADR-0002, ADR-0008). Returns the offending flag name so the caller
+	 * value; the full/thumbnail and path-components flags are re-derivable or
+	 * mutable and never match here. Returns the offending flag name so the caller
 	 * can name it in the error, or `null` when none is present.
 	 *
 	 * @since 0.2.0
