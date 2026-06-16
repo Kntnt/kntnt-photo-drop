@@ -12,7 +12,7 @@ Guidance for AI coding agents (Claude Code, Copilot, Cursor, Codex, …) working
 
 The ubiquitous language is in [`CONTEXT.md`](CONTEXT.md); use those terms (collection, output contract, descriptor, slug, main image, thumbnail, derived artifact, index, conforming, foreign file, doctor) exactly. Do not invent synonyms.
 
-It is **GPL-2.0-or-later**, PHP 8.4+, WordPress 7.0+ (the floor tracks current WordPress; the blocks rely on current block-editor APIs — the `react-jsx-runtime` script handle and the stabilised block-support keys — and no support for older WordPress is carried). Every WordPress hook the plugin exposes is a filter namespaced **`kntnt_photo_drop_*`** (e.g. `kntnt_photo_drop_root`; the per-field rendition defaults `kntnt_photo_drop_default_{upload,full,thumbnail}_{width,quality}`; **every capability check** via `kntnt_photo_drop_{upload,add_to_media,delete,list,manage}_capability`; and `kntnt_photo_drop_max_input_megapixels`).
+It is **GPL-2.0-or-later**, PHP 8.4+, WordPress 7.0+ (the floor tracks current WordPress; the blocks rely on current block-editor APIs — the `react-jsx-runtime` script handle and the stabilised block-support keys — and no support for older WordPress is carried). Every WordPress hook the plugin exposes is a filter namespaced **`kntnt_photo_drop_*`** (e.g. `kntnt_photo_drop_root`; the per-field rendition defaults `kntnt_photo_drop_default_{upload,full,thumbnail}_{width,quality}`; **every capability check** via `kntnt_photo_drop_{upload,add_to_media,delete,editor_notice,list,manage}_capability`; and `kntnt_photo_drop_max_input_megapixels`).
 
 ## First move: clone the reference and mirror it
 

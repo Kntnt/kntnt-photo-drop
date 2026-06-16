@@ -2,6 +2,8 @@
 
 What is tested, with what tooling, and what is deliberately not. Read this when adding tests, wiring the build pipeline, or deciding whether a change needs new coverage. For the bar a change must clear, see [`definition-of-done.md`](definition-of-done.md); for the toolchain, see [`coding-standards.md`](coding-standards.md).
 
+> **⚠️ Stale pending [#46](https://github.com/Kntnt/kntnt-photo-drop/issues/46).** This file still describes the pre-redesign model (two renditions, `maxWidth` / `--max-width`, the `kntnt_photo_drop_thumbnail_width` filter, captions + the download click-matrix). The authoritative specs for the redesign are [`design.md`](design.md), [`blocks.md`](blocks.md), and ADR-0013/0014/0015. When writing tests for the redesign issues (#42–#53), follow those — **not** the stale targets below — until #46 brings this file in line.
+
 ## Test pyramid
 
 | Layer | Tooling | Where | What it covers |
