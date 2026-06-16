@@ -373,6 +373,77 @@ test( 'a path resolving to no file is a 404 with nothing sideloaded', function (
 	media_remove_tree( $basedir );
 } );
 
+test(
+	'a confined path naming a thumbnail is rejected as not-a-main with nothing sideloaded',
+	function (): void {
+
+		// A thumbnail lives under the hidden `.kntnt-thumbnails/<width>/` tree and is a
+		// derived artifact, not the main image (ADR-0013/0015). Its path confines fine
+		// and its basename ends in `.webp`, so only the thumbnails-segment guard stops
+		// it: the controller must reject it as 404 and never sideload a derived file.
+		$basedir    = fresh_media_basedir();
+		wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
+		$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
+		write_media_main( $path, 'a.jpg.webp' );
+		write_media_main( $path, '.kntnt-thumbnails/320/a.jpg.webp' );
+		$controller = recording_media_controller( new Repository() );
+
+		$response = $controller->add_to_media( media_request( 'photos', '.kntnt-thumbnails/320/a.jpg.webp' ) );
+
+		expect( $response )->toBeInstanceOf( WP_Error::class );
+		expect( $response->get_error_data()['status'] )->toBe( 404 );
+		expect( $GLOBALS['kntnt_sideloaded_path'] )->toBeNull();
+
+		media_remove_tree( $basedir );
+	} );
+
+test(
+	'a confined path naming the collection descriptor is rejected as not-a-main with nothing sideloaded',
+	function (): void {
+
+		// `collection.json` is the visible descriptor (ADR-0003), the one irreplaceable
+		// plugin file — never an image. It confines fine and is_file() accepts it, so
+		// without a main-image gate the controller would copy the descriptor into the
+		// Media Library. It must reject it as 404 and sideload nothing.
+		$basedir    = fresh_media_basedir();
+		wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
+		$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
+		write_media_main( $path, 'a.jpg.webp' );
+		$controller = recording_media_controller( new Repository() );
+
+		$response = $controller->add_to_media( media_request( 'photos', 'collection.json' ) );
+
+		expect( $response )->toBeInstanceOf( WP_Error::class );
+		expect( $response->get_error_data()['status'] )->toBe( 404 );
+		expect( $GLOBALS['kntnt_sideloaded_path'] )->toBeNull();
+
+		media_remove_tree( $basedir );
+	} );
+
+test(
+	'a confined path naming a foreign non-webp file is rejected as not-a-main with nothing sideloaded',
+	function (): void {
+
+		// A foreign file dropped inside the collection root (here a plain `.txt`) is not
+		// a conforming main image. It confines fine and is_file() accepts it, so the
+		// main-image gate is what must stop it: reject as 404 and sideload nothing,
+		// so an in-collection foreign file can never reach the Media Library.
+		$basedir    = fresh_media_basedir();
+		wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
+		$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
+		write_media_main( $path, 'a.jpg.webp' );
+		file_put_contents( rtrim( $path, '/' ) . '/notes.txt', 'not an image' );
+		$controller = recording_media_controller( new Repository() );
+
+		$response = $controller->add_to_media( media_request( 'photos', 'notes.txt' ) );
+
+		expect( $response )->toBeInstanceOf( WP_Error::class );
+		expect( $response->get_error_data()['status'] )->toBe( 404 );
+		expect( $GLOBALS['kntnt_sideloaded_path'] )->toBeNull();
+
+		media_remove_tree( $basedir );
+	} );
+
 test( 'an unknown collection slug is a 404 with nothing sideloaded', function (): void {
 
 	// No collection is seeded, so the slug does not resolve; the handler answers 404

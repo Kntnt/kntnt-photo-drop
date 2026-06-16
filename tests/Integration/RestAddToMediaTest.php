@@ -134,6 +134,21 @@ test( 'a path escaping the collection root is rejected and copies nothing', func
 
 } );
 
+test( 'a confined path naming a non-main file copies nothing', function () use ( $slug ): void {
+
+	// `collection.json` confines cleanly inside the root and is a real file, but it is
+	// the descriptor, not a main image — so the add-to-media gate must reject it
+	// (ADR-0015: the action sideloads the *main image*) with no attachment created.
+	// This is the integration proof that only a main image, never a derived artifact
+	// or a foreign in-collection file, can reach the Media Library.
+	$before   = attachment_count();
+	$session  = admin_session();
+	$response = rest_add_to_media( $slug, 'collection.json', $session['jar'], $session['nonce'] );
+	expect( $response['status'] )->toBe( 404 );
+	expect( attachment_count() )->toBe( $before );
+
+} );
+
 test( 'each confirmed copy adds another attachment — no dedup', function () use ( $slug, $main_path ): void {
 
 	// Two confirmed copies of the same main image create two separate attachments:
