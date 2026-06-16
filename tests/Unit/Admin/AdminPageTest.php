@@ -75,6 +75,21 @@ function wire_admin_stubs( string $basedir ): string {
 	);
 	Functions\when( 'add_settings_error' )->justReturn( null );
 
+	// sanitize_title: a faithful-enough ASCII slugifier for the unique-slug default
+	// — lowercase, runs of whitespace/underscores to a single hyphen, strip
+	// everything but [a-z0-9-], collapse repeated hyphens, and trim edge hyphens.
+	// Real WordPress does more (accent folding, entity decoding); the tests exercise
+	// ASCII display names where the two agree.
+	Functions\when( 'sanitize_title' )->alias(
+		static function ( string $title ): string {
+			$slug = strtolower( $title );
+			$slug = (string) preg_replace( '/[\s_]+/', '-', $slug );
+			$slug = (string) preg_replace( '/[^a-z0-9-]+/', '', $slug );
+			$slug = (string) preg_replace( '/-+/', '-', $slug );
+			return trim( $slug, '-' );
+		}
+	);
+
 	return rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
 
 }
@@ -953,8 +968,212 @@ test( 'create refuses a duplicate slug and leaves the first descriptor untouched
 } );
 
 // ---------------------------------------------------------------------------
-// update_collection — name-only mutation; tampered contract rejected
+// Slug auto-default — unique sanitize_title default with -2/-3 suffixing (#50)
 // ---------------------------------------------------------------------------
+
+test( 'unique_slug_default sanitises the display name into a slug', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_stubs( $basedir );
+	$page = new Admin_Page( new Repository() );
+
+	// With no existing slugs the default is just the sanitised name: lowercased,
+	// spaces to hyphens, punctuation dropped (ADR — blocks.md "Create").
+	expect( $page->unique_slug_default( 'Spring 2024 Trip!', [] ) )->toBe( 'spring-2024-trip' );
+
+	admin_remove_tree( $basedir );
+} );
+
+test( 'unique_slug_default suffixes from -2 against existing slugs', function ( array $existing, string $expected ): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_stubs( $basedir );
+	$page = new Admin_Page( new Repository() );
+
+	// The base collides, so the default takes the lowest free numeric suffix
+	// starting at -2 (never -1), skipping every taken suffix in turn.
+	expect( $page->unique_slug_default( 'Spring', $existing ) )->toBe( $expected );
+
+	admin_remove_tree( $basedir );
+} )->with( [
+	'base taken'              => [ [ 'spring' ], 'spring-2' ],
+	'base and -2 taken'       => [ [ 'spring', 'spring-2' ], 'spring-3' ],
+	'gap below a taken suffix' => [ [ 'spring', 'spring-3' ], 'spring-2' ],
+	'unrelated slugs ignored' => [ [ 'summer', 'autumn' ], 'spring' ],
+] );
+
+test( 'handle_create with a blank slug establishes the collection at the auto-suffixed default', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+
+	// A collection already owns the base slug, so a blank slug field must auto-suffix
+	// to "field-trip-2" rather than error (only a *typed* collision errors).
+	seed_admin_collection( $root, 'field-trip', 'Field Trip', 1920, 80 );
+
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( 'check_admin_referer' )->justReturn( true );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'set_transient' )->justReturn( true );
+	Functions\when( 'get_settings_errors' )->justReturn( [] );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
+	);
+	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
+	Functions\when( 'wp_safe_redirect' )->alias(
+		static function (): void {
+			throw new Admin_Page_Halt();
+		}
+	);
+
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'              => '',
+		'name'              => 'Field Trip',
+		'upload_width_mode' => 'limit',
+		'upload_width'      => '1920',
+		'upload_quality'    => '80',
+		'full_width'        => '1920',
+		'full_quality'      => '85',
+		'thumbnail_width'   => '640',
+		'thumbnail_quality' => '75',
+	];
+
+	try {
+		$page->handle_create();
+	} catch ( Admin_Page_Halt ) {
+		$noop = true;
+	}
+
+	// The blank slug resolved to the unique default and a real collection now sits at
+	// it, while the original is left untouched.
+	expect( Descriptor::read( $root . 'field-trip-2' ) )->not->toBeNull();
+	expect( Descriptor::read( $root . 'field-trip-2' )->name )->toBe( 'Field Trip' );
+
+	$_POST = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'handle_create rejects a typed colliding slug instead of auto-suffixing it', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+
+	// A collection already owns the slug; a *typed* collision is a validation error,
+	// so no "-2" is invented and the original descriptor is left byte-identical.
+	seed_admin_collection( $root, 'field-trip', 'Field Trip', 1920, 80 );
+	$before = file_get_contents( $root . 'field-trip/' . Descriptor::FILENAME );
+
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( 'check_admin_referer' )->justReturn( true );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'set_transient' )->justReturn( true );
+	Functions\when( 'get_settings_errors' )->justReturn( [] );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
+	);
+	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
+	Functions\when( 'wp_safe_redirect' )->alias(
+		static function (): void {
+			throw new Admin_Page_Halt();
+		}
+	);
+
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'              => 'field-trip',
+		'name'              => 'Field Trip',
+		'upload_width_mode' => 'limit',
+		'upload_width'      => '1920',
+		'upload_quality'    => '80',
+		'full_width'        => '1920',
+		'full_quality'      => '85',
+		'thumbnail_width'   => '640',
+		'thumbnail_quality' => '75',
+	];
+
+	try {
+		$page->handle_create();
+	} catch ( Admin_Page_Halt ) {
+		$noop = true;
+	}
+
+	// No "-2" collection was invented and the original is unchanged.
+	expect( is_dir( $root . 'field-trip-2' ) )->toBeFalse();
+	expect( file_get_contents( $root . 'field-trip/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	$_POST = [];
+	admin_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// Create form — slug optional with a live default placeholder + ⚠️ markers (#50)
+// ---------------------------------------------------------------------------
+
+test( 'the create form makes the slug optional and exposes the existing slugs for the on-blur default', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+
+	// An existing collection so the rendered existing-slugs list the JS reads is
+	// non-empty, and the on-blur compute can suffix against it.
+	seed_admin_collection( $root, 'spring', 'Spring', 1920, 80 );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The slug input is no longer `required`, and the name + slug fields carry the
+	// data hooks the on-blur script reads, with the existing slugs rendered so the
+	// client can compute a unique default without a round-trip.
+	expect( $html )->not->toContain( 'name="slug" id="kntnt-photo-drop-slug" type="text" class="regular-text" required' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-slug-input' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-name-input' );
+	expect( $html )->toContain( 'data-kntnt-photo-drop-existing-slugs' );
+	expect( $html )->toContain( 'spring' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form marks the permanent fields and states the set-once rule by the Save button', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// Each permanent field carries a ⚠️ marker with an accessible label and a
+	// per-field tooltip giving the reason, and the markers hang off a shared class so
+	// they are styleable and discoverable in the markup.
+	expect( substr_count( $html, 'kntnt-photo-drop-permanence' ) )->toBeGreaterThanOrEqual( 3 );
+	expect( $html )->toContain( '⚠' );
+	expect( $html )->toContain( 'aria-label' );
+	expect( $html )->toContain( 'title=' );
+
+	// A line beside the Save button states that ⚠️ fields are set once and cannot be
+	// changed after the collection is created.
+	expect( $html )->toContain( 'set once' );
+
+	// The re-derivable full/thumbnail fields carry the milder "regenerates images"
+	// note rather than the permanence marker.
+	expect( $html )->toContain( 'regenerate' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
 
 test( 'update rewrites only the display name and preserves the contract', function (): void {
 	$basedir = fresh_admin_basedir();

@@ -506,6 +506,24 @@ final class Admin_Page {
 	}
 
 	/**
+	 * Computes the unique slug a blank slug field defaults to (RED stub).
+	 *
+	 * Replaced by the real implementation in the GREEN step; for now it returns the
+	 * empty string so the suffix tests fail with a real assertion failure rather than
+	 * an undefined-method fatal.
+	 *
+	 * @since 0.12.0
+	 *
+	 * @param string            $name           The display name to derive the slug from.
+	 * @param array<int,string> $existing_slugs The slugs already in use.
+	 * @return string The unique default slug.
+	 */
+	public function unique_slug_default( string $name, array $existing_slugs ): string {
+		unset( $name, $existing_slugs );
+		return '';
+	}
+
+	/**
 	 * Establishes a new collection: validates, then creates the directory and
 	 * writes its descriptor.
 	 *
