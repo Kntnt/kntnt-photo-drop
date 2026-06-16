@@ -2,14 +2,14 @@
 /**
  * Unit tests for the Gallery's pure render helpers.
  *
- * The justified-row math, the srcset assembly, the caption assembly, and the URL
- * arithmetic are pure helpers precisely so they can be proven in isolation,
- * without a collection on disk or a WordPress runtime (docs/testing.md). These
- * tests pin each helper's contract directly: the srcset keeps the main as a
- * candidate and drops upscaled thumbnails; captions assemble across every
- * content/humanise/separator combination; the justified math derives basis and
- * grow from the aspect ratio and flags the last row; and URLs encode each path
- * segment and splice the hidden thumbnails directory in correctly.
+ * The justified-row math, the srcset assembly, and the URL arithmetic are pure
+ * helpers precisely so they can be proven in isolation, without a collection on
+ * disk or a WordPress runtime (docs/testing.md). These tests pin each helper's
+ * contract directly: the srcset keeps the main as a candidate and drops upscaled
+ * thumbnails; the justified math derives basis and grow from the aspect ratio and
+ * flags the last row; and URLs encode each path segment and splice the hidden
+ * thumbnails directory in correctly. The breadcrumb overlay assembly is the
+ * unified overlay framework's own pure core and lives in BreadcrumbBuilderTest.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.6.0
@@ -17,7 +17,6 @@
 
 declare( strict_types = 1 );
 
-use Kntnt\Photo_Drop\Rendering\Caption_Builder;
 use Kntnt\Photo_Drop\Rendering\Image_Url;
 use Kntnt\Photo_Drop\Rendering\Justified_Layout;
 use Kntnt\Photo_Drop\Rendering\Srcset_Builder;
@@ -116,56 +115,6 @@ test( 'the srcset attribute joins candidates as <url> <width>w', function (): vo
 
 	expect( $attribute )->toBe( 'https://x/t320.webp 320w, https://x/main.webp 900w' );
 
-} );
-
-// ---------------------------------------------------------------------------
-// Caption_Builder — content / humanise / breadcrumb assembly
-// ---------------------------------------------------------------------------
-
-test( 'the none content yields an empty caption', function (): void {
-	expect( Caption_Builder::build( 'a/b.jpg.webp', 'none', true, false, '›', 'C' ) )->toBe( '' );
-} );
-
-test( 'a humanised filename caption strips the stored webp and the extension', function (): void {
-
-	// The stored name is the original plus .webp; humanising recovers the original
-	// and drops its own extension and separators.
-	$caption = Caption_Builder::build( 'morning/sun_rise-01.jpg.webp', 'filename', true, false, '›', 'C' );
-	expect( $caption )->toBe( 'sun rise 01' );
-
-} );
-
-test( 'a non-humanised filename caption keeps the original name with its extension', function (): void {
-	$caption = Caption_Builder::build( 'a/IMG_2024.jpg.webp', 'filename', false, false, '›', 'C' );
-	expect( $caption )->toBe( 'IMG_2024.jpg' );
-} );
-
-test( 'an already-webp original is not stripped to an extensionless name', function (): void {
-
-	// sunset.webp was an already-webp original stored verbatim; humanising must not
-	// invent an extensionless "sunset" by stripping a non-existent appended suffix.
-	$caption = Caption_Builder::build( 'sunset.webp', 'filename', false, false, '›', 'C' );
-	expect( $caption )->toBe( 'sunset.webp' );
-
-} );
-
-test( 'a path breadcrumb joins humanised segments with the separator', function (): void {
-	$caption = Caption_Builder::build( '2024_summer/day-one/IMG_5.jpg.webp', 'path', true, false, '›', 'Trip' );
-	expect( $caption )->toBe( '2024 summer › day one › IMG 5' );
-} );
-
-test( 'a path breadcrumb prefixes the collection name when asked', function (): void {
-	$caption = Caption_Builder::build( 'day-one/IMG_5.jpg.webp', 'path', true, true, '›', 'Trip' );
-	expect( $caption )->toBe( 'Trip › day one › IMG 5' );
-} );
-
-test( 'a root-level path breadcrumb is just the filename', function (): void {
-	$caption = Caption_Builder::build( 'lonely.jpg.webp', 'path', true, false, '›', 'Trip' );
-	expect( $caption )->toBe( 'lonely' );
-} );
-
-test( 'an unrecognised content value falls back to no caption', function (): void {
-	expect( Caption_Builder::build( 'a.jpg.webp', 'nonsense', true, false, '›', 'C' ) )->toBe( '' );
 } );
 
 // ---------------------------------------------------------------------------
