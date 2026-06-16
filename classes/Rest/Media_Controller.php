@@ -27,9 +27,12 @@ declare( strict_types = 1 );
 
 namespace Kntnt\Photo_Drop\Rest;
 
+use Kntnt\Photo_Drop\Collection\Image_Name;
 use Kntnt\Photo_Drop\Collection\Path_Guard;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Plugin;
+use Kntnt\Photo_Drop\Storage\Descriptor;
+use Kntnt\Photo_Drop\Storage\Index;
 
 /**
  * Registers and serves the collection add-to-media endpoint.
@@ -191,11 +194,14 @@ class Media_Controller {
 	 *
 	 * Resolves the slug to a collection (404 when unknown), confines the
 	 * caller-supplied `path` to the collection root with `Path_Guard` (422 when it
-	 * escapes, is malformed, or carries traversal/scheme/NUL), and resolves it to a
-	 * real main image on disk (404 when no file is there). The confined main is then
-	 * sideloaded into the Media Library as an ordinary, independent attachment with
-	 * its own sub-sizes — a copy, never a link (ADR-0015). A failed sideload is a 500
-	 * rather than a phantom success. The reply is `201 { id }` carrying the created
+	 * escapes, is malformed, or carries traversal/scheme/NUL), resolves it to a real
+	 * file on disk (404 when none is there), and verifies that file is a **main
+	 * image** rather than a derived thumbnail, the descriptor, or a foreign
+	 * in-collection file (404 when it is not — confinement alone would otherwise copy
+	 * `collection.json` or a thumbnail). Only then is the confined main sideloaded
+	 * into the Media Library as an ordinary, independent attachment with its own
+	 * sub-sizes — a copy, never a link (ADR-0015). A failed sideload is a 500 rather
+	 * than a phantom success. The reply is `201 { id }` carrying the created
 	 * attachment id.
 	 *
 	 * @since 0.12.0
@@ -234,6 +240,16 @@ class Media_Controller {
 			return new \WP_Error( 'kntnt_photo_drop_unknown_image', $message, [ 'status' => 404 ] );
 		}
 
+		// The confined file must be a *main image*, not a derived artifact, the
+		// descriptor, or a foreign in-collection file: confinement and is_file()
+		// alone would copy collection.json or a .kntnt-thumbnails/<width>/<name>.webp
+		// thumbnail into the Library. ADR-0015 sideloads only the main, so a confined
+		// non-main is a 404 with nothing copied.
+		if ( ! $this->is_main_image( $main_path ) ) {
+			$message = __( 'The requested image is not a gallery image.', 'kntnt-photo-drop' );
+			return new \WP_Error( 'kntnt_photo_drop_not_a_main_image', $message, [ 'status' => 404 ] );
+		}
+
 		// Sideload the confined main into the Media Library as an independent copy;
 		// a WP_Error means the Library import itself failed, which is a 500 rather
 		// than a 201 over a copy that did not happen.
@@ -246,6 +262,44 @@ class Media_Controller {
 		}
 
 		return new \WP_REST_Response( [ 'id' => $attachment_id ], 201 );
+
+	}
+
+	/**
+	 * Reports whether a confined absolute path names a collection main image.
+	 *
+	 * The discrimination `Path_Guard` confinement and `is_file()` cannot make:
+	 * both accept the descriptor and a derived thumbnail just as readily as a main,
+	 * so this is what keeps the add-to-media copy to the main image (ADR-0015). A
+	 * main is a file whose basename is a stored main name (the shared
+	 * `Image_Name::is_stored_main()` rule the doctor's classification uses too — a
+	 * `<original>.webp` ending in `.webp`), that does **not** live under any folder's
+	 * hidden `.kntnt-thumbnails/` artifacts directory (which would make it a derived
+	 * thumbnail), and that is not the `collection.json` descriptor. The thumbnail and
+	 * descriptor checks are redundant-by-construction defence in depth — a thumbnail
+	 * shares the main's `<name>.webp` form, and the descriptor is excluded by the
+	 * stored-main rule anyway — but both are stated explicitly so the gate reads as
+	 * the full ADR-0015 contract rather than relying on a coincidence of the naming.
+	 *
+	 * @since 0.12.0
+	 *
+	 * @param string $path The confined absolute path returned by `Path_Guard`.
+	 * @return bool True when the path is a collection main image.
+	 */
+	private function is_main_image( string $path ): bool {
+
+		// A path under any `.kntnt-thumbnails/` segment is a derived thumbnail, not a
+		// main — reject it before the cheaper basename checks.
+		if ( str_contains( $path, '/' . Index::THUMBNAILS_DIRNAME . '/' ) ) {
+			return false;
+		}
+
+		// The basename must be a stored main name and must not be the descriptor; the
+		// descriptor fails the stored-main rule already, but the explicit exclusion
+		// keeps the intent legible. The path is a confined absolute one (Path_Guard
+		// rejects backslashes outright), so native basename() is exact here.
+		$basename = basename( $path );
+		return $basename !== Descriptor::FILENAME && Image_Name::is_stored_main( $basename );
 
 	}
 

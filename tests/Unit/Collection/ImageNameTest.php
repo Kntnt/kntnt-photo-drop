@@ -130,11 +130,11 @@ test( 'is_stored_main accepts a name in its own stored form ending in .webp', fu
 	expect( Image_Name::is_stored_main( $name ) )->toBeTrue();
 
 } )->with( [
-	'jpeg stored'        => [ 'IMG_2024.jpg.webp' ],
-	'png stored'         => [ 'panorama.png.webp' ],
-	'multi-dot stored'   => [ 'a.b.c.jpg.webp' ],
+	'jpeg stored'         => [ 'IMG_2024.jpg.webp' ],
+	'png stored'          => [ 'panorama.png.webp' ],
+	'multi-dot stored'    => [ 'a.b.c.jpg.webp' ],
 	'already-webp stored' => [ 'sunset.webp' ],
-	'unicode stored'     => [ 'смотри-Ñoño-日本語.jpg.webp' ],
+	'unicode stored'      => [ 'смотри-Ñoño-日本語.jpg.webp' ],
 ] );
 
 test( 'is_stored_main rejects a name that is not WebP', function ( string $name ): void {
@@ -144,11 +144,11 @@ test( 'is_stored_main rejects a name that is not WebP', function ( string $name 
 	expect( Image_Name::is_stored_main( $name ) )->toBeFalse();
 
 } )->with( [
-	'jpeg original'   => [ 'IMG_2024.jpg' ],
-	'descriptor'      => [ 'collection.json' ],
-	'listing guard'   => [ 'index.php' ],
-	'extensionless'   => [ 'photo' ],
-	'readme'          => [ 'notes.txt' ],
+	'jpeg original' => [ 'IMG_2024.jpg' ],
+	'descriptor'    => [ 'collection.json' ],
+	'listing guard' => [ 'index.php' ],
+	'extensionless' => [ 'photo' ],
+	'readme'        => [ 'notes.txt' ],
 ] );
 
 test( 'is_stored_main matches the .webp extension case-insensitively', function (): void {

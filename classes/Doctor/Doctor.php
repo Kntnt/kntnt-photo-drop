@@ -1131,7 +1131,7 @@ final class Doctor {
 	 * @return bool True when the entry is a main image.
 	 */
 	private function is_main( string $filename ): bool {
-		return Image_Name::to_stored( $filename ) === $filename && str_ends_with( strtolower( $filename ), '.webp' );
+		return Image_Name::is_stored_main( $filename );
 	}
 
 	/**
