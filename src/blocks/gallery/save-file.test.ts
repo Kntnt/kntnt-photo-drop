@@ -7,11 +7,15 @@
  * mid-download. `saveFile` is pinned on its load-bearing promise: the saved
  * click goes to a same-document object-URL anchor (never the remote URL, which
  * an environment could turn into navigation) and carries the derived filename.
+ * `shouldInterceptClick` is pinned on the modified-click contract every download
+ * trigger shares: a plain primary click is intercepted (and saved
+ * programmatically), every modified or non-primary click passes through to the
+ * browser so the `<a download>` semantics stay the no-JS / save-as fallback.
  *
  * @since 0.5.0
  */
 
-import { filenameFromUrl, saveFile } from './save-file';
+import { filenameFromUrl, saveFile, shouldInterceptClick } from './save-file';
 
 describe( 'filenameFromUrl', () => {
 	it( 'returns the last path segment of an absolute URL', () => {
@@ -152,5 +156,48 @@ describe( 'saveFile', () => {
 
 		expect( clickSpy ).not.toHaveBeenCalled();
 		expect( window.location.hash ).toBe( '#offline' );
+	} );
+} );
+
+describe( 'shouldInterceptClick', () => {
+	// A minimal mouse-event shape covering the five fields the predicate reads;
+	// each test overrides only what it asserts on, the rest staying the plain
+	// primary-click defaults.
+	const plainPrimary = {
+		button: 0,
+		metaKey: false,
+		ctrlKey: false,
+		shiftKey: false,
+		altKey: false,
+	};
+
+	it( 'intercepts a plain primary click', () => {
+		// The only click the download trigger handles itself — saved
+		// programmatically so no environment can turn it into navigation.
+		expect( shouldInterceptClick( plainPrimary ) ).toBe( true );
+	} );
+
+	it.each( [
+		[ 'meta', { metaKey: true } ],
+		[ 'ctrl', { ctrlKey: true } ],
+		[ 'shift', { shiftKey: true } ],
+		[ 'alt', { altKey: true } ],
+	] )(
+		'passes a %s-modified click through to the browser',
+		( _label, mods ) => {
+			// A modifier means the visitor asked the browser for its own behaviour
+			// (save-as, new tab/window), so the handler must not intercept.
+			expect( shouldInterceptClick( { ...plainPrimary, ...mods } ) ).toBe(
+				false
+			);
+		}
+	);
+
+	it( 'passes a non-primary (middle/right) click through to the browser', () => {
+		// Only the primary button downloads; a middle/right click is the
+		// browser's to handle (open in new tab, context menu).
+		expect( shouldInterceptClick( { ...plainPrimary, button: 1 } ) ).toBe(
+			false
+		);
 	} );
 } );

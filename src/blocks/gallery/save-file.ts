@@ -33,6 +33,53 @@ const REVOKE_DELAY = 1000;
 const FALLBACK_FILENAME = 'image';
 
 /**
+ * The mouse-event fields that decide whether a click is a plain primary click.
+ *
+ * A structural subset of `MouseEvent`, so the predicate can be unit-tested with
+ * a plain object and reused across every download trigger and the navigation
+ * suppression without coupling to the full DOM event.
+ *
+ * @since 0.11.0
+ */
+export interface ClickModifiers {
+	/** The pressed button: `0` is the primary (left) button. */
+	readonly button: number;
+	/** Whether the Meta (Command) key was held. */
+	readonly metaKey: boolean;
+	/** Whether the Control key was held. */
+	readonly ctrlKey: boolean;
+	/** Whether the Shift key was held. */
+	readonly shiftKey: boolean;
+	/** Whether the Alt (Option) key was held. */
+	readonly altKey: boolean;
+}
+
+/**
+ * Whether a click should be intercepted and handled programmatically.
+ *
+ * True only for a plain primary click — the one the gallery handles itself
+ * (a programmatic save, a lightbox open, a slideshow start). Any modifier
+ * (Cmd/Ctrl/Shift/Alt) or non-primary button is the visitor asking the browser
+ * for its own behaviour — save-as, open in a new tab or window, the context
+ * menu — so it passes through untouched, leaving the `<a download>`/`<a href>`
+ * semantics as the fallback.
+ *
+ * @since 0.11.0
+ *
+ * @param event - The click's modifier and button state.
+ * @return True for a plain primary click, false for any modified or non-primary click.
+ */
+export function shouldInterceptClick( event: ClickModifiers ): boolean {
+	return (
+		event.button === 0 &&
+		! event.metaKey &&
+		! event.ctrlKey &&
+		! event.shiftKey &&
+		! event.altKey
+	);
+}
+
+/**
  * Derives the saved file's name from a URL's last path segment.
  *
  * Query string and fragment never reach the name (the URL parser strips them

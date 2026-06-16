@@ -25,6 +25,7 @@ function link( name: string ): string {
 	return (
 		`<a class="kntnt-photo-drop-gallery__link" href="https://site.test/${ name }.webp"` +
 		` data-kntnt-photo-drop-full="https://site.test/${ name }.webp"` +
+		` data-kntnt-photo-drop-main="https://site.test/${ name }.webp"` +
 		` data-kntnt-photo-drop-srcset="https://site.test/${ name }-320.webp 320w"` +
 		` data-kntnt-photo-drop-breadcrumbs="${ name } crumb">` +
 		`<img src="https://site.test/${ name }-320.webp" alt="${ name }"></a>`
@@ -109,6 +110,7 @@ describe( 'freshSlides', () => {
 		expect( freshSlides( html, '', 0 ) ).toEqual( [
 			{
 				url: 'https://site.test/alpha.webp',
+				main: 'https://site.test/alpha.webp',
 				srcset: 'https://site.test/alpha-320.webp 320w',
 				label: 'alpha',
 				breadcrumbs: 'alpha crumb',
@@ -119,7 +121,13 @@ describe( 'freshSlides', () => {
 
 describe( 'resolveResync', () => {
 	const current: readonly GallerySlide[] = [
-		{ url: 'a.webp', srcset: '', label: '', breadcrumbs: '' },
+		{
+			url: 'a.webp',
+			main: 'a.webp',
+			srcset: '',
+			label: '',
+			breadcrumbs: '',
+		},
 	];
 
 	it( 'keeps the stale list when the fetch failed', () => {
@@ -135,8 +143,20 @@ describe( 'resolveResync', () => {
 
 	it( 'replaces the list wholesale on a fresh view', () => {
 		const fresh: readonly GallerySlide[] = [
-			{ url: 'b.webp', srcset: '', label: '', breadcrumbs: '' },
-			{ url: 'c.webp', srcset: '', label: '', breadcrumbs: '' },
+			{
+				url: 'b.webp',
+				main: 'b.webp',
+				srcset: '',
+				label: '',
+				breadcrumbs: '',
+			},
+			{
+				url: 'c.webp',
+				main: 'c.webp',
+				srcset: '',
+				label: '',
+				breadcrumbs: '',
+			},
 		];
 		expect( resolveResync( fresh, current ) ).toEqual( {
 			slides: fresh,
