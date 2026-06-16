@@ -70,7 +70,13 @@ export interface ClickModifiers {
  * @return True for a plain primary click, false for any modified or non-primary click.
  */
 export function shouldInterceptClick( event: ClickModifiers ): boolean {
-	return false;
+	return (
+		event.button === 0 &&
+		! event.metaKey &&
+		! event.ctrlKey &&
+		! event.shiftKey &&
+		! event.altKey
+	);
 }
 
 /**

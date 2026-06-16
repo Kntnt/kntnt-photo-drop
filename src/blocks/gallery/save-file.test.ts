@@ -182,13 +182,16 @@ describe( 'shouldInterceptClick', () => {
 		[ 'ctrl', { ctrlKey: true } ],
 		[ 'shift', { shiftKey: true } ],
 		[ 'alt', { altKey: true } ],
-	] )( 'passes a %s-modified click through to the browser', ( _label, mods ) => {
-		// A modifier means the visitor asked the browser for its own behaviour
-		// (save-as, new tab/window), so the handler must not intercept.
-		expect( shouldInterceptClick( { ...plainPrimary, ...mods } ) ).toBe(
-			false
-		);
-	} );
+	] )(
+		'passes a %s-modified click through to the browser',
+		( _label, mods ) => {
+			// A modifier means the visitor asked the browser for its own behaviour
+			// (save-as, new tab/window), so the handler must not intercept.
+			expect( shouldInterceptClick( { ...plainPrimary, ...mods } ) ).toBe(
+				false
+			);
+		}
+	);
 
 	it( 'passes a non-primary (middle/right) click through to the browser', () => {
 		// Only the primary button downloads; a middle/right click is the

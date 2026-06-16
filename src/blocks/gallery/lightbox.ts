@@ -24,18 +24,20 @@
  *
  * When the download overlay reaches the lightbox (ADR-0015), the overlay carries
  * a download-icon anchor. The controller points its `href` at the current slide's
- * full image and intercepts a plain click to save the slide programmatically
- * ({@link saveFile} — a blob download no link-rewriting theme or cross-origin
- * host can turn into a new tab); a click on the enlarged image outside the icon
- * does nothing. When the breadcrumb overlay reaches the lightbox, the controller
- * mirrors each slide's breadcrumb text onto the lightbox's breadcrumb figcaption
- * (the same overlay element, anchor, and styling the gallery figures use).
+ * main image — the highest-fidelity download target (ADR-0013), distinct from the
+ * full rendition the lightbox displays — and intercepts a plain click to save the
+ * slide programmatically ({@link saveFile} — a blob download no link-rewriting
+ * theme or cross-origin host can turn into a new tab); a click on the enlarged
+ * image outside the icon does nothing. When the breadcrumb overlay reaches the
+ * lightbox, the controller mirrors each slide's breadcrumb text onto the
+ * lightbox's breadcrumb figcaption (the same overlay element, anchor, and styling
+ * the gallery figures use).
  *
  * @since 0.7.0
  */
 
 import { trapFocus } from './focus-trap';
-import { saveFile } from './save-file';
+import { saveFile, shouldInterceptClick } from './save-file';
 import { readSlides, type GallerySlide } from './slides';
 import { actionForKey, type LightboxKeyAction } from './lightbox-keys';
 import {
@@ -314,17 +316,12 @@ export class GalleryLightbox {
 		// slide programmatically — a blob download no link-rewriting theme or
 		// cross-origin host can turn into a new tab, unlike the anchor's own
 		// `download` navigation, which stays as the no-JS fallback. Modified
-		// clicks are left to the browser.
+		// clicks are left to the browser. The href is the current slide's main
+		// image, set per transition in `#render`.
 		const download = this.#refs.download;
 		if ( download ) {
 			download.addEventListener( 'click', ( event ) => {
-				if (
-					event.metaKey ||
-					event.ctrlKey ||
-					event.shiftKey ||
-					event.altKey ||
-					event.button !== 0
-				) {
+				if ( ! shouldInterceptClick( event ) ) {
 					return;
 				}
 				event.preventDefault();
@@ -537,11 +534,13 @@ export class GalleryLightbox {
 		// The alt is the image's accessible label.
 		this.#refs.image.alt = slide.label;
 
-		// Point the download-icon anchor at the current slide's full image, so an
-		// icon click saves it; the anchor is null (so this is skipped) when download
-		// is off, since the server then emits no icon.
+		// Point the download-icon anchor at the current slide's main image — the
+		// highest-fidelity download target (ADR-0013), distinct from the full
+		// rendition the lightbox displays — so an icon click saves the main; the
+		// anchor is null (so this is skipped) when download is off, since the server
+		// then emits no icon.
 		if ( this.#refs.download ) {
-			this.#refs.download.href = slide.url;
+			this.#refs.download.href = slide.main;
 		}
 
 		// Mirror the gallery breadcrumb onto the lightbox figure when a breadcrumb

@@ -520,16 +520,19 @@ final class Render_Gallery {
 		);
 
 		// Wrap the image in an <a href> to the main image — the no-JS fallback and the
-		// lightbox's upgrade hook. The data attributes hand the main URL, the srcset,
-		// and (when breadcrumbs are visible) the breadcrumb text to the lightbox
-		// without re-parsing the markup. The anchor never downloads; the download
-		// overlay icon is the sole download trigger.
+		// lightbox's upgrade hook. The data attributes hand the lightbox its slide
+		// data without re-parsing the markup: the display rendition (`-full`), the
+		// srcset, the breadcrumb text (when visible), and — distinct from the display
+		// rendition — the main-image download target (`-main`), which the lightbox
+		// download icon always saves (ADR-0013), so a future bounded full rendition
+		// never drags the download off the main. The anchor never downloads; the
+		// download overlay icon is the sole download trigger.
 		$breadcrumb_attr = $breadcrumb_text !== ''
 			? sprintf( ' data-kntnt-photo-drop-breadcrumbs="%s"', esc_attr( $breadcrumb_text ) )
 			: '';
 		$link            = sprintf(
 			'<a class="kntnt-photo-drop-gallery__link" href="%1$s" data-kntnt-photo-drop-full="%1$s"'
-				. ' data-kntnt-photo-drop-srcset="%2$s"%3$s>%4$s</a>',
+				. ' data-kntnt-photo-drop-main="%1$s" data-kntnt-photo-drop-srcset="%2$s"%3$s>%4$s</a>',
 			esc_url( $main_url ),
 			esc_attr( $srcset ),
 			$breadcrumb_attr,

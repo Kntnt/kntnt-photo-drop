@@ -55,7 +55,7 @@ import { createResync } from './slideshow-resync';
 import { resolveSlideshowTarget } from './slideshow-target';
 import { SLIDE_LINK_SELECTOR } from './slides';
 import { lastRowFlags } from './justified-rows';
-import { saveFile } from './save-file';
+import { saveFile, shouldInterceptClick } from './save-file';
 
 /**
  * The per-block Interactivity context emitted by `Render_Gallery`.
@@ -235,13 +235,7 @@ function wireCustomTriggers( doc: Document ): void {
 	}
 	customTriggersWired = true;
 	doc.addEventListener( 'click', ( event ) => {
-		if (
-			event.metaKey ||
-			event.ctrlKey ||
-			event.shiftKey ||
-			event.altKey ||
-			event.button !== 0
-		) {
+		if ( ! shouldInterceptClick( event ) ) {
 			return;
 		}
 		const target = event.target;
@@ -286,13 +280,7 @@ function wireCustomTriggers( doc: Document ): void {
  */
 function suppressNavigation( wrapper: HTMLElement ): void {
 	wrapper.addEventListener( 'click', ( event ) => {
-		if (
-			event.metaKey ||
-			event.ctrlKey ||
-			event.shiftKey ||
-			event.altKey ||
-			event.button !== 0
-		) {
+		if ( ! shouldInterceptClick( event ) ) {
 			return;
 		}
 		const target = event.target;
@@ -324,13 +312,7 @@ function suppressNavigation( wrapper: HTMLElement ): void {
  */
 function wireIconDownloads( wrapper: HTMLElement ): void {
 	wrapper.addEventListener( 'click', ( event ) => {
-		if (
-			event.metaKey ||
-			event.ctrlKey ||
-			event.shiftKey ||
-			event.altKey ||
-			event.button !== 0
-		) {
+		if ( ! shouldInterceptClick( event ) ) {
 			return;
 		}
 		const target = event.target;
