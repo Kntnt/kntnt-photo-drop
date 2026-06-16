@@ -1584,6 +1584,40 @@ test( 'a thumbnail download overlay is an <a download> anchor at its main image'
 	gallery_remove_tree( $basedir );
 } );
 
+test( 'the anchor mirrors the main image as a dedicated download target for the lightbox', function (): void {
+
+	$descriptor = gallery_descriptor();
+	$html       = render_seeded_gallery(
+		[
+			'lightbox'           => true,
+			'downloadVisibility' => 'full',
+		],
+		[
+			[
+				'path'   => 'a.jpg.webp',
+				'width'  => 800,
+				'height' => 600,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	// The download is always the main image (ADR-0013), so the figure anchor carries
+	// the main URL as its own `data-kntnt-photo-drop-main`, independent of the display
+	// rendition. The lightbox download icon ships hrefless and the view module points
+	// it at this attribute, so a full-rendition display split never drags the download
+	// target off the main.
+	expect( $html )->toMatch(
+		'/<a class="kntnt-photo-drop-gallery__link"[^>]*'
+		. ' data-kntnt-photo-drop-main='
+		. '"https:\/\/example\.test\/uploads\/kntnt-photo-drop\/photos\/a\.jpg\.webp"/'
+	);
+
+	gallery_remove_tree( $basedir );
+} );
+
 test( 'icons sharing a position auto-cluster in the fixed order download, add-to-media, trash', function (): void {
 
 	$descriptor = gallery_descriptor();

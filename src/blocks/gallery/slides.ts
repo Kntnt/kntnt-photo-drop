@@ -33,8 +33,10 @@ export const SLIDE_LINK_SELECTOR = '.kntnt-photo-drop-gallery__link';
  * @since 0.7.0
  */
 export interface GallerySlide {
-	/** The full-resolution image URL (the anchor's `href`). */
+	/** The display image URL — the full rendition the lightbox shows (the anchor's `href`). */
 	readonly url: string;
+	/** The download target — always the main image (ADR-0013), independent of `url`. */
+	readonly main: string;
 	/** The slide's responsive srcset (the anchor's srcset data attribute). */
 	readonly srcset: string;
 	/** The accessible label for the image (the thumbnail's `alt`). */
@@ -60,6 +62,7 @@ export function readSlides(
 ): GallerySlide[] {
 	return links.map( ( link ) => ( {
 		url: link.dataset.kntntPhotoDropFull ?? link.href,
+		main: link.dataset.kntntPhotoDropFull ?? link.href,
 		srcset: link.dataset.kntntPhotoDropSrcset ?? '',
 		label: link.querySelector< HTMLImageElement >( 'img' )?.alt ?? '',
 		breadcrumbs: link.dataset.kntntPhotoDropBreadcrumbs ?? '',
