@@ -185,6 +185,25 @@ describe( 'createUploadQueue', () => {
 
 			expect( states[ states.length - 1 ] ).toBe( false );
 		} );
+
+		it( 're-arms the queue so a fresh batch after a cancel uploads', async () => {
+			const { process, uploads } = fakeProcessor();
+			const queue = createUploadQueue( process, () => undefined );
+
+			// Cancel the first batch: its in-flight upload aborts and settles, so
+			// the queue drains to idle exactly as it would for a real Cancel.
+			queue.enqueue( [ queued( 'a.jpg' ) ] );
+			expect( uploads ).toHaveLength( 1 );
+			queue.cancel();
+			uploads.forEach( ( upload ) => upload.settle() );
+			await flush();
+
+			// A brand-new drag-drop / folder-pick after the cancel must upload, not
+			// freeze at 0%: enqueue (not just retry) has to lift the cancel stop.
+			queue.enqueue( [ queued( 'b.jpg' ) ] );
+			expect( uploads ).toHaveLength( 2 );
+			expect( uploads[ 1 ]?.queued.relativePath ).toBe( 'b.jpg' );
+		} );
 	} );
 
 	describe( 'retry', () => {
