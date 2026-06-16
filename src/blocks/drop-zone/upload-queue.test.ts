@@ -223,6 +223,29 @@ describe( 'createUploadQueue', () => {
 			expect( uploads ).toHaveLength( 2 );
 		} );
 
+		it( 'needs retry, not enqueue, to re-run a settled key — enqueue is swallowed', async () => {
+			const { process, uploads } = fakeProcessor();
+			const queue = createUploadQueue( process, () => undefined );
+
+			// First pass: the file uploads once and settles (a failure).
+			queue.enqueue( [ queued( 'a.jpg' ) ] );
+			expect( uploads ).toHaveLength( 1 );
+			uploads[ 0 ]?.settle();
+			await flush();
+
+			// A plain enqueue of the same key is swallowed by the dedup set — this
+			// is exactly why the Drop Zone's Retry must route through retry: an
+			// enqueue-based retry would silently upload nothing.
+			queue.enqueue( [ queued( 'a.jpg' ) ] );
+			await flush();
+			expect( uploads ).toHaveLength( 1 );
+
+			// retry re-admits the already-seen key, so the failure actually re-runs.
+			queue.retry( [ queued( 'a.jpg' ) ] );
+			await flush();
+			expect( uploads ).toHaveLength( 2 );
+		} );
+
 		it( 're-queues only the files handed to it, not the whole batch', async () => {
 			const { process, uploads } = fakeProcessor();
 			const queue = createUploadQueue( process, () => undefined );

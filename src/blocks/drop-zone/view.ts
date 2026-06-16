@@ -624,18 +624,25 @@ function processFile(
  * re-send its real bytes; the model only keeps a failed file's name, not its
  * `File` (issue #44), so the source must be held here at intake.
  *
+ * A Retry submits through the queue's `retry` rather than `enqueue` (`isRetry`):
+ * a retried file's relative path was already admitted on its first intake, so
+ * `enqueue`'s dedup set would silently swallow it — `retry` re-admits the
+ * already-seen keys so the failures actually run again.
+ *
  * @since 0.4.0
  *
  * @param files    - The files to consider, paired with their relative paths.
  * @param queue    - The upload queue.
  * @param progress - The progress wiring.
  * @param retained - The registry that holds each accepted file for Retry.
+ * @param isRetry  - True when this batch is a Retry of previously-failed files.
  */
 function intakeFiles(
 	files: readonly QueuedFile[],
 	queue: UploadQueue,
 	progress: Progress,
-	retained: RetainedFiles
+	retained: RetainedFiles,
+	isRetry: boolean = false
 ): void {
 	const accepted: QueuedFile[] = [];
 
@@ -663,7 +670,14 @@ function intakeFiles(
 		accepted.push( queued );
 	}
 
-	queue.enqueue( accepted );
+	// Submit through enqueue for a fresh batch, but retry for a Retry: retry
+	// re-admits the already-seen keys the dedup set would otherwise swallow,
+	// so the failures actually run again instead of being silently dropped.
+	if ( isRetry ) {
+		queue.retry( accepted );
+	} else {
+		queue.enqueue( accepted );
+	}
 }
 
 /**
@@ -789,13 +803,16 @@ const { state } = store( 'kntnt-photo-drop/drop-zone', {
 						// Re-queue exactly the failures with their original bytes,
 						// looked up from the retained registry; a failure with no
 						// retained file (an unreadable dropped subtree) is dropped,
-						// never re-sent as an empty file. They re-enter as pending and
-						// the live bar resumes from the next render.
+						// never re-sent as an empty file. `isRetry` routes them through
+						// the queue's retry so the dedup set re-admits their
+						// already-seen keys; they re-enter as pending and the live bar
+						// resumes from the next render.
 						intakeFiles(
 							retained.resolve( failed ),
 							queue,
 							progress,
-							retained
+							retained,
+							true
 						);
 					},
 				}
