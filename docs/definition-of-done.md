@@ -16,6 +16,12 @@ The bar every change clears before it is considered finished — before a pull r
 
 A change that touches only PHP need not re-run the JS gates and vice versa — but anything that could plausibly affect a gate runs it. When in doubt, run all of them.
 
+## Test-driven development
+
+New behaviour is built **test-first** — Red/Green/Refactor (see [`coding-standards.md`](coding-standards.md)). The bar is not "tests exist and pass" (test-after clears that too) but that the **RED was demonstrated**: each change shows a test failing *before* its implementation — a failing test committed ahead of the code that makes it pass, or the failing run captured in the pull request — and the failure is for the expected reason (a real assertion, not an import error or a typo). A test never seen to fail is of unknown value; the demonstrated failure is what makes it load-bearing.
+
+This is **self-service and non-blocking**: an agent produces and reports the RED itself and never pauses for a human to run, write, or confirm a test. Everything that can be meaningfully automated is automated at the lowest layer that captures the behaviour, escalating to integration or e2e where a unit test cannot — so the human-verification list below is the irreducibly subjective remainder, never a dumping ground for work that was merely easier to skip. For the per-issue layer mapping, see [`testing.md`](testing.md).
+
 ## Integration and end-to-end — green where relevant
 
 The integration (`npm run test:integration`, WordPress via `@wordpress/env`) and end-to-end (`npm run test:e2e`, Playwright) layers run for any change that touches the behaviour they cover:
@@ -42,7 +48,7 @@ While the major version is `0`, no change adds backwards-compatibility scaffoldi
 
 ## Human-verification caveat
 
-The automated gates cannot judge whether the result *looks and feels right*. The following require a human's eyes and are called out explicitly in the PR rather than claimed as done:
+The automated gates cannot judge whether the result *looks and feels right*. This list is kept **as small as the automation allows**: the mechanical half of each item below — a keypress changes the slide, focus is trapped, a dropped folder's hierarchy is preserved — is covered by e2e and does not belong here; what remains is the irreducibly subjective. These items are **never waited on** — an agent records and reports them upward, and the outermost agent aggregates every agent's residual into one final list for the maintainer (see *Reporting*). The following need a human's eyes and are stated explicitly rather than claimed as done:
 
 - **Visual layout** of the Gallery — uniform-grid (mode A) and justified-rows (mode B), caption positions and overlays, behaviour at narrow and wide viewports, zero layout shift on load.
 - **Lightbox feel** — open/close animation, prev/next, keyboard, swipe on touch, neighbour preload, focus trap, and that the no-JS fallback degrades gracefully.
@@ -54,4 +60,4 @@ A PR states plainly which automated gates were run and their result, which could
 
 ## Reporting
 
-Report outcomes faithfully. If a gate failed, say so with the output. If a gate could not be run in the environment (e.g. no Docker for `@wordpress/env`), say that explicitly rather than implying it passed. "Done" means the automated gates above are green and the human-verification items are listed for review — not that the code merely compiles.
+Report outcomes faithfully. If a gate failed, say so with the output. If a gate could not be run in the environment (e.g. no Docker for `@wordpress/env`), say that explicitly rather than implying it passed. "Done" means the automated gates above are green and the human-verification items are listed for review — not that the code merely compiles. When the work runs as a hierarchy of agents, each implementing agent ends with the structured report defined in [`AGENTS.md`](../AGENTS.md) — *Automatically tested* / *Remaining for a human* / *Assumptions & blockers* — and the outermost agent consolidates these into a single end-of-work report: everything implemented, tested and green, then the aggregated human-remaining list and any blockers.

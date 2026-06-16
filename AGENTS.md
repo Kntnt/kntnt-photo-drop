@@ -57,6 +57,20 @@ The fifteen ADRs (`docs/adr/0001`–`0015`) own the decisions with real trade-of
 
 This plugin is in **pre-1.0 development**. There are no users, no installations in the wild, no production data anywhere except the maintainer's machine. **As long as the major version is `0`, no decision factors in backwards compatibility** — no `block.json` `deprecated` entries, no attribute migrations, no fallback paths for old shapes, no concern for existing `post_content`. Pick the cleanest end-state and ship the breaking change. This rule sunsets the moment the `Version:` header in `kntnt-photo-drop.php` and `"version"` in `package.json` cross `1.0.0`.
 
+## How autonomous agents work — autonomy, blockers, reporting
+
+When these issues are implemented away from the keyboard, agents operate autonomously and **never block on the maintainer**: no agent stops to ask for input, to have a test run for it, or to wait on a decision. Genuine ambiguity is resolved by the most reasonable assumption — recorded and reported, never a silent guess that hides the choice and never a pause.
+
+**The one exception is a true design blocker** — a task that cannot proceed without contradicting an ADR, `design.md`, or a load-bearing invariant. There the rule above (*change is an ADR, not a silent edit*) still wins: the agent neither guesses past the decision nor pauses-and-waits. It stops *that unit only*, records the blocker, and proceeds with everything else it can do; the blocker surfaces in the final report for the maintainer to resolve as an ADR amendment.
+
+**Every implementing agent ends with a structured report to its caller**, in three buckets:
+
+- **Automatically tested** — what was covered, and at which layer (unit / integration / e2e).
+- **Remaining for a human** — the irreducibly subjective checks the automation cannot meaningfully make (the human-verification caveat in [`docs/definition-of-done.md`](docs/definition-of-done.md)).
+- **Assumptions & blockers** — every assumption made to avoid pausing, and any true design blocker that stopped a unit.
+
+**The outermost agent aggregates.** It concatenates and de-duplicates every sub-agent's three buckets into one end-of-work report to the maintainer: everything implemented, tested and green, then the consolidated *remaining-for-a-human* list and any *blockers*. That single report is the only thing that travels back up — nothing waits mid-flight.
+
 ## Toolchain commands
 
 PHP 8.4+ and WordPress 7.0+ are the runtime floor. Install both toolchains once:

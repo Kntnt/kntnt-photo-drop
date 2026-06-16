@@ -4,6 +4,15 @@ What is tested, with what tooling, and what is deliberately not. Read this when 
 
 > **⚠️ Stale pending [#46](https://github.com/Kntnt/kntnt-photo-drop/issues/46).** This file still describes the pre-redesign model (two renditions, `maxWidth` / `--max-width`, the `kntnt_photo_drop_thumbnail_width` filter, captions + the download click-matrix). The authoritative specs for the redesign are [`design.md`](design.md), [`blocks.md`](blocks.md), and ADR-0013/0014/0015. When writing tests for the redesign issues (#42–#53), follow those — **not** the stale targets below — until #46 brings this file in line.
 
+## Choosing the test layer (TDD) — current, redesign
+
+Per the test-first bar in [`definition-of-done.md`](definition-of-done.md), drive each redesign issue at the **lowest layer that meaningfully constrains its behaviour**, automating everything that can be and leaving only the irreducibly subjective to a human. The redesign issues group cleanly (this section is current; the *targets* further down are stale until #46):
+
+- **Pure unit, classic Red/Green** — [#42](https://github.com/Kntnt/kntnt-photo-drop/issues/42) (descriptor read/write, tier-skip, `srcset` assembly, doctor reconciliation), [#43](https://github.com/Kntnt/kntnt-photo-drop/issues/43) (pre-order traversal), [#48](https://github.com/Kntnt/kntnt-photo-drop/issues/48) (template expansion, site timezone, stray-`%` and `..` rejection, the `Path_Guard` lexical checks), and the filter-resolution core of [#45](https://github.com/Kntnt/kntnt-photo-drop/issues/45). Test-first is exhaustive and easy here — e.g. #42's tier-skip matrix written as a failing table first.
+- **Pure core + non-unit shell** — [#44](https://github.com/Kntnt/kntnt-photo-drop/issues/44), [#47](https://github.com/Kntnt/kntnt-photo-drop/issues/47), [#50](https://github.com/Kntnt/kntnt-photo-drop/issues/50), [#51](https://github.com/Kntnt/kntnt-photo-drop/issues/51). Drive the pure helper Red/Green (bucket accounting; breadcrumb string + hide-count + leading-ellipsis output; slug default/suffix; the programmatic save path) and cover the DOM/CSS/editor shell with e2e where meaningful — never fake a unit assertion over visual output.
+- **Integration-first** — [#49](https://github.com/Kntnt/kntnt-photo-drop/issues/49) (regenerate-then-flip), [#52](https://github.com/Kntnt/kntnt-photo-drop/issues/52) (add-to-media), [#53](https://github.com/Kntnt/kntnt-photo-drop/issues/53) (trash). The behaviour is real filesystem + REST, so the RED is an integration test against `@wordpress/env` — the attachment is really created, `Path_Guard` really confines, the descriptor flips only on success — with capability/nonce gating and path confinement unit-checked on top. Do not mock these into a tautology.
+- **No automated tests** — [#46](https://github.com/Kntnt/kntnt-photo-drop/issues/46) (docs).
+
 ## Test pyramid
 
 | Layer | Tooling | Where | What it covers |
