@@ -231,6 +231,14 @@ add_filter( 'kntnt_photo_drop_list_capability', fn() => 'upload_files' );
 
 The capability required to read the collection-list REST route (`GET /wp-json/kntnt-photo-drop/v1/collections`), which the block editor uses to populate its collection selectors. Default: `edit_posts`.
 
+### `kntnt_photo_drop_editor_notice_capability`
+
+```php
+add_filter( 'kntnt_photo_drop_editor_notice_capability', fn() => 'manage_options' );
+```
+
+The capability a user must hold to see the Gallery block's editor-only notice when its collection reference is unset or dangling. The public never sees this notice; only a logged-in user with this capability does, so a broken reference prompts an editor to re-select a collection without ever leaking to visitors that a collection is gone. Default: `edit_posts`.
+
 ### `kntnt_photo_drop_max_input_megapixels`
 
 ```php

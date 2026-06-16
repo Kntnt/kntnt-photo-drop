@@ -330,6 +330,24 @@ function gallery_block_stub(): \WP_Block {
 }
 
 /**
+ * Re-points one capability filter at a bespoke capability, passing the rest through.
+ *
+ * The default harness stubs `apply_filters` as a pass-through; this overrides it
+ * so a single named capability hook returns `$capability` while every other
+ * filter still returns its value unchanged — the seam a test uses to prove a
+ * capability gate consults its filter rather than a hardcoded default.
+ *
+ * @param string $hook       The capability filter hook to override.
+ * @param string $capability The capability the hook should return.
+ * @return void
+ */
+function stub_capability_filter( string $hook, string $capability ): void {
+	Functions\when( 'apply_filters' )->alias(
+		static fn ( string $name, mixed $value ): mixed => $name === $hook ? $capability : $value
+	);
+}
+
+/**
  * Renders a gallery against a freshly seeded collection, returning the markup.
  *
  * @param array<string,mixed>                                $attributes The block attributes (merged over defaults).
@@ -1189,6 +1207,47 @@ test( 'the dangling notice is gated on the edit_posts capability specifically', 
 	wire_gallery_stubs( $basedir );
 	Functions\when( 'current_user_can' )->alias(
 		static fn ( string $capability ): bool => $capability !== 'edit_posts'
+	);
+
+	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
+
+	expect( $html )->toBe( '' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor notice capability is filterable: a custom capability opens the notice', function (): void {
+
+	// Re-gate the notice through its dedicated filter to a bespoke capability the
+	// user holds, while denying every WordPress-standard one (edit_posts
+	// included). The notice can therefore only appear because the gate consulted
+	// the filtered capability rather than the hardcoded default.
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir );
+	stub_capability_filter( 'kntnt_photo_drop_editor_notice_capability', 'manage_collections' );
+	Functions\when( 'current_user_can' )->alias(
+		static fn ( string $capability ): bool => $capability === 'manage_collections'
+	);
+
+	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
+
+	// The bespoke-capability holder sees the broken-reference notice.
+	expect( $html )->toContain( 'kntnt-photo-drop-gallery--notice' );
+	expect( $html )->toContain( 'no collection selected' );
+
+	gallery_remove_tree( $basedir );
+} );
+
+test( 'the editor notice capability is filterable: edit_posts is shut out once re-gated', function (): void {
+
+	// Re-gate the notice to a bespoke capability the user lacks, while granting
+	// the default edit_posts. If the gate still honoured the old hardcoded
+	// capability the notice would leak; the filter must shut it.
+	$basedir = fresh_gallery_basedir();
+	wire_gallery_stubs( $basedir );
+	stub_capability_filter( 'kntnt_photo_drop_editor_notice_capability', 'manage_collections' );
+	Functions\when( 'current_user_can' )->alias(
+		static fn ( string $capability ): bool => $capability === 'edit_posts'
 	);
 
 	$html = Render_Gallery::render( [ 'collection' => 'ghost' ], '', gallery_block_stub() );
