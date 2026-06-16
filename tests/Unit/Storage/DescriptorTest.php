@@ -359,3 +359,64 @@ test( 'the default path-components template is the documented placeholder string
 	expect( Descriptor::DEFAULT_PATH_COMPONENTS )->toBe( '%year%/%month%/%day%/%uploader%' );
 
 } );
+
+// ---------------------------------------------------------------------------
+// normalize_path_components — the save-time gate (normalise + stray-% + lexical)
+// ---------------------------------------------------------------------------
+
+test( 'normalize_path_components canonicalises a valid template', function ( string $raw, string $expected ): void {
+
+	// The save-time gate normalises the separator structure and accepts a template
+	// whose sample expansion is lexically safe and carries no stray `%`, returning
+	// the canonical form to store (ADR-0014).
+	expect( Descriptor::normalize_path_components( $raw ) )->toBe( $expected );
+
+} )->with( [
+	'default-shaped'     => [ '%year%/%month%/%day%/%uploader%', '%year%/%month%/%day%/%uploader%' ],
+	'subset'             => [ '%year%/%uploader%', '%year%/%uploader%' ],
+	'edge separators'    => [ '/%year%/%uploader%/', '%year%/%uploader%' ],
+	'collapsed empties'  => [ '%year%//%uploader%', '%year%/%uploader%' ],
+	'literal mix'        => [ 'events/%year%', 'events/%year%' ],
+] );
+
+test( 'normalize_path_components returns the default for an empty value', function ( string $raw ): void {
+
+	// An empty field means the default template — there is no flat-at-root placement
+	// (ADR-0014).
+	expect( Descriptor::normalize_path_components( $raw ) )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
+
+} )->with( [
+	'empty'        => [ '' ],
+	'only slashes' => [ '///' ],
+] );
+
+test( 'normalize_path_components rejects a stray percent', function ( string $raw ): void {
+
+	// A `%` left after the four known placeholders is reserved-character misuse — a
+	// mistyped `%moth%` must not become a literal folder — so save rejects it with
+	// false rather than storing it (ADR-0014).
+	expect( Descriptor::normalize_path_components( $raw ) )->toBeFalse();
+
+} )->with( [
+	'misspelled'       => [ '%year%/%moth%/%day%' ],
+	'unknown token'    => [ '%year%/%hour%' ],
+	'uppercase'        => [ '%YEAR%' ],
+	'half-open'        => [ '%year/%month%' ],
+	'trailing percent' => [ 'photos%' ],
+] );
+
+test( 'normalize_path_components rejects a template whose sample expansion is unsafe', function ( string $raw ): void {
+
+	// The normalised template, expanded with sample values, is run through the
+	// Path_Guard lexical checks; a traversal, an absolute path, a backslash, or a
+	// NUL in a literal segment is rejected at save rather than silently breaking
+	// every later upload (ADR-0014, "one validator, invoked at two times").
+	expect( Descriptor::normalize_path_components( $raw ) )->toBeFalse();
+
+} )->with( [
+	'parent traversal' => [ '%year%/../../x' ],
+	'leading traversal' => [ '../%year%' ],
+	'backslash'        => [ 'a\\b/%year%' ],
+	'nul byte'         => [ "photos\x00/%year%" ],
+	'lone traversal'   => [ '..' ],
+] );

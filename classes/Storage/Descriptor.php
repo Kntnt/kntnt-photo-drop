@@ -21,6 +21,8 @@ declare( strict_types = 1 );
 
 namespace Kntnt\Photo_Drop\Storage;
 
+use Kntnt\Photo_Drop\Collection\Path_Guard;
+use Kntnt\Photo_Drop\Collection\Path_Template;
 use Kntnt\Photo_Drop\Plugin;
 
 /**
@@ -66,13 +68,26 @@ final readonly class Descriptor {
 	 *
 	 * Nests every Drop Zone upload under year/month/day/uploader. Used when a
 	 * descriptor omits `pathComponents` (an empty field means the default) and as
-	 * the create-form pre-fill. The template is *stored* here; its server-side
-	 * expansion is a separate concern (issue #48).
+	 * the create-form pre-fill. The template is expanded server-side at upload time
+	 * by `Path_Template`; the lifecycle surfaces validate it at save through
+	 * `normalize_path_components()`.
 	 *
 	 * @since 0.7.0
 	 * @var string
 	 */
 	public const DEFAULT_PATH_COMPONENTS = '%year%/%month%/%day%/%uploader%';
+
+	/**
+	 * Normalises and validates a raw placement template for storage (RED stub).
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $raw The raw template value from a lifecycle surface.
+	 * @return string|false The canonical template to store, or false when rejected.
+	 */
+	public static function normalize_path_components( string $raw ): string|false {
+		return '';
+	}
 
 	/**
 	 * Constructs a descriptor from already-resolved field values.
