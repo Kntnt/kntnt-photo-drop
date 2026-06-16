@@ -39,18 +39,18 @@ interface FakeUpload {
  * controls exactly how many uploads are in flight at any moment.
  */
 function fakeProcessor(): {
-	process: ( queued: QueuedFile ) => UploadHandle;
+	process: ( item: QueuedFile ) => UploadHandle;
 	uploads: FakeUpload[];
 } {
 	const uploads: FakeUpload[] = [];
 
-	const process = ( queued: QueuedFile ): UploadHandle => {
+	const process = ( item: QueuedFile ): UploadHandle => {
 		let resolve!: () => void;
 		const settled = new Promise< void >( ( r ) => {
 			resolve = r;
 		} );
 		const upload: FakeUpload = {
-			queued,
+			queued: item,
 			aborted: false,
 			settle: resolve,
 			handle: {
@@ -216,7 +216,9 @@ describe( 'createUploadQueue', () => {
 			queue.retry( [ queued( 'a.jpg' ) ] );
 			await flush();
 
-			const retried = uploads.slice( 2 ).map( ( u ) => u.queued.relativePath );
+			const retried = uploads
+				.slice( 2 )
+				.map( ( u ) => u.queued.relativePath );
 			expect( retried ).toEqual( [ 'a.jpg' ] );
 		} );
 	} );

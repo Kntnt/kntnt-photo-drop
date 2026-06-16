@@ -79,14 +79,14 @@ export interface ProgressView {
 	 *
 	 * @param snapshot - The current accounting from the progress model.
 	 */
-	render( snapshot: ProgressSnapshot ): void;
+	render: ( snapshot: ProgressSnapshot ) => void;
 
 	/**
 	 * Swaps the live bar for the final three-bucket summary and Retry control.
 	 *
 	 * @param snapshot - The settled (or cancelled) accounting.
 	 */
-	finalise( snapshot: ProgressSnapshot ): void;
+	finalise: ( snapshot: ProgressSnapshot ) => void;
 }
 
 /**
@@ -163,7 +163,6 @@ export function createProgressView(
 	strings: ProgressStrings,
 	callbacks: ProgressCallbacks
 ): ProgressView {
-
 	return {
 		render: ( snapshot ) => {
 			// Redraw the bar from scratch each tick: a progressbar element
@@ -243,7 +242,9 @@ export function createProgressView(
 			if ( skipped ) {
 				elements.status.appendChild( skipped );
 			}
-			const failedNames = snapshot.failed.map( ( file ) => file.fileName );
+			const failedNames = snapshot.failed.map(
+				( file ) => file.fileName
+			);
 			const failed = bucketSection(
 				'failed',
 				strings.bucketFailed,

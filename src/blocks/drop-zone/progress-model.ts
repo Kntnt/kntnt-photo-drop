@@ -80,7 +80,7 @@ export interface ProgressModel {
 	 * @param fileName - The display name; the latest record for a key wins.
 	 * @param state    - The file's current state.
 	 */
-	record( key: string, fileName: string, state: FileState ): void;
+	record: ( key: string, fileName: string, state: FileState ) => void;
 
 	/**
 	 * Drops every still-pending file so the accounting reflects a cancel.
@@ -89,14 +89,14 @@ export interface ProgressModel {
 	 * still `pending` — queued or in-flight when Cancel was pressed — are
 	 * removed, so the bar reads complete and the summary shows what settled.
 	 */
-	finalise(): void;
+	finalise: () => void;
 
 	/**
 	 * Returns an immutable read of the current accounting.
 	 *
 	 * @return The snapshot.
 	 */
-	snapshot(): ProgressSnapshot;
+	snapshot: () => ProgressSnapshot;
 }
 
 /**
@@ -120,7 +120,6 @@ interface Entry {
  * @return The progress model handle.
  */
 export function createProgressModel(): ProgressModel {
-
 	// One entry per key; Map iteration is insertion-ordered, which the
 	// skipped/failed lists rely on for a stable, queue-order summary.
 	const entries = new Map< string, Entry >();

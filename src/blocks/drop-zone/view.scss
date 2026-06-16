@@ -3,9 +3,10 @@
 // asset (view.css), declared as viewStyle in block.json. The block's wrapper
 // is itself the layout container and the native drag-drop + click-to-browse
 // zone, so this covers the click affordance and the drag-over highlight on the
-// wrapper plus the live summary and per-file status list. The visible upload
-// controls are the builder's own tokened links (ADR-0010), styled by core, not
-// here. There is no FilePond.
+// wrapper plus the live summary, the aggregate progress bar with its Cancel
+// button, and the three-bucket result summary with its Retry-failed button.
+// The visible upload controls are the builder's own tokened links (ADR-0010),
+// styled by core, not here. There is no FilePond.
 
 .kntnt-photo-drop-drop-zone {
 
@@ -20,32 +21,92 @@
 		outline-offset: 4px;
 	}
 
+	// The feedback regions are read-out, not click-to-browse; restore the normal
+	// cursor over all three.
+	&__summary,
+	&__progress,
+	&__status {
+		cursor: auto;
+	}
+
 	&__summary {
 		margin: 0.75rem 0 0;
 		font-size: 0.9em;
 		font-weight: 600;
-		cursor: auto;
 	}
 
-	&__status {
+	// The aggregate progress region: the bar, the read-out row, and Cancel,
+	// stacked. The region is empty (and so collapses) until a batch starts.
+	&__progress {
+		margin: 0.5rem 0 0;
+
+		&:empty {
+			margin: 0;
+		}
+	}
+
+	// The bar track; the fill width is set inline by the view module from the
+	// processed/total ratio.
+	&__progress-bar {
+		overflow: hidden;
+		height: 0.5rem;
+		border-radius: 0.25rem;
+		background-color: rgba(0, 0, 0, 0.1);
+	}
+
+	&__progress-fill {
+		display: block;
+		height: 100%;
+		background-color: currentcolor;
+		transition: width 0.2s ease-out;
+	}
+
+	// The "N / total" read-out: processed on the left, total pushed to the far
+	// right so the batch size is always in the same place.
+	&__progress-count {
+		display: flex;
+		justify-content: space-between;
 		margin: 0.25rem 0 0;
-		padding: 0;
-		list-style: none;
-		cursor: auto;
+		font-size: 0.9em;
 	}
 
-	&__status-item {
-		padding: 0.2rem 0;
+	// Cancel and Retry are real buttons inside the click-to-browse surface; the
+	// view module wires their behaviour. Keep them visually quiet — the theme's
+	// own button styles otherwise apply.
+	&__cancel,
+	&__retry {
+		margin: 0.5rem 0 0;
+		cursor: pointer;
+	}
+
+	// The three-bucket result summary. The uploaded count is a single line; the
+	// skipped and failed buckets each carry a heading and a filename list.
+	&__status {
+		margin: 0.5rem 0 0;
+
+		&:empty {
+			margin: 0;
+		}
+	}
+
+	&__bucket {
+		margin: 0.5rem 0 0;
 		font-size: 0.9em;
 
-		// Transient rows (queued/converting/uploading) read as in-progress;
-		// terminal rows keep full strength.
-		&--pending {
-			opacity: 0.7;
+		ul {
+			margin: 0.25rem 0 0;
+			padding-left: 1.25rem;
 		}
 
+		// Failures read as errors; WordPress core's error red is readable on
+		// light themes.
 		&--failed {
-			color: #b32d2e; // WordPress core's error red, readable on light themes.
+			color: #b32d2e;
 		}
+	}
+
+	&__bucket-heading {
+		margin: 0;
+		font-weight: 600;
 	}
 }

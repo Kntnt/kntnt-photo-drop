@@ -6,13 +6,12 @@
  * container and drop surface — no inner surface div, no role/tabindex, the
  * builder's tokened "Add photos" link), clicks that link to open the native file
  * chooser, and the browser pipeline (createImageBitmap → canvas → WebP) uploads it
- * to the
- * REST endpoint. The spec asserts the client-visible truth (the per-file status
- * row and the live summary) and the server truth (the stored
- * `<name>.jpg.webp` is served from the collection directory as
- * `image/webp`). A second pass re-uploads the same file and must be skipped
- * by name dedup. The tests are serial: the skip test depends on the first
- * upload having stored the file.
+ * to the REST endpoint. The spec asserts the client-visible truth (the aggregate
+ * three-bucket summary the view renders on completion) and the server truth (the
+ * stored `<name>.jpg.webp` is served from the collection directory as
+ * `image/webp`). A second pass re-uploads the same file and must land in the
+ * skipped bucket by name dedup. The tests are serial: the skip test depends on
+ * the first upload having stored the file.
  *
  * @since 0.2.0
  */
@@ -113,19 +112,19 @@ test.describe( 'Drop Zone upload', () => {
 		const fileChooser = await fileChooserPromise;
 		await fileChooser.setFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
 
-		// The file's status row settles on the uploaded state, and the
-		// summary counts exactly this one upload.
-		const row = page.locator( '.kntnt-photo-drop-drop-zone__status-item' );
-		await expect( row ).toHaveCount( 1 );
-		await expect( row ).toHaveText( `${ FIXTURE_ALPHA }: Uploaded`, {
-			timeout: 30_000,
-		} );
-		await expect( row ).toHaveClass(
-			/kntnt-photo-drop-drop-zone__status-item--uploaded/
-		);
+		// On completion the view swaps the live bar for the three-bucket summary;
+		// this one upload settles into the uploaded count, with no skipped or
+		// failed buckets and no Retry-failed button.
+		const status = page.locator( '.kntnt-photo-drop-drop-zone__status' );
 		await expect(
-			page.locator( '.kntnt-photo-drop-drop-zone__summary' )
-		).toHaveText( '1 uploaded · 0 skipped · 0 failed' );
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--uploaded' )
+		).toHaveText( '1 uploaded', { timeout: 30_000 } );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--failed' )
+		).toHaveCount( 0 );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__retry' )
+		).toHaveCount( 0 );
 
 		// Server truth: until the pathComponents template is expanded
 		// server-side (issue #48), the upload lands at its source-relative path
@@ -147,18 +146,20 @@ test.describe( 'Drop Zone upload', () => {
 			.locator( '.kntnt-photo-drop-drop-zone__file-input' )
 			.setInputFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
 
-		// The row settles on the skipped state and the summary agrees.
-		const row = page.locator( '.kntnt-photo-drop-drop-zone__status-item' );
-		await expect( row ).toHaveCount( 1 );
-		await expect( row ).toHaveText(
-			`${ FIXTURE_ALPHA }: Skipped — already present`,
-			{ timeout: 30_000 }
+		// The file lands in the skipped bucket — listed by name — with nothing
+		// uploaded and no Retry-failed button.
+		const status = page.locator( '.kntnt-photo-drop-drop-zone__status' );
+		const skipped = status.locator(
+			'.kntnt-photo-drop-drop-zone__bucket--skipped'
 		);
-		await expect( row ).toHaveClass(
-			/kntnt-photo-drop-drop-zone__status-item--skipped/
-		);
+		await expect( skipped ).toContainText( FIXTURE_ALPHA, {
+			timeout: 30_000,
+		} );
 		await expect(
-			page.locator( '.kntnt-photo-drop-drop-zone__summary' )
-		).toHaveText( '0 uploaded · 1 skipped · 0 failed' );
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--uploaded' )
+		).toHaveText( '0 uploaded' );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__retry' )
+		).toHaveCount( 0 );
 	} );
 } );

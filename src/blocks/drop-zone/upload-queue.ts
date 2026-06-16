@@ -61,7 +61,7 @@ export interface UploadQueue {
 	 *
 	 * @param files - The files to upload, each paired with its relative path.
 	 */
-	enqueue( files: readonly QueuedFile[] ): void;
+	enqueue: ( files: readonly QueuedFile[] ) => void;
 
 	/**
 	 * Re-queues exactly the given files, re-admitting their already-seen keys.
@@ -71,7 +71,7 @@ export interface UploadQueue {
 	 *
 	 * @param files - The failed files to run again.
 	 */
-	retry( files: readonly QueuedFile[] ): void;
+	retry: ( files: readonly QueuedFile[] ) => void;
 
 	/**
 	 * Aborts every in-flight upload and clears the pending backlog.
@@ -79,7 +79,7 @@ export interface UploadQueue {
 	 * Already-uploaded files stay on disk; the queue drains to idle as the
 	 * aborted uploads settle, so the caller's `beforeunload` guard stands down.
 	 */
-	cancel(): void;
+	cancel: () => void;
 }
 
 /**
@@ -112,7 +112,6 @@ export function createUploadQueue(
 	process: ( queued: QueuedFile ) => UploadHandle,
 	onBusy: ( busy: boolean ) => void
 ): UploadQueue {
-
 	// The pending backlog, the keys already admitted (for dedup), the handles
 	// of the uploads currently in flight (for Cancel), and the two flags that
 	// track whether a batch is draining and whether Cancel has stopped it.

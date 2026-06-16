@@ -226,10 +226,13 @@ final class Render_Drop_Zone {
 		// (ADR-0010). Only the non-presentational parts are emitted here: the two
 		// hidden file inputs those tokened links (and the click-anywhere surface)
 		// trigger — the loose-file input and the `webkitdirectory` folder input — and
-		// the live summary plus the per-file status list. The summary is the single
-		// live region (the per-file list would be far too chatty for a screen reader
-		// at batch scale); it and the status list keep `data-wp-ignore` so the view
-		// module owns their DOM. A `data-wp-init` hook hands the wrapper to the view
+		// the three feedback regions the view module owns. The `__summary` is the
+		// single `aria-live` region (a per-file list would be far too chatty for a
+		// screen reader at batch scale); the `__progress` region holds the aggregate
+		// progress bar and its Cancel button while a batch runs; the `__status` region
+		// holds the three-bucket result summary and the Retry-failed button once the
+		// batch settles (issue #44). All three keep `data-wp-ignore` so the view module
+		// owns their DOM, and a `data-wp-init` hook hands the wrapper to the view
 		// module.
 		return sprintf(
 			'<div %1$s'
@@ -243,7 +246,8 @@ final class Render_Drop_Zone {
 				// phpcs:ignore Generic.Files.LineLength.TooLong -- The webkitdirectory folder input is a single coherent input declaration.
 				. '<input type="file" class="kntnt-photo-drop-drop-zone__folder-input" multiple accept="image/*" webkitdirectory directory hidden />'
 				. '<p class="kntnt-photo-drop-drop-zone__summary" data-wp-ignore aria-live="polite"></p>'
-				. '<ul class="kntnt-photo-drop-drop-zone__status" data-wp-ignore></ul>'
+				. '<div class="kntnt-photo-drop-drop-zone__progress" data-wp-ignore></div>'
+				. '<div class="kntnt-photo-drop-drop-zone__status" data-wp-ignore></div>'
 				. '</div>',
 			$wrapper,
 			esc_attr( $context_json ),
@@ -258,33 +262,30 @@ final class Render_Drop_Zone {
 	 * The view-script module runs as an ES module and cannot import
 	 * `@wordpress/i18n`, so every visitor-facing string the module shows at
 	 * runtime is translated here and passed through the context. The map covers
-	 * the module's own status rows and summary (inserted via `textContent`, never
-	 * `innerHTML`, so no output escaping is applied here). The `summaryTemplate`
-	 * tokens and the `statusUploadingPercent` `%d` token are replaced with live
-	 * counts and the live upload percentage in the browser.
+	 * the aggregate progress bar, the live announcer, and the three-bucket result
+	 * summary (issue #44), all inserted via `textContent`, never `innerHTML`, so
+	 * no output escaping is applied here. The `{processed}`/`{total}` tokens in
+	 * `countTemplate` and `summaryTemplate`, and the `{uploaded}` token in
+	 * `bucketUploaded`, are replaced with live counts in the browser.
 	 *
 	 * @since 0.5.0
+	 * @since 0.11.0 Per-file status/outcome labels gave way to the aggregate
+	 *               progress bar, live announcer, and three-bucket summary.
 	 *
 	 * @return array<string,string> The string map keyed by the identifier the module reads.
 	 */
 	private static function translations(): array {
 		return [
-			'outcomeStored'          => __( 'Uploaded', 'kntnt-photo-drop' ),
-			'outcomeReencoded'       => __( 'Uploaded (re-encoded)', 'kntnt-photo-drop' ),
-			'outcomeSkipped'         => __( 'Skipped — already present', 'kntnt-photo-drop' ),
-			'outcomeRejected'        => __( 'Rejected', 'kntnt-photo-drop' ),
-			'uploadFailed'           => __( 'Upload failed', 'kntnt-photo-drop' ),
-			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-			'uploadStalled'          => __( 'Upload stalled — check your connection and try again.', 'kntnt-photo-drop' ),
-			'skippedNotImage'        => __( 'Skipped — not an image', 'kntnt-photo-drop' ),
-			'fileUnreadable'         => __( 'Could not be read', 'kntnt-photo-drop' ),
-			'statusQueued'           => __( 'Queued', 'kntnt-photo-drop' ),
-			'statusConverting'       => __( 'Converting…', 'kntnt-photo-drop' ),
-			'statusUploading'        => __( 'Uploading…', 'kntnt-photo-drop' ),
-			/* translators: %d is replaced with the live upload percentage in the browser. */
-			'statusUploadingPercent' => __( 'Uploading… %d%%', 'kntnt-photo-drop' ),
-			/* translators: {uploaded}, {skipped} and {failed} are replaced with live file counts in the browser. */
-			'summaryTemplate'        => __( '{uploaded} uploaded · {skipped} skipped · {failed} failed', 'kntnt-photo-drop' ), // phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+			/* translators: {processed} and {total} are replaced with live file counts in the browser. */
+			'countTemplate'   => __( '{processed} / {total}', 'kntnt-photo-drop' ),
+			'cancel'          => __( 'Cancel', 'kntnt-photo-drop' ),
+			'retryFailed'     => __( 'Retry failed', 'kntnt-photo-drop' ),
+			/* translators: {processed} and {total} are replaced with live file counts in the browser. */
+			'summaryTemplate' => __( '{processed} of {total} processed', 'kntnt-photo-drop' ),
+			/* translators: {uploaded} is replaced with the live uploaded-file count in the browser. */
+			'bucketUploaded'  => __( '{uploaded} uploaded', 'kntnt-photo-drop' ),
+			'bucketSkipped'   => __( 'Skipped', 'kntnt-photo-drop' ),
+			'bucketFailed'    => __( 'Failed', 'kntnt-photo-drop' ),
 		];
 	}
 

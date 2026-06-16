@@ -1,7 +1,7 @@
 /**
  * Jest tests for the Drop Zone progress/summary DOM view.
  *
- * The view projects a {@link ProgressSnapshot} from the bucket-accounting model
+ * The view projects a `ProgressSnapshot` from the bucket-accounting model
  * onto the three regions `Render_Drop_Zone` emits (issue #44): the `__progress`
  * aggregate bar with its Cancel button, the `__status` three-bucket result
  * list, and the `__summary` live region. These tests pin, in jsdom, the
@@ -205,7 +205,11 @@ describe( 'createProgressView', () => {
 		it( 'writes a hostile failed filename as inert text', () => {
 			const { elements, view } = freshView();
 			const model = createProgressModel();
-			model.record( 'evil', '<img src=x onerror=alert(1)>.jpg', 'failed' );
+			model.record(
+				'evil',
+				'<img src=x onerror=alert(1)>.jpg',
+				'failed'
+			);
 
 			view.finalise( model.snapshot() );
 
