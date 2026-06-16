@@ -497,16 +497,34 @@ test( 'a collection with an unreadable descriptor still lists by slug and keeps 
 	}
 } );
 
-test( 'the page stylesheet is added on this admin page only', function (): void {
+test( 'the page assets — stylesheet and preview script — are added on this admin page only', function (): void {
 	Functions\when( '__' )->returnArg( 1 );
 	Functions\when( 'apply_filters' )->alias( static fn ( string $hook, mixed $value ): mixed => $value );
 	Functions\when( 'add_submenu_page' )->justReturn( 'media_page_kntnt-photo-drop' );
+	Functions\when( 'wp_json_encode' )->alias(
+		static fn ( mixed $data ): string|false => json_encode( $data )
+	);
 
-	// Record every wp_add_inline_style call so the scoping can be asserted.
-	$captured = [];
+	// Record every style and script call so the scoping and the preview wiring can
+	// both be asserted.
+	$styles  = [];
+	$scripts = [];
+	$inline  = [];
 	Functions\when( 'wp_add_inline_style' )->alias(
-		static function ( string $handle, string $css ) use ( &$captured ): bool {
-			$captured[] = [ $handle, $css ];
+		static function ( string $handle, string $css ) use ( &$styles ): bool {
+			$styles[] = [ $handle, $css ];
+			return true;
+		}
+	);
+	Functions\when( 'wp_register_script' )->justReturn( true );
+	Functions\when( 'wp_enqueue_script' )->alias(
+		static function ( string $handle ) use ( &$scripts ): void {
+			$scripts[] = $handle;
+		}
+	);
+	Functions\when( 'wp_add_inline_script' )->alias(
+		static function ( string $handle, string $data ) use ( &$inline ): bool {
+			$inline[] = $data;
 			return true;
 		}
 	);
@@ -514,16 +532,22 @@ test( 'the page stylesheet is added on this admin page only', function (): void 
 	$page = new Admin_Page( new Repository() );
 	$page->register_menu();
 
-	// A foreign screen gets nothing; the page's own hook suffix gets the rules
-	// for the header gap and the right-aligned actions column.
+	// A foreign screen gets nothing — no style and no script.
 	$page->enqueue_styles( 'edit.php' );
-	expect( $captured )->toBe( [] );
+	expect( $styles )->toBe( [] );
+	expect( $scripts )->toBe( [] );
 
+	// The page's own hook gets the list-table CSS and the live-preview script, the
+	// latter carrying its sample config and the placeholder-substitution logic.
 	$page->enqueue_styles( 'media_page_kntnt-photo-drop' );
-	expect( $captured )->toHaveCount( 1 );
-	expect( $captured[0][0] )->toBe( 'common' );
-	expect( $captured[0][1] )->toContain( 'margin-top' );
-	expect( $captured[0][1] )->toContain( 'kntnt-photo-drop-actions' );
+	expect( $styles )->toHaveCount( 1 );
+	expect( $styles[0][0] )->toBe( 'common' );
+	expect( $styles[0][1] )->toContain( 'margin-top' );
+	expect( $styles[0][1] )->toContain( 'kntnt-photo-drop-actions' );
+	expect( $scripts )->toHaveCount( 1 );
+	expect( implode( "\n", $inline ) )->toContain( 'kntntPhotoDropPathPreview' );
+	expect( implode( "\n", $inline ) )->toContain( 'data-kntnt-photo-drop-path-preview' );
+	expect( implode( "\n", $inline ) )->toContain( Path_Template::SAMPLE_UPLOADER );
 } );
 
 // ---------------------------------------------------------------------------
