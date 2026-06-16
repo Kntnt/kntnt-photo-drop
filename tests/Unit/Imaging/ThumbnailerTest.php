@@ -20,6 +20,7 @@ use Brain\Monkey\Functions;
 use Kntnt\Photo_Drop\Imaging\Gd_Webp_Codec;
 use Kntnt\Photo_Drop\Imaging\Thumbnailer;
 use Kntnt\Photo_Drop\Storage\Index;
+use Tests\Unit\Fixtures\Encode_Failing_Codec;
 
 // The thumbnailer reaches for wp_mkdir_p() when it is defined; once Brain Monkey
 // has seen the function in any test it stays defined, so every test here wires it
@@ -289,6 +290,69 @@ test( 'derived writes leave no staging files behind', function (): void {
 	// clean run publishes both derived files and removes every staging file.
 	expect( $written )->toHaveCount( 2 );
 	expect( glob( $folder . '/' . Index::THUMBNAILS_DIRNAME . '/*/*.tmp-*' ) )->toBe( [] );
+
+	thumb_remove_tree( $folder );
+} );
+
+// ---------------------------------------------------------------------------
+// renditions_present — the completeness disambiguator behind verify-then-flip
+// ---------------------------------------------------------------------------
+
+test( 'renditions_present is true once a main has every expected rendition on disk', function (): void {
+	$folder = fresh_thumb_dir();
+	$main   = write_main_image( $folder, 'photo.jpg.webp', 4000, 2400 );
+
+	// Derive the full set for real (a 1920 full and a 640 thumbnail), then ask whether
+	// they are present under the same settings — the post-derive complete state.
+	gd_thumbnailer()->generate( $main, 'photo.jpg.webp', 1920, 85, 640, 75 );
+
+	expect( gd_thumbnailer()->renditions_present( $main, 'photo.jpg.webp', 1920, 85, 640, 75 ) )->toBeTrue();
+
+	thumb_remove_tree( $folder );
+} );
+
+test( 'renditions_present is false when an expected rendition is missing on disk', function (): void {
+	$folder = fresh_thumb_dir();
+	$main   = write_main_image( $folder, 'photo.jpg.webp', 4000, 2400 );
+
+	// Derive only the old-width set, then check completeness against *different* target
+	// widths whose files were never written: the plan expects them, none are on disk.
+	gd_thumbnailer()->generate( $main, 'photo.jpg.webp', 1920, 85, 640, 75 );
+
+	expect( gd_thumbnailer()->renditions_present( $main, 'photo.jpg.webp', 800, 85, 300, 75 ) )->toBeFalse();
+
+	thumb_remove_tree( $folder );
+} );
+
+test( 'renditions_present distinguishes a failed re-derive from a tier-collapse', function (): void {
+	$folder = fresh_thumb_dir();
+
+	// A wide main whose deriver encodes to null wrote nothing though its plan is
+	// non-empty: that is a failure, not a collapse, so completeness must read false —
+	// the very ambiguity generate()'s empty list cannot resolve.
+	$wide = write_main_image( $folder, 'wide.jpg.webp', 4000, 2400 );
+	$failing = new Thumbnailer( new Encode_Failing_Codec() );
+	$failing->generate( $wide, 'wide.jpg.webp', 1920, 85, 640, 75 );
+	expect( $failing->renditions_present( $wide, 'wide.jpg.webp', 1920, 85, 640, 75 ) )->toBeFalse();
+
+	// A genuinely small main has an empty plan — it serves every role itself — so it is
+	// vacuously complete even though no derived file exists.
+	$small = write_main_image( $folder, 'small.jpg.webp', 400, 300 );
+	expect( gd_thumbnailer()->renditions_present( $small, 'small.jpg.webp', 1920, 85, 640, 75 ) )->toBeTrue();
+
+	thumb_remove_tree( $folder );
+} );
+
+test( 'renditions_present is false when the main cannot be decoded', function (): void {
+	$folder = fresh_thumb_dir();
+
+	// A main whose bytes are not a decodable image yields no plan to verify against; an
+	// unverifiable main is never treated as complete, so the flip can never proceed onto
+	// it.
+	$path = $folder . '/corrupt.jpg.webp';
+	file_put_contents( $path, 'this is not an image at all' );
+
+	expect( gd_thumbnailer()->renditions_present( $path, 'corrupt.jpg.webp', 1920, 85, 640, 75 ) )->toBeFalse();
 
 	thumb_remove_tree( $folder );
 } );

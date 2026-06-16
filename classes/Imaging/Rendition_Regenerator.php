@@ -174,6 +174,57 @@ final class Rendition_Regenerator {
 	}
 
 	/**
+	 * Reports whether the main at the cursor has all its new renditions on disk.
+	 *
+	 * The per-batch failure signal the controller propagates: after `regenerate_main()`
+	 * re-derives the addressed main, this confirms — against `Rendition_Plan` for that
+	 * main's own width — that every rendition the target widths call for actually landed
+	 * on disk. A `generate()` that silently wrote fewer renditions than the main needed
+	 * (an undecodable main, an over-ceiling main, an encode failure) is exactly what the
+	 * count-only return could not distinguish from a legitimate tier-collapse; this does,
+	 * so a shortfall surfaces as a real error and the browser driver stops before the
+	 * finalise. An out-of-range cursor (the main list shrank since the count was read) is
+	 * vacuously complete — there is nothing to write at that index — mirroring
+	 * `regenerate_main()`'s no-op.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param int $index             The zero-based cursor into the collection's mains.
+	 * @param int $full_width        The target full-image width.
+	 * @param int $full_quality      The target full-image quality.
+	 * @param int $thumbnail_width   The target thumbnail width.
+	 * @param int $thumbnail_quality The target thumbnail quality.
+	 * @return bool True when the addressed main's expected new renditions are all present.
+	 */
+	public function main_complete(
+		int $index,
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): bool {
+
+		// An out-of-range cursor has nothing to write, so it is complete by definition.
+		$mains = $this->mains();
+		if ( ! isset( $mains[ $index ] ) ) {
+			return true;
+		}
+
+		// Defer the disambiguation to the deriver: it owns the decode, the tier-skip
+		// plan, and the symlink stance, so the completeness check matches what it writes.
+		$main_path = $mains[ $index ];
+		return $this->thumbnailer->renditions_present(
+			$main_path,
+			basename( $main_path ),
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			$thumbnail_quality,
+		);
+
+	}
+
+	/**
 	 * Flips the descriptor to the target widths and prunes the retired buckets.
 	 *
 	 * The "flip" half of regenerate-then-flip, run only after every main has been
@@ -187,13 +238,22 @@ final class Rendition_Regenerator {
 	 * thumbnail files pruned, or `false` when the descriptor could not be rewritten
 	 * (in which case nothing is pruned and the old renditions stay live).
 	 *
+	 * Before anything is touched it runs a completeness sweep: every main's expected
+	 * new-width renditions must already be present on disk (verify-then-flip). If any
+	 * main is missing even one rendition — because its re-derive silently wrote fewer
+	 * files than its width required — the flip is aborted, **nothing is pruned**, and a
+	 * failure is returned, so the gallery is never flipped onto renditions that were
+	 * never written and the old fallback is never deleted (ADR-0013, "flip only on
+	 * success"). Only once the whole collection is verified complete is the descriptor
+	 * rewritten and the retired buckets pruned.
+	 *
 	 * @since 0.11.0
 	 *
 	 * @param int $full_width        The target full-image width.
 	 * @param int $full_quality      The target full-image quality.
 	 * @param int $thumbnail_width   The target thumbnail width.
 	 * @param int $thumbnail_quality The target thumbnail quality.
-	 * @return int|false The number of pruned thumbnail files, or false when the flip's write failed.
+	 * @return int|false The number of pruned thumbnail files, or false when verification or the flip failed.
 	 */
 	public function finalise(
 		int $full_width,
@@ -201,6 +261,14 @@ final class Rendition_Regenerator {
 		int $thumbnail_width,
 		int $thumbnail_quality,
 	): int|false {
+
+		// Verify the whole collection before touching anything: a single main missing a
+		// new-width rendition aborts the flip and prunes nothing, so the descriptor never
+		// points the gallery at files that were never written.
+		if ( ! $this->all_renditions_present( $full_width, $full_quality, $thumbnail_width, $thumbnail_quality ) ) {
+			Plugin::error( "Refused to flip {$this->root}: a main is missing its new-width renditions on disk." );
+			return false;
+		}
 
 		// Compute which old buckets the flip retires before the descriptor changes, so
 		// the comparison is against the still-current widths.
@@ -225,6 +293,51 @@ final class Rendition_Regenerator {
 		// Prune the retired buckets across every content folder now that the descriptor
 		// no longer references them; the count feeds the controller's final reply.
 		return $this->prune_width_buckets( $stale );
+
+	}
+
+	/**
+	 * Reports whether every main's expected new-width renditions are on disk.
+	 *
+	 * The completeness sweep behind verify-then-flip: it walks every stored main and
+	 * confirms — through the deriver's own `renditions_present()`, so the check matches
+	 * exactly what the deriver would write — that each main's renditions for the target
+	 * widths are present. The first incomplete main short-circuits the sweep to `false`,
+	 * which aborts the flip. An empty collection (no mains) is vacuously complete, since
+	 * a no-image collection is a valid flip target.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param int $full_width        The target full-image width.
+	 * @param int $full_quality      The target full-image quality.
+	 * @param int $thumbnail_width   The target thumbnail width.
+	 * @param int $thumbnail_quality The target thumbnail quality.
+	 * @return bool True when every main is complete on disk at the target widths.
+	 */
+	private function all_renditions_present(
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): bool {
+
+		// Demand completeness from every main; the first one missing a rendition aborts
+		// the whole sweep, so the flip happens only when the collection is whole.
+		foreach ( $this->mains() as $main_path ) {
+			$complete = $this->thumbnailer->renditions_present(
+				$main_path,
+				basename( $main_path ),
+				$full_width,
+				$full_quality,
+				$thumbnail_width,
+				$thumbnail_quality,
+			);
+			if ( ! $complete ) {
+				return false;
+			}
+		}
+
+		return true;
 
 	}
 

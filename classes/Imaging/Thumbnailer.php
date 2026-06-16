@@ -99,24 +99,11 @@ final class Thumbnailer {
 	): array {
 
 		// Read and decode the main exactly once; every rendition scales from this
-		// same handle. A main that cannot be read or decoded leaves the next doctor
-		// run to heal, so an empty list is the right degraded answer here.
-		$bytes = $this->read_main( $main_path );
-		if ( $bytes === null ) {
-			return [];
-		}
-
-		// Refuse to decode a main whose declared pixel area exceeds the input
-		// ceiling — a foreign or tampered file that large would OOM-kill the
-		// worker; the same ceiling guards every decode path in the plugin.
-		$probe = $this->codec->probe( $bytes );
-		if ( $probe === null || ! Input_Ceiling::allows( $probe['width'], $probe['height'] ) ) {
-			Plugin::warning( "Refused to decode the main at {$main_path}: unrecognisable or over the input ceiling." );
-			return [];
-		}
-		$image = $this->codec->decode( $bytes );
+		// same handle. A main that cannot be read, decoded, or is over the input
+		// ceiling leaves the next doctor run to heal, so an empty list is the right
+		// degraded answer here.
+		$image = $this->decode_main( $main_path );
 		if ( $image === null ) {
-			Plugin::warning( "Cannot decode the main image at {$main_path} to derive its renditions." );
 			return [];
 		}
 
@@ -143,6 +130,119 @@ final class Thumbnailer {
 		}
 
 		return $written;
+
+	}
+
+	/**
+	 * Reports whether every derived rendition a main should have is present on disk.
+	 *
+	 * The disambiguator that the regenerate-then-flip flow rests on (ADR-0013): a
+	 * `generate()` that returns `[]` cannot itself distinguish a legitimately
+	 * tier-collapsed small main (nothing to write, every role served by the main
+	 * itself) from a main that *should* have produced renditions but failed to —
+	 * undecodable, over the input ceiling, or an encode/write failure on every tier.
+	 * This method answers that distinction against the given full/thumbnail settings:
+	 * it decodes the main, asks `Rendition_Plan` which renditions should exist for the
+	 * main's own width, and confirms each one's file is on disk. A main that cannot be
+	 * decoded (so no plan can even be computed) is reported as **not** complete, since
+	 * the flow must never flip onto renditions it cannot verify. As in `generate()`, a
+	 * rendition whose write path is a symlink is excluded from the expectation — the
+	 * deriver never writes (and so never demands) a file through a planted link — so a
+	 * hostile symlink cannot permanently block a collection's regenerate. An empty plan
+	 * (the legitimate collapse) is vacuously complete.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param string $main_path         Absolute path to the stored main image.
+	 * @param string $stored_name       The main's `<original>.webp` filename.
+	 * @param int    $full_width        The full-image width to check against.
+	 * @param int    $full_quality      The full-image quality (unused for presence; kept for plan symmetry).
+	 * @param int    $thumbnail_width   The thumbnail width to check against.
+	 * @param int    $thumbnail_quality The thumbnail quality (unused for presence; kept for plan symmetry).
+	 * @return bool True when every expected, writable rendition exists on disk.
+	 */
+	public function renditions_present(
+		string $main_path,
+		string $stored_name,
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): bool {
+
+		// Decode the main to learn its own width; a main that cannot be decoded yields
+		// no plan, and an unverifiable main is never treated as complete.
+		$image = $this->decode_main( $main_path );
+		if ( $image === null ) {
+			return false;
+		}
+
+		// Ask the plan which renditions this main's width calls for under the target
+		// settings; an empty plan is the legitimate collapse and is vacuously complete.
+		$folder = \dirname( $main_path );
+		$plan   = Rendition_Plan::derived(
+			$this->codec->width( $image ),
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			$thumbnail_quality,
+		);
+
+		// Every planned rendition whose path is writable (symlink-free, exactly the set
+		// the deriver would write) must exist on disk; the first missing one fails the
+		// completeness check.
+		foreach ( $plan as $rendition ) {
+			$path = self::thumbnail_path( $folder, $stored_name, $rendition['width'] );
+			if ( ! $this->writes_through_symlink( $folder, $path ) && ! is_file( $path ) ) {
+				return false;
+			}
+		}
+
+		return true;
+
+	}
+
+	/**
+	 * Reads and decodes a stored main once, refusing it when unsafe or undecodable.
+	 *
+	 * The shared front half of `generate()` and `renditions_present()`: it reads the
+	 * bytes, refuses a declared pixel area over the input ceiling (a foreign or
+	 * tampered file that large would OOM-kill the worker — the same ceiling guards
+	 * every decode path in the plugin), and decodes to an upright handle. Returns the
+	 * decoded handle, or `null` when the main is missing, unreadable, over the
+	 * ceiling, or undecodable — the single point both callers treat as "no usable
+	 * main", so the derive and the completeness check agree on what counts as decodable.
+	 *
+	 * @since 0.11.0
+	 *
+	 * @param string $main_path Absolute path to the stored main image.
+	 * @return object|null The decoded image handle, or null when the main is unusable.
+	 */
+	private function decode_main( string $main_path ): ?object {
+
+		// A missing or unreadable main is a soft failure both callers degrade on.
+		$bytes = $this->read_main( $main_path );
+		if ( $bytes === null ) {
+			return null;
+		}
+
+		// Refuse to decode a main whose declared pixel area exceeds the input ceiling
+		// before any pixel buffer is allocated; an unrecognisable header is refused too.
+		$probe = $this->codec->probe( $bytes );
+		if ( $probe === null || ! Input_Ceiling::allows( $probe['width'], $probe['height'] ) ) {
+			Plugin::warning( "Refused to decode the main at {$main_path}: unrecognisable or over the input ceiling." );
+			return null;
+		}
+
+		// Decode to an upright handle; an undecodable body (a truncated or corrupt file
+		// that probed fine) is a soft failure the caller surfaces.
+		$image = $this->codec->decode( $bytes );
+		if ( $image === null ) {
+			Plugin::warning( "Cannot decode the main image at {$main_path} to derive its renditions." );
+			return null;
+		}
+
+		return $image;
 
 	}
 

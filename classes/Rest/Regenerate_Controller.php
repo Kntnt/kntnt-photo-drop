@@ -238,13 +238,13 @@ class Regenerate_Controller {
 	 * @param \WP_REST_Request      $request     The incoming request.
 	 * @param Rendition_Regenerator $regenerator The per-collection regenerator.
 	 * @param array<string,int>     $target      The validated target widths (the four rendition keys).
-	 * @return \WP_REST_Response The batch progress.
+	 * @return \WP_REST_Response|\WP_Error The batch progress, or a 500 when the main's renditions are incomplete.
 	 */
 	private function regenerate_batch(
 		\WP_REST_Request $request,
 		Rendition_Regenerator $regenerator,
 		array $target,
-	): \WP_REST_Response {
+	): \WP_REST_Response|\WP_Error {
 
 		// Re-derive the addressed main at the target widths; the new buckets land beside
 		// the live old ones, so the gallery keeps serving until the flip.
@@ -256,6 +256,21 @@ class Regenerate_Controller {
 			$target['thumbnail_width'],
 			$target['thumbnail_quality'],
 		);
+
+		// Confirm the main's expected new renditions actually landed on disk; a shortfall
+		// (an undecodable, over-ceiling, or un-encodable main) is a real failure, not a
+		// silent 200, so the browser driver stops here and never reaches the finalise.
+		$complete = $regenerator->main_complete(
+			$index,
+			$target['full_width'],
+			$target['full_quality'],
+			$target['thumbnail_width'],
+			$target['thumbnail_quality'],
+		);
+		if ( ! $complete ) {
+			$message = __( 'An image could not be regenerated. Nothing was changed.', 'kntnt-photo-drop' );
+			return new \WP_Error( 'kntnt_photo_drop_regenerate_incomplete', $message, [ 'status' => 500 ] );
+		}
 
 		// Report progress so the browser can advance the cursor; `done` is true once the
 		// cursor reaches the last main, at which point the client finalises.

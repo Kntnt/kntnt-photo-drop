@@ -312,3 +312,64 @@ test( 'a malformed target width is rejected as a 400 and the descriptor is untou
 
 	regenerate_remove_tree( $basedir );
 } );
+
+// ---------------------------------------------------------------------------
+// Per-image failure propagation — a shortfall is a 500, never a silent 200
+// ---------------------------------------------------------------------------
+
+test( 'a batch whose main cannot produce its renditions is a 500, not a silent 200', function (): void {
+	$basedir = fresh_regenerate_basedir();
+	$root    = rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
+	wire_regenerate_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path = seed_regenerate_collection( $root, 'shortfall' );
+
+	// Plant a stored main that cannot be decoded, so the re-derive writes none of the
+	// renditions the target widths require — exactly the per-image failure the count-only
+	// reply used to swallow as a 200.
+	file_put_contents( $path . '/broken.jpg.webp', 'this is not an image at all' );
+
+	// A batch re-derive of that main must surface a 500 (an image could not be
+	// regenerated), so the browser driver stops before the finalise rather than flipping.
+	$controller = new Regenerate_Controller( new Repository() );
+	$response   = $controller->regenerate( regenerate_request( 'shortfall', [
+		'fullWidth'        => 800,
+		'fullQuality'      => 85,
+		'thumbnailWidth'   => 300,
+		'thumbnailQuality' => 75,
+		'index'            => 0,
+	] ) );
+
+	expect( $response )->toBeInstanceOf( WP_Error::class );
+	expect( $response->get_error_data()['status'] )->toBe( 500 );
+
+	regenerate_remove_tree( $basedir );
+} );
+
+test( 'a finalise refuses to flip when a main is incomplete on disk', function (): void {
+	$basedir = fresh_regenerate_basedir();
+	$root    = rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
+	wire_regenerate_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path   = seed_regenerate_collection( $root, 'incomplete' );
+	$before = file_get_contents( $path . '/' . Descriptor::FILENAME );
+
+	// An undecodable main means its expected new renditions can never be on disk; a
+	// direct finalise (defence in depth, bypassing the per-batch check) must be refused
+	// with a 500 and leave the descriptor byte-identical — the flip is gated on the whole
+	// collection being complete (ADR-0013, "flip only on success").
+	file_put_contents( $path . '/broken.jpg.webp', 'this is not an image at all' );
+
+	$controller = new Regenerate_Controller( new Repository() );
+	$response   = $controller->regenerate( regenerate_request( 'incomplete', [
+		'fullWidth'        => 800,
+		'fullQuality'      => 85,
+		'thumbnailWidth'   => 300,
+		'thumbnailQuality' => 75,
+		'finalize'         => true,
+	] ) );
+
+	expect( $response )->toBeInstanceOf( WP_Error::class );
+	expect( $response->get_error_data()['status'] )->toBe( 500 );
+	expect( file_get_contents( $path . '/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	regenerate_remove_tree( $basedir );
+} );

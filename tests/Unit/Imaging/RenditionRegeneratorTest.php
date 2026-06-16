@@ -240,3 +240,41 @@ test( 'finalise flips and prunes when every main is complete on disk', function 
 
 	regen_remove_tree( $root );
 } );
+
+// ---------------------------------------------------------------------------
+// main_complete — the per-batch failure signal the controller propagates
+// ---------------------------------------------------------------------------
+
+test( 'main_complete is false when a re-derived main wrote none of its renditions', function (): void {
+	$root = fresh_regen_root();
+
+	// The wide main needs renditions at the target widths but the encode-failing deriver
+	// wrote nothing, so the per-batch check must report the shortfall as incomplete.
+	write_regen_main( $root, 'wide.webp', 4000, 2400 );
+	seed_regen_descriptor( $root, 1200, 600 );
+	$failing     = new Thumbnailer( new Encode_Failing_Codec() );
+	$regenerator = new Rendition_Regenerator( $root, Descriptor::read( $root ), $failing );
+
+	$regenerator->regenerate_main( 0, 800, 85, 300, 75 );
+
+	expect( $regenerator->main_complete( 0, 800, 85, 300, 75 ) )->toBeFalse();
+
+	regen_remove_tree( $root );
+} );
+
+test( 'main_complete is true after a real re-derive and for an out-of-range cursor', function (): void {
+	$root = fresh_regen_root();
+
+	// A real re-derive writes the target-width renditions, so the addressed main reads
+	// complete; an index past the last main has nothing to write and is complete too.
+	write_regen_main( $root, 'wide.webp', 4000, 2400 );
+	seed_regen_descriptor( $root, 1200, 600 );
+	$regenerator = new Rendition_Regenerator( $root, Descriptor::read( $root ) );
+
+	$regenerator->regenerate_main( 0, 800, 85, 300, 75 );
+
+	expect( $regenerator->main_complete( 0, 800, 85, 300, 75 ) )->toBeTrue();
+	expect( $regenerator->main_complete( 99, 800, 85, 300, 75 ) )->toBeTrue();
+
+	regen_remove_tree( $root );
+} );
