@@ -26,7 +26,7 @@ use Kntnt\Photo_Drop\Storage\Descriptor;
 // normalise — split/strip/collapse, empty → default
 // ---------------------------------------------------------------------------
 
-test( 'normalise strips leading and trailing separators and collapses empties', function ( string $raw, string $expected ): void {
+test( 'normalise strips edge separators and collapses empties', function ( string $raw, string $expected ): void {
 	expect( Path_Template::normalise( $raw ) )->toBe( $expected );
 } )->with( [
 	'plain'              => [ '%year%/%month%', '%year%/%month%' ],
@@ -46,24 +46,24 @@ test( 'normalise returns the default template for an empty or separator-only val
 	expect( Path_Template::normalise( $raw ) )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
 
 } )->with( [
-	'empty'            => [ '' ],
-	'single slash'     => [ '/' ],
-	'several slashes'  => [ '////' ],
-	'whitespace only'  => [ '   ' ],
+	'empty'           => [ '' ],
+	'single slash'    => [ '/' ],
+	'several slashes' => [ '////' ],
+	'whitespace only' => [ '   ' ],
 ] );
 
 // ---------------------------------------------------------------------------
 // has_stray_placeholder — the `%`-reservation
 // ---------------------------------------------------------------------------
 
-test( 'has_stray_placeholder is false when only the four known placeholders and literals appear', function ( string $template ): void {
+test( 'has_stray_placeholder is false for known placeholders and literals', function ( string $template ): void {
 	expect( Path_Template::has_stray_placeholder( $template ) )->toBeFalse();
 } )->with( [
-	'all four'      => [ '%year%/%month%/%day%/%uploader%' ],
-	'subset'        => [ '%year%/%uploader%' ],
-	'literal only'  => [ 'photos/2024' ],
-	'literal mix'   => [ 'events/%year%/gallery' ],
-	'repeated'      => [ '%year%/%year%' ],
+	'all four'     => [ '%year%/%month%/%day%/%uploader%' ],
+	'subset'       => [ '%year%/%uploader%' ],
+	'literal only' => [ 'photos/2024' ],
+	'literal mix'  => [ 'events/%year%/gallery' ],
+	'repeated'     => [ '%year%/%year%' ],
 ] );
 
 test( 'has_stray_placeholder is true when any unrecognised percent survives', function ( string $template ): void {
@@ -74,12 +74,12 @@ test( 'has_stray_placeholder is true when any unrecognised percent survives', fu
 	expect( Path_Template::has_stray_placeholder( $template ) )->toBeTrue();
 
 } )->with( [
-	'misspelled month'   => [ '%year%/%moth%/%day%' ],
-	'unknown token'      => [ '%year%/%hour%' ],
-	'lone percent'       => [ 'photos/%/year' ],
-	'half-open'          => [ '%year/%month%' ],
-	'trailing percent'   => [ '%year%50%' ],
-	'uppercase variant'  => [ '%YEAR%' ],
+	'misspelled month'  => [ '%year%/%moth%/%day%' ],
+	'unknown token'     => [ '%year%/%hour%' ],
+	'lone percent'      => [ 'photos/%/year' ],
+	'half-open'         => [ '%year/%month%' ],
+	'trailing percent'  => [ '%year%50%' ],
+	'uppercase variant' => [ '%YEAR%' ],
 ] );
 
 // ---------------------------------------------------------------------------
