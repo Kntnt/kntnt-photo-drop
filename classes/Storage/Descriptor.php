@@ -78,7 +78,20 @@ final readonly class Descriptor {
 	public const DEFAULT_PATH_COMPONENTS = '%year%/%month%/%day%/%uploader%';
 
 	/**
-	 * Normalises and validates a raw placement template for storage (RED stub).
+	 * Normalises and validates a raw placement template for storage.
+	 *
+	 * The save-time gate the admin page and the CLI both call before writing a
+	 * descriptor (ADR-0014, "one validator, invoked at two times"). It normalises
+	 * the separator structure (an empty result becoming the default template),
+	 * enforces the `%`-reservation (any `%` left after the four known placeholders
+	 * is rejected, so a mistyped `%moth%` cannot become a literal folder), and runs
+	 * the normalised template — expanded with `Path_Template`'s sample values —
+	 * through the `Path_Guard` *lexical* checks, so an unsafe template such as
+	 * `%year%/../../x` is rejected on submit rather than silently breaking every
+	 * later upload. Only the lexical half of the guard is reused (it needs no
+	 * existing collection directory); the realpath confinement runs at upload time.
+	 * Returns the canonical template to store, or `false` when the template must be
+	 * rejected.
 	 *
 	 * @since 0.7.0
 	 *
@@ -86,7 +99,26 @@ final readonly class Descriptor {
 	 * @return string|false The canonical template to store, or false when rejected.
 	 */
 	public static function normalize_path_components( string $raw ): string|false {
-		return '';
+
+		// Canonicalise the separator structure first; an empty field becomes the
+		// default template, since an empty field means the default (ADR-0014).
+		$normalised = Path_Template::normalise( $raw );
+
+		// Enforce the `%`-reservation: a stray `%` after the four known placeholders
+		// is a typo or unknown token and is rejected rather than stored as a literal.
+		if ( Path_Template::has_stray_placeholder( $normalised ) ) {
+			return false;
+		}
+
+		// Run the sample-expanded template through the guard's lexical checks, so a
+		// traversal, absolute path, backslash, or NUL in a literal segment is caught
+		// at save — the same validator the upload path reuses, never re-implemented.
+		if ( ! Path_Guard::is_lexically_safe( Path_Template::sample_expansion( $normalised ) ) ) {
+			return false;
+		}
+
+		return $normalised;
+
 	}
 
 	/**
@@ -168,8 +200,9 @@ final readonly class Descriptor {
 		$full_quality   = self::int_field( $data, 'fullQuality' );
 		$thumb_width    = self::int_field( $data, 'thumbnailWidth' );
 		$thumb_quality  = self::int_field( $data, 'thumbnailQuality' );
-		$path           = isset( $data['pathComponents'] ) && is_string( $data['pathComponents'] ) && $data['pathComponents'] !== ''
-			? $data['pathComponents']
+		$stored_path    = $data['pathComponents'] ?? null;
+		$path           = is_string( $stored_path ) && $stored_path !== ''
+			? $stored_path
 			: self::DEFAULT_PATH_COMPONENTS;
 
 		return new self(

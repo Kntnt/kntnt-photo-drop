@@ -372,11 +372,11 @@ test( 'normalize_path_components canonicalises a valid template', function ( str
 	expect( Descriptor::normalize_path_components( $raw ) )->toBe( $expected );
 
 } )->with( [
-	'default-shaped'     => [ '%year%/%month%/%day%/%uploader%', '%year%/%month%/%day%/%uploader%' ],
-	'subset'             => [ '%year%/%uploader%', '%year%/%uploader%' ],
-	'edge separators'    => [ '/%year%/%uploader%/', '%year%/%uploader%' ],
-	'collapsed empties'  => [ '%year%//%uploader%', '%year%/%uploader%' ],
-	'literal mix'        => [ 'events/%year%', 'events/%year%' ],
+	'default-shaped'    => [ '%year%/%month%/%day%/%uploader%', '%year%/%month%/%day%/%uploader%' ],
+	'subset'            => [ '%year%/%uploader%', '%year%/%uploader%' ],
+	'edge separators'   => [ '/%year%/%uploader%/', '%year%/%uploader%' ],
+	'collapsed empties' => [ '%year%//%uploader%', '%year%/%uploader%' ],
+	'literal mix'       => [ 'events/%year%', 'events/%year%' ],
 ] );
 
 test( 'normalize_path_components returns the default for an empty value', function ( string $raw ): void {
@@ -414,9 +414,9 @@ test( 'normalize_path_components rejects a template whose sample expansion is un
 	expect( Descriptor::normalize_path_components( $raw ) )->toBeFalse();
 
 } )->with( [
-	'parent traversal' => [ '%year%/../../x' ],
+	'parent traversal'  => [ '%year%/../../x' ],
 	'leading traversal' => [ '../%year%' ],
-	'backslash'        => [ 'a\\b/%year%' ],
-	'nul byte'         => [ "photos\x00/%year%" ],
-	'lone traversal'   => [ '..' ],
+	'backslash'         => [ 'a\\b/%year%' ],
+	'nul mid-segment'   => [ "ph\x00otos/%year%" ],
+	'lone traversal'    => [ '..' ],
 ] );
