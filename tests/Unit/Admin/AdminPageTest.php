@@ -1659,10 +1659,10 @@ test( 'an un-capable user is refused before any collection is created', function
 
 	$page                 = new Admin_Page( new Repository() );
 	$_POST                = [
-		'slug'              => 'sneaky',
-		'name'              => 'Sneaky',
-		'upload_width'      => '1920',
-		'upload_quality'    => '80',
+		'slug'           => 'sneaky',
+		'name'           => 'Sneaky',
+		'upload_width'   => '1920',
+		'upload_quality' => '80',
 	];
 	$_REQUEST['_wpnonce'] = 'x';
 

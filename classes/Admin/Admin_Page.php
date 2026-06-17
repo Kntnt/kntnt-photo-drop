@@ -144,18 +144,6 @@ final class Admin_Page {
 	private const WIDTH_CLAMP_HANDLE = 'kntnt-photo-drop-width-clamp';
 
 	/**
-	 * The literal "Upload width" form value that maps to "source dimensions" (`null`).
-	 *
-	 * The upload contract is irreversible, so the width must be stated explicitly;
-	 * this radio choice is the one explicit way to say "do not cap width" — store
-	 * the source's own dimensions.
-	 *
-	 * @since 0.5.0
-	 * @var string
-	 */
-	private const NO_LIMIT_VALUE = 'none';
-
-	/**
 	 * The capability filter that gates reading and writing on this page.
 	 *
 	 * @since 0.5.0
@@ -483,23 +471,20 @@ final class Admin_Page {
 		$this->guard_request( self::ACTION_CREATE );
 
 		// Read and sanitise the create fields from the request. The slug and name
-		// are text; the six rendition fields are read as raw strings and parsed by
-		// the shared Collection_Input below. The upload-width radio picks between an
-		// explicit pixel ceiling and the "source dimensions" choice, mapped to the
-		// same `none` → null spelling the CLI uses. The path-components field is read
-		// through read_path_components() — not read_string() — because
-		// sanitize_text_field() would strip its `%da` octet and corrupt `%day%`; the
-		// placement-template gate validates it afterwards. The nonce is verified in
-		// guard_request() above, before any field is read.
+		// are text; the six rendition fields are read as raw strings and parsed
+		// below. The upload width is a single field where blank means the source's
+		// own dimensions, and the upload quality where blank means the maximum 100
+		// (#70). The path-components field is read through read_path_components() —
+		// not read_string() — because sanitize_text_field() would strip its `%da`
+		// octet and corrupt `%day%` (#64); the placement-template gate validates it
+		// afterwards. The nonce is verified in guard_request() above, before any
+		// field is read.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified in guard_request().
-		$slug              = $this->read_string( $_POST, 'slug' );
-		$name              = $this->read_string( $_POST, 'name' );
-		$path_components   = $this->read_path_components( $_POST );
-		$upload_width_mode = $this->read_string( $_POST, 'upload_width_mode' );
-		$renditions        = [
-			'upload-width'      => $upload_width_mode === self::NO_LIMIT_VALUE
-				? self::NO_LIMIT_VALUE
-				: $this->read_string( $_POST, 'upload_width' ),
+		$slug            = $this->read_string( $_POST, 'slug' );
+		$name            = $this->read_string( $_POST, 'name' );
+		$path_components = $this->read_path_components( $_POST );
+		$renditions     = [
+			'upload-width'      => $this->read_string( $_POST, 'upload_width' ),
 			'upload-quality'    => $this->read_string( $_POST, 'upload_quality' ),
 			'full-width'        => $this->read_string( $_POST, 'full_width' ),
 			'full-quality'      => $this->read_string( $_POST, 'full_quality' ),
@@ -731,15 +716,19 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Parses the six raw rendition fields, defaulting each from its filter.
+	 * Parses the six raw rendition fields, defaulting the upload pair specially.
 	 *
-	 * A blank field falls back to its `kntnt_photo_drop_default_*` filter (via
-	 * `Rendition_Defaults`); a present field is parsed by the shared
-	 * `Collection_Input` so the upload width's `none` → null form, the positive-int
-	 * widths, and the 0–100 qualities all match the CLI exactly. The first
-	 * malformed value queues a precise error and returns `null`, so the caller
-	 * aborts before any directory is made. On success it returns the typed values
-	 * keyed for the descriptor constructor.
+	 * The two halves of the immutable upload contract carry the simplest possible
+	 * blank semantics (#70): a blank **upload width** means the source's own
+	 * dimensions (`null`, "no max"), and a blank **upload quality** means the
+	 * maximum (`100`) — full fidelity reachable without an as-is mode (ADR-0002).
+	 * The four re-derivable full/thumbnail fields still fall back to their
+	 * `kntnt_photo_drop_default_*` filters (via `Rendition_Defaults`) when blank.
+	 * A present field is parsed by the shared `Collection_Input` so the positive-int
+	 * widths and the 0–100 qualities match the CLI exactly. The first malformed
+	 * value queues a precise error and returns `null`, so the caller aborts before
+	 * any directory is made. On success it returns the typed values keyed for the
+	 * descriptor constructor.
 	 *
 	 * @since 0.7.0
 	 *
@@ -748,31 +737,33 @@ final class Admin_Page {
 	 */
 	private function parse_renditions( array $raw ): ?array {
 
-		// The upload width is the nullable half of the contract: a blank field takes
-		// the filter default, "none" maps to the source's own dimensions, and any
-		// other value must be a positive integer.
+		// The upload width is the nullable half of the contract: a blank field means
+		// the source's own dimensions (null), and any present value must be a strictly
+		// positive integer.
 		$upload_width_raw = $raw['upload-width'] ?? '';
 		if ( $upload_width_raw === '' ) {
-			$upload_width = Rendition_Defaults::upload_width();
+			$upload_width = null;
 		} else {
 			$upload_width = $this->input->parse_upload_width( $upload_width_raw );
 			if ( $upload_width === false ) {
 				$this->add_error(
 					// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-					__( 'Upload width must be a positive integer, or choose “Original dimensions”.', 'kntnt-photo-drop' ),
+					__( 'Upload width must be a positive integer, or left blank for the original dimensions.', 'kntnt-photo-drop' ),
 				);
 				return null;
 			}
 		}
 
-		// Parse the four positive-int widths/quality pairs for the full and thumbnail
-		// renditions and the upload quality; the first malformed one aborts. Each
-		// blank field defaults from its filter.
+		// The upload quality is permanent and full-fidelity by default: a blank field
+		// means the maximum 100, and a present value must be a 0–100 integer.
 		$upload_quality = $this->parse_quality_field(
 			$raw['upload-quality'] ?? '',
-			Rendition_Defaults::upload_quality(),
+			100,
 			__( 'Upload quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
 		);
+
+		// Parse the full and thumbnail width/quality pairs; the first malformed one
+		// aborts. Each blank field defaults from its filter.
 		$full_width = $this->parse_width_field(
 			$raw['full-width'] ?? '',
 			Rendition_Defaults::full_width(),
@@ -1222,8 +1213,9 @@ final class Admin_Page {
 	 * pairs — each pre-filled from its `kntnt_photo_drop_default_*` filter via
 	 * `Rendition_Defaults`. The six fields are presented as one uniform "Image
 	 * settings" section, not a contract/renditions split (#67) — uniform layout, not
-	 * uniform behaviour. The upload width offers an explicit "Original dimensions"
-	 * choice. There is deliberately no format field (always WebP). The slug and the
+	 * uniform behaviour. The upload width is a single number field where a blank value
+	 * means the original dimensions, and a blank upload quality submits as the maximum
+	 * 100 (#70). There is deliberately no format field (always WebP). The slug and the
 	 * upload pair carry a permanence ⚠️ marker; a prominent irreversibility warning
 	 * sits above the two upload-contract fields, and a set-once rule line sits beside
 	 * the Save button (blocks.md "Create", ADR-0013).
@@ -1310,35 +1302,34 @@ final class Admin_Page {
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		$upload_reason = __( 'Permanent: the main image is downscaled and re-encoded at ingestion and the source is discarded, so this cannot be changed afterwards.', 'kntnt-photo-drop' );
 
-		// Upload width — permanent; a radio chooses between a pixel ceiling and the
-		// explicit "Original dimensions" choice, with the number input carrying the
-		// filter default, and the label carries the ⚠️ permanence marker.
+		// Upload width — permanent; a single number field where a blank value means
+		// the source's own dimensions, pre-filled only when the filter sets a concrete
+		// ceiling. The label carries the ⚠️ permanence marker and the help text states
+		// the blank-is-original rule (#70).
 		$width_label = __( 'Upload width', 'kntnt-photo-drop' );
-		echo '<tr><th scope="row">' . esc_html( $width_label ) . ' ';
+		$width_help  = __( 'Leave blank to keep the original dimensions.', 'kntnt-photo-drop' );
+		$width_id    = 'kntnt-photo-drop-upload-width';
+		echo '<tr><th scope="row"><label for="' . esc_attr( $width_id ) . '">' . esc_html( $width_label ) . '</label> ';
 		$this->render_permanence_marker( $upload_reason );
 		echo '</th><td>';
-		echo '<fieldset><legend class="screen-reader-text">' . esc_html( $width_label ) . '</legend>';
-		echo '<label><input type="radio" name="upload_width_mode" value="limit" checked /> ';
-		echo esc_html__( 'Limit to', 'kntnt-photo-drop' ) . ' ';
 		printf(
-			'<input name="upload_width" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			'<input name="upload_width" id="%s" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			esc_attr( $width_id ),
 			esc_attr( $this->prefill_width( Rendition_Defaults::upload_width() ) ),
 			esc_html__( 'pixels', 'kntnt-photo-drop' ),
 		);
-		echo '</label><br />';
-		echo '<label><input type="radio" name="upload_width_mode" value="' . esc_attr( self::NO_LIMIT_VALUE ) . '"';
-		echo Rendition_Defaults::upload_width() === null ? ' checked' : '';
-		echo ' /> ';
-		echo esc_html__( 'Original dimensions', 'kntnt-photo-drop' );
-		echo '</label></fieldset></td></tr>';
+		echo '<p class="description">' . esc_html( $width_help ) . '</p>';
+		echo '</td></tr>';
 
-		// Upload quality — permanent; pre-filled from its filter default and carrying
-		// the same ⚠️ marker.
+		// Upload quality — permanent; pre-filled with the recommended 95 and carrying
+		// the same ⚠️ marker. The blank-is-maximum rule and the size warning ride in
+		// the dedicated upload-quality help text below.
 		$this->render_quality_field(
 			'upload_quality',
 			__( 'Upload quality', 'kntnt-photo-drop' ),
 			Rendition_Defaults::upload_quality(),
 			$upload_reason,
+			$this->upload_quality_help(),
 		);
 
 		echo '</tbody></table>';
@@ -1420,24 +1411,32 @@ final class Admin_Page {
 	 * field name is the raw POST key the handler reads; the value carries the filter
 	 * default. A non-empty permanence reason appends the ⚠️ marker to the label cell —
 	 * supplied for the permanent upload-quality row, omitted for the re-derivable
-	 * full/thumbnail rows.
+	 * full/thumbnail rows. A non-empty `$help` overrides the generic "WebP quality,
+	 * 0–100." note — the upload row passes its richer recommend-95/warn-100 guidance
+	 * (#70).
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param string $name           The form field name (and id stem).
-	 * @param string $label          The translated field label.
-	 * @param int    $fallback       The filter-resolved default quality to pre-fill.
-	 * @param string $marker_reason  The permanence reason, or '' for no marker.
+	 * @param string $name          The form field name (and id stem).
+	 * @param string $label         The translated field label.
+	 * @param int    $fallback      The filter-resolved default quality to pre-fill.
+	 * @param string $marker_reason The permanence reason, or '' for no marker.
+	 * @param string $help          The translated help text, or '' for the generic note.
 	 */
 	private function render_quality_field(
 		string $name,
 		string $label,
 		int $fallback,
-		string $marker_reason = ''
+		string $marker_reason = '',
+		string $help = ''
 	): void {
 
+		// Fall back to the generic quality note when the caller passes no override.
+		$help = $help !== '' ? $help : __( 'WebP quality, 0–100.', 'kntnt-photo-drop' );
+
 		// A bounded number input pre-filled with the default; the handler parses it
-		// as a 0–100 integer. The label cell carries the optional permanence marker.
+		// as a 0–100 integer. The label cell carries the optional permanence marker
+		// and the row carries its help text.
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label> ';
 		if ( $marker_reason !== '' ) {
@@ -1450,9 +1449,27 @@ final class Admin_Page {
 			esc_attr( $id ),
 			esc_attr( (string) $fallback ),
 		);
-		echo ' <span class="description">' . esc_html__( 'WebP quality, 0–100.', 'kntnt-photo-drop' ) . '</span>';
+		echo ' <span class="description">' . esc_html( $help ) . '</span>';
 		echo '</td></tr>';
 
+	}
+
+	/**
+	 * Returns the upload-quality help text recommending 95 and warning about 100.
+	 *
+	 * Unlike the re-derivable full/thumbnail qualities, the upload quality is part of
+	 * the immutable contract and is best left at the measured sweet spot: q95 is
+	 * visually indistinguishable from q100 at ~20–28 % smaller, while q100 spends
+	 * roughly 30 % more bytes for no visible gain (#70, ADR-0002). The note also
+	 * states the blank-is-maximum rule so an empty submit is never a surprise.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @return string The translated upload-quality help text.
+	 */
+	private function upload_quality_help(): string {
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		return __( 'WebP quality, 1–100. 95 is recommended: it is visually indistinguishable from 100 at a much smaller size, while 100 spends roughly 30 % more bytes for no visible benefit. Leave blank for maximum quality (100).', 'kntnt-photo-drop' );
 	}
 
 	/**
@@ -1480,9 +1497,9 @@ final class Admin_Page {
 	/**
 	 * Returns the pre-fill string for the upload-width number input.
 	 *
-	 * The "Original dimensions" default (`null`) leaves the number input blank (the
-	 * radio defaults to that choice instead); a concrete ceiling pre-fills the input
-	 * with its value so a builder who flips back to "Limit to" sees a usable number.
+	 * The "original dimensions" default (`null`) leaves the number input blank, which
+	 * is exactly the submitted form of "no max" (#70); a concrete filter ceiling
+	 * pre-fills the input with its value.
 	 *
 	 * @since 0.7.0
 	 *

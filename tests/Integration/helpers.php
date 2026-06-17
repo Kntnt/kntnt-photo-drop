@@ -440,23 +440,24 @@ function create_collection(
  *
  * Drives the real `admin-post.php` create handler exactly as a browser would:
  * a logged-in admin session POSTs the nonce-protected six-rendition create form.
- * The `$max_width` value seeds the immutable upload-width contract (its radio
- * picks the explicit pixel ceiling or "Original dimensions"); the full and
- * thumbnail rendition fields are left blank so the handler defaults them, exactly
- * as a builder who keeps the pre-filled values would submit. Returns nothing —
- * the caller asserts the resulting `collection.json` on disk.
+ * The `$max_width` value seeds the immutable upload-width contract through the
+ * single number field, where a blank submit means the source's own dimensions
+ * (#70); the full and thumbnail rendition fields are left blank so the handler
+ * defaults them, exactly as a builder who keeps the pre-filled values would
+ * submit. Returns nothing — the caller asserts the resulting `collection.json` on
+ * disk.
  *
  * @since 0.5.0
  *
  * @param string $slug      The collection slug.
- * @param string $max_width The upload-width ceiling in pixels, or "none".
- * @param int    $quality   The upload WebP quality (0–100).
+ * @param string $max_width The upload-width ceiling in pixels, or "none" for the original dimensions.
+ * @param string $quality   The raw upload WebP quality field; blank submits as the maximum 100 (#70).
  * @throws \RuntimeException When the admin POST does not establish the collection.
  */
 function create_collection_via_admin(
 	string $slug,
 	string $max_width = '1200',
-	int $quality = 70,
+	string $quality = '70',
 ): void {
 
 	// Mint a session and a matching admin-post nonce for the create action, the
@@ -464,17 +465,18 @@ function create_collection_via_admin(
 	$session = admin_session();
 	$nonce   = admin_post_nonce( $session['jar'], 'kntnt_photo_drop_create_collection' );
 
-	// Build the form fields. "none" selects the "Original dimensions" radio; any
-	// other width is the limit mode. The full and thumbnail fields are left blank so
-	// the handler defaults each from its filter.
+	// Build the form fields. The upload width is a single number field: "none" maps
+	// to a blank submit (the original dimensions), any other value is the pixel
+	// ceiling; the quality is posted raw so a blank field exercises the maximum-100
+	// rule. The full and thumbnail fields are left blank so the handler defaults each
+	// from its filter.
 	$fields = [
 		'action'            => 'kntnt_photo_drop_create_collection',
 		'_wpnonce'          => $nonce,
 		'slug'              => $slug,
 		'name'              => '',
-		'upload_width_mode' => $max_width === 'none' ? 'none' : 'limit',
 		'upload_width'      => $max_width === 'none' ? '' : $max_width,
-		'upload_quality'    => (string) $quality,
+		'upload_quality'    => $quality,
 		'full_width'        => '',
 		'full_quality'      => '',
 		'thumbnail_width'   => '',
