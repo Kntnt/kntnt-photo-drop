@@ -21,43 +21,61 @@
 
 import * as path from 'path';
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
+import type { Locator } from '@playwright/test';
 import { FIXTURES_DIR, FIXTURE_ALPHA } from './support/fixture-images';
 import { createCollection, deleteCollection, uniqueSlug } from './support/wp';
 
 /**
- * Reads the wrapper's padding/border and the status region's left/right inset
- * relative to the wrapper, all in CSS pixels, after a batch has settled.
+ * The horizontal box metrics this spec asserts on, all in CSS pixels.
+ *
+ * `paddingLeft`/`paddingRight` and `borderLeft`/`borderRight` are the wrapper's
+ * own computed values; `insetLeft`/`insetRight` are the gap between the wrapper's
+ * border-box edge and the measured region's edge on each side.
+ */
+interface HorizontalInsets {
+	readonly paddingLeft: number;
+	readonly paddingRight: number;
+	readonly borderLeft: number;
+	readonly borderRight: number;
+	readonly insetLeft: number;
+	readonly insetRight: number;
+}
+
+/**
+ * Reads the wrapper's padding/border and a child region's left/right inset.
  *
  * The status region (`__status`) holds the three-bucket completion summary, so
  * it is populated and measurable once the upload finishes; the progress region
  * collapses (`:empty`) again at that point. Measuring the status region proves
  * the same point — a real child of the padded wrapper must sit inside the box.
+ *
+ * @param wrapper - The Drop Zone block wrapper locator.
+ * @param region  - The child feedback region whose inset is measured.
+ * @return The wrapper's horizontal padding/border and the region's insets.
  */
 async function readInsets(
-	wrapper: import('@playwright/test').Locator,
-	region: import('@playwright/test').Locator
-): Promise< {
-	paddingLeft: number;
-	paddingRight: number;
-	borderLeft: number;
-	borderRight: number;
-	insetLeft: number;
-	insetRight: number;
-} > {
-	return wrapper.evaluate( ( wrapperEl, regionEl ) => {
-		const wrapperStyle = getComputedStyle( wrapperEl );
-		const wrapperRect = wrapperEl.getBoundingClientRect();
-		const regionRect = ( regionEl as HTMLElement ).getBoundingClientRect();
+	wrapper: Locator,
+	region: Locator
+): Promise< HorizontalInsets > {
+	return wrapper.evaluate(
+		( wrapperEl, regionEl ) => {
+			const wrapperStyle = getComputedStyle( wrapperEl );
+			const wrapperRect = wrapperEl.getBoundingClientRect();
+			const regionRect = (
+				regionEl as HTMLElement
+			 ).getBoundingClientRect();
 
-		return {
-			paddingLeft: parseFloat( wrapperStyle.paddingLeft ),
-			paddingRight: parseFloat( wrapperStyle.paddingRight ),
-			borderLeft: parseFloat( wrapperStyle.borderLeftWidth ),
-			borderRight: parseFloat( wrapperStyle.borderRightWidth ),
-			insetLeft: regionRect.left - wrapperRect.left,
-			insetRight: wrapperRect.right - regionRect.right,
-		};
-	}, await region.elementHandle() );
+			return {
+				paddingLeft: parseFloat( wrapperStyle.paddingLeft ),
+				paddingRight: parseFloat( wrapperStyle.paddingRight ),
+				borderLeft: parseFloat( wrapperStyle.borderLeftWidth ),
+				borderRight: parseFloat( wrapperStyle.borderRightWidth ),
+				insetLeft: regionRect.left - wrapperRect.left,
+				insetRight: wrapperRect.right - regionRect.right,
+			};
+		},
+		await region.elementHandle()
+	);
 }
 
 test.describe( 'Drop Zone padding', () => {

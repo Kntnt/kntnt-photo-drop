@@ -12,9 +12,22 @@
 
 	// The recognisable default drop-target box. A builder still overrides any of
 	// it through the block's border/colour/spacing supports: an inspector value
-	// serialises as an inline style, which beats these low-specificity rules.
-	padding: 2rem;
+	// serialises as an inline style, which beats these single-class rules.
 	border: 2px dashed #808080;
 	border-radius: 4px;
 	background-color: #fafaff;
+}
+
+// The default box padding, on a deliberately higher-specificity selector. A
+// constrained-layout block at the root carries WordPress's
+// `has-global-padding` class, whose own single-class rule zeroes
+// `padding-left`/`padding-right` to the theme's (often empty) root padding and
+// — tying on specificity but loading after this asset — wins the cascade,
+// leaving the feedback regions flush to the left and right edges when no
+// inspector padding is set (issue #56). Matching the always-present
+// `wp-block-<name>` class too raises this to a two-class selector, so the
+// default padding beats `has-global-padding` while an explicit inspector
+// padding (an inline style) still beats both.
+.kntnt-photo-drop-drop-zone.wp-block-kntnt-photo-drop-drop-zone {
+	padding: 2rem;
 }
