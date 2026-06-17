@@ -342,8 +342,8 @@ test( 'update rewrites only the name and preserves the rendition settings', func
 	$command->update( [ 'trip' ], [ 'name' => 'New Name' ] );
 	$after = Descriptor::read( $root . 'trip' );
 
-	// Only the display name changed; the rendition settings are carried over
-	// verbatim (the editable re-derive flow is a later issue).
+	// Only the display name changed; with no re-derivable flag passed, the rendition
+	// settings carry over verbatim and no regenerate-then-flip is triggered.
 	expect( $after->name )->toBe( 'New Name' );
 	expect( $after->upload_width )->toBe( $before->upload_width );
 	expect( $after->upload_quality )->toBe( $before->upload_quality );
@@ -465,17 +465,20 @@ test( 'update rejects an attempt to change an immutable upload-contract flag', f
 	'immutable no name' => [ [ 'upload-width' => '800' ] ],
 ] );
 
-test( 'update requires a non-empty name', function ( array $args ): void {
+test( 'update rejects an explicit empty name but keeps the existing one', function (): void {
 	$basedir = fresh_command_basedir();
 	$root    = wire_command_stubs( $basedir );
 	$command = make_command();
 
 	$command->create( [ 'named' ], [ 'name' => 'Keep' ] );
 
+	// An explicit blank name is rejected — a collection must keep a display name — and
+	// the descriptor is left with its existing name (ADR-0014: --name is optional, but
+	// not blankable).
 	WP_CLI::reset();
 	$threw = false;
 	try {
-		$command->update( [ 'named' ], $args );
+		$command->update( [ 'named' ], [ 'name' => '' ] );
 	} catch ( Cli_Halt ) {
 		$threw = true;
 	}
@@ -484,9 +487,109 @@ test( 'update requires a non-empty name', function ( array $args ): void {
 	expect( Descriptor::read( $root . 'named' )->name )->toBe( 'Keep' );
 
 	command_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// update — the re-derivable full/thumbnail settings are mutable (ADR-0013)
+// ---------------------------------------------------------------------------
+
+test( 'update mutates the re-derivable full and thumbnail settings and flips the descriptor', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// Establish the default re-derivable pair, then change all four re-derivable values.
+	// The collection holds no images, so the regenerate-then-flip has nothing to derive
+	// and finalises straight to the flipped descriptor.
+	$command->create( [ 'rederive' ], [ 'name' => 'Rederive' ] );
+
+	WP_CLI::reset();
+	$command->update( [ 'rederive' ], [
+		'full-width'        => '1000',
+		'full-quality'      => '70',
+		'thumbnail-width'   => '300',
+		'thumbnail-quality' => '60',
+	] );
+	$after = Descriptor::read( $root . 'rederive' );
+
+	// The descriptor flipped to the new re-derivable values; the display name carried
+	// over (no --name given) and the immutable upload contract is untouched.
+	expect( $after->full_width )->toBe( 1000 );
+	expect( $after->full_quality )->toBe( 70 );
+	expect( $after->thumbnail_width )->toBe( 300 );
+	expect( $after->thumbnail_quality )->toBe( 60 );
+	expect( $after->name )->toBe( 'Rederive' );
+	expect( $after->upload_quality )->toBe( 95 );
+	expect( WP_CLI::$successes )->toHaveCount( 1 );
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'update carries the name over when --name is absent', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A re-derivable change with no --name must keep the existing display name rather
+	// than demand it be re-typed (ADR-0013: --name is optional on update).
+	$command->create( [ 'keep-name' ], [ 'name' => 'Original' ] );
+
+	WP_CLI::reset();
+	$command->update( [ 'keep-name' ], [ 'thumbnail-width' => '320' ] );
+	$after = Descriptor::read( $root . 'keep-name' );
+
+	expect( $after->name )->toBe( 'Original' );
+	expect( $after->thumbnail_width )->toBe( 320 );
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'update is a clean no-op when no field changes', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A bare update (no flags) changes nothing — the descriptor is preserved and the
+	// command reports success rather than demanding a flag.
+	$command->create( [ 'untouched' ], [ 'name' => 'Untouched' ] );
+	$before = file_get_contents( $root . 'untouched/' . Descriptor::FILENAME );
+
+	WP_CLI::reset();
+	$command->update( [ 'untouched' ], [] );
+
+	expect( WP_CLI::$successes )->toHaveCount( 1 );
+	expect( file_get_contents( $root . 'untouched/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'update rejects a malformed re-derivable flag and writes nothing', function ( array $args ): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// A malformed full/thumbnail width or quality halts before the descriptor is
+	// rewritten, so a typo never flips a collection to a degenerate width.
+	$command->create( [ 'validated' ], [ 'name' => 'Validated' ] );
+	$before = file_get_contents( $root . 'validated/' . Descriptor::FILENAME );
+
+	WP_CLI::reset();
+	$threw = false;
+	try {
+		$command->update( [ 'validated' ], $args );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( file_get_contents( $root . 'validated/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	command_remove_tree( $basedir );
 } )->with( [
-	'missing' => [ [] ],
-	'empty'   => [ [ 'name' => '' ] ],
+	'bad full width'        => [ [ 'full-width' => 'wide' ] ],
+	'zero thumbnail width'  => [ [ 'thumbnail-width' => '0' ] ],
+	'bad full quality'      => [ [ 'full-quality' => '101' ] ],
+	'bad thumbnail quality' => [ [ 'thumbnail-quality' => '-5' ] ],
 ] );
 
 test( 'update rejects an unknown collection', function (): void {
