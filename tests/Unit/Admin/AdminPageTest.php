@@ -75,6 +75,13 @@ function wire_admin_stubs( string $basedir ): string {
 	);
 	Functions\when( 'add_settings_error' )->justReturn( null );
 
+	// wp_strip_all_tags: the path-components read uses it instead of
+	// sanitize_text_field so the `%`-placeholders are not stripped. A faithful-enough
+	// stub removes tag markup while leaving every percent placeholder intact.
+	Functions\when( 'wp_strip_all_tags' )->alias(
+		static fn ( string $str ): string => trim( (string) preg_replace( '/<[^>]*>/', '', $str ) )
+	);
+
 	// sanitize_title: a faithful-enough ASCII slugifier for the unique-slug default
 	// — lowercase, runs of whitespace/underscores to a single hyphen, strip
 	// everything but [a-z0-9-], collapse repeated hyphens, and trim edge hyphens.

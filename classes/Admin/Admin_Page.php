@@ -487,12 +487,14 @@ final class Admin_Page {
 		// the shared Collection_Input below. The upload-width radio picks between an
 		// explicit pixel ceiling and the "source dimensions" choice, mapped to the
 		// same `none` → null spelling the CLI uses. The path-components field is read
-		// raw for the placement-template gate. The nonce is verified in
+		// through read_path_components() — not read_string() — because
+		// sanitize_text_field() would strip its `%da` octet and corrupt `%day%`; the
+		// placement-template gate validates it afterwards. The nonce is verified in
 		// guard_request() above, before any field is read.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified in guard_request().
 		$slug              = $this->read_string( $_POST, 'slug' );
 		$name              = $this->read_string( $_POST, 'name' );
-		$path_components   = $this->read_string( $_POST, 'path_components' );
+		$path_components   = $this->read_path_components( $_POST );
 		$upload_width_mode = $this->read_string( $_POST, 'upload_width_mode' );
 		$renditions        = [
 			'upload-width'      => $upload_width_mode === self::NO_LIMIT_VALUE
@@ -536,13 +538,15 @@ final class Admin_Page {
 		// Authorise and verify before touching any field.
 		$this->guard_request( self::ACTION_UPDATE );
 
-		// Read and sanitise the slug, the display name, and the mutable placement
-		// template. The nonce is verified in guard_request() above, before any field
-		// is read.
+		// Read and sanitise the slug and the display name, and read the mutable
+		// placement template through read_path_components() — not read_string() —
+		// because sanitize_text_field() would corrupt its `%day%` placeholder; the
+		// placement-template gate validates it afterwards. The nonce is verified in
+		// guard_request() above, before any field is read.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified in guard_request().
 		$slug            = $this->read_string( $_POST, 'slug' );
 		$name            = $this->read_string( $_POST, 'name' );
-		$path_components = $this->read_string( $_POST, 'path_components' );
+		$path_components = $this->read_path_components( $_POST );
 
 		// The raw POST keys are inspected so the handler can detect a tampered
 		// contract field and reject it server-side, even though the form renders
@@ -1926,6 +1930,38 @@ final class Admin_Page {
 		}
 
 		return sanitize_text_field( wp_unslash( (string) $source[ $key ] ) );
+
+	}
+
+	/**
+	 * Reads the `path_components` placement template from a request superglobal.
+	 *
+	 * The placement template carries the literal `%year%`, `%month%`, `%day%`, and
+	 * `%uploader%` placeholders, so it must never pass through `sanitize_text_field()`:
+	 * that routine strips every `/%[a-f0-9]{2}/i` octet, and `%da` in `%day%` matches,
+	 * mangling the legal default into `%year%/%month%/y%/%uploader%` — a stray-`%`
+	 * rejection at the gate (issue #64). The template's actual safety is enforced
+	 * downstream by `Descriptor::normalize_path_components()` (the `%`-reservation and
+	 * the `Path_Guard` lexical checks: traversal, absolute paths, backslashes, NUL),
+	 * so the read here only unslashes and strips tags — keeping the angle-bracket
+	 * defence the guard does not give while leaving the percent placeholders intact.
+	 * A missing or non-scalar value reads as the empty string, which the gate treats
+	 * as "use the default template" (ADR-0014).
+	 *
+	 * @since 0.13.0
+	 *
+	 * @param array<array-key,mixed> $source The request array (`$_POST`).
+	 * @return string The raw-but-untagged template, or '' when absent or non-scalar.
+	 */
+	private function read_path_components( array $source ): string {
+
+		// A missing or non-scalar value is treated as absent; a scalar is unslashed
+		// and tag-stripped, but its percent placeholders are deliberately preserved.
+		if ( ! isset( $source['path_components'] ) || ! is_scalar( $source['path_components'] ) ) {
+			return '';
+		}
+
+		return trim( wp_strip_all_tags( wp_unslash( (string) $source['path_components'] ) ) );
 
 	}
 
