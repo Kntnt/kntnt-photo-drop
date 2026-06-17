@@ -7,6 +7,11 @@
  * mid-download. `saveFile` is pinned on its load-bearing promise: the saved
  * click goes to a same-document object-URL anchor (never the remote URL, which
  * an environment could turn into navigation) and carries the derived filename.
+ * When the fetch cannot run (a cross-origin host without CORS, an offline
+ * network, a non-OK response) the save must still never navigate the current tab
+ * nor open a new one: it falls back to clicking a same-document, same-tab
+ * `<a download>` at the remote URL — the documented no-JS fallback — rather than
+ * the old current-tab navigation.
  * `shouldInterceptClick` is pinned on the modified-click contract every download
  * trigger shares: a plain primary click is intercepted (and saved
  * programmatically), every modified or non-primary click passes through to the
@@ -80,7 +85,6 @@ describe( 'saveFile', () => {
 		jest.runOnlyPendingTimers();
 		jest.useRealTimers();
 		clickSpy.mockRestore();
-		window.location.hash = '';
 	} );
 
 	it( 'clicks a same-document object-URL anchor named after the image', async () => {
@@ -134,28 +138,67 @@ describe( 'saveFile', () => {
 		expect( document.querySelectorAll( 'a' ) ).toHaveLength( 0 );
 	} );
 
-	it( 'falls back to plain navigation, with no download click, when the response is not OK', async () => {
-		// A hash URL keeps the fallback observable: jsdom implements only hash
-		// navigation, so `location.assign` of anything else would be swallowed
-		// as "not implemented" instead of landing in `location.hash`.
+	it( 'falls back to a same-tab <a download> at the remote URL when the response is not OK', async () => {
+		// A non-OK response cannot yield a blob, but the save must still neither
+		// navigate the current tab nor open a new one: it clicks a same-document
+		// <a download> at the remote URL — the no-JS fallback, in the same tab.
 		global.fetch = jest.fn().mockResolvedValue( {
 			ok: false,
 			status: 404,
 		} as unknown as Response );
 
-		await saveFile( '#missing' );
+		let clickedHref = '';
+		let clickedDownload = '';
+		let clickedTarget = '';
+		clickSpy.mockImplementation( function ( this: HTMLAnchorElement ) {
+			clickedHref = this.href;
+			clickedDownload = this.download;
+			clickedTarget = this.target;
+		} );
 
-		expect( clickSpy ).not.toHaveBeenCalled();
-		expect( window.location.hash ).toBe( '#missing' );
+		await saveFile( 'https://cdn.example.test/photos/sunrise.jpg.webp' );
+
+		expect( clickedHref ).toBe(
+			'https://cdn.example.test/photos/sunrise.jpg.webp'
+		);
+		expect( clickedDownload ).toBe( 'sunrise.jpg.webp' );
+		expect( clickedTarget ).not.toBe( '_blank' );
 	} );
 
-	it( 'falls back to plain navigation when the fetch itself rejects', async () => {
-		global.fetch = jest.fn().mockRejectedValue( new Error( 'offline' ) );
+	it( 'falls back to a same-tab <a download> when the fetch itself rejects (cross-origin without CORS)', async () => {
+		// A cross-origin host without CORS makes fetch reject; the save must fall
+		// back to the same-tab <a download> at the remote URL, so the gallery tab
+		// is never navigated away and no new tab opens.
+		global.fetch = jest
+			.fn()
+			.mockRejectedValue( new TypeError( 'Failed to fetch' ) );
 
-		await saveFile( '#offline' );
+		let clickedHref = '';
+		let clickedDownload = '';
+		let clickedTarget = '';
+		clickSpy.mockImplementation( function ( this: HTMLAnchorElement ) {
+			clickedHref = this.href;
+			clickedDownload = this.download;
+			clickedTarget = this.target;
+		} );
 
-		expect( clickSpy ).not.toHaveBeenCalled();
-		expect( window.location.hash ).toBe( '#offline' );
+		await saveFile( 'https://cdn.example.test/a.webp' );
+
+		expect( clickedHref ).toBe( 'https://cdn.example.test/a.webp' );
+		expect( clickedDownload ).toBe( 'a.webp' );
+		expect( clickedTarget ).not.toBe( '_blank' );
+	} );
+
+	it( 'leaves no temporary anchor behind after the fallback', async () => {
+		// The fallback anchor is appended to drive the click; it must be removed
+		// again so the document is left exactly as it was found.
+		global.fetch = jest
+			.fn()
+			.mockRejectedValue( new TypeError( 'Failed to fetch' ) );
+
+		await saveFile( 'https://cdn.example.test/a.webp' );
+
+		expect( document.querySelectorAll( 'a' ) ).toHaveLength( 0 );
 	} );
 } );
 
