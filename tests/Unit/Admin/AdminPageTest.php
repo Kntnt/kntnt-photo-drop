@@ -294,10 +294,12 @@ test( 'the create form pre-fills the six rendition fields from their default fil
 	$html = (string) ob_get_clean();
 
 	// Every rendition field is present and carries its default; the upload-width
-	// radio defaults to "Original dimensions" (null) and the irreversibility
-	// warning sits above the upload pair.
+	// field is a single number input (no mode radio) left blank for the null
+	// "original dimensions" default, and the irreversibility warning sits above
+	// the upload pair.
 	expect( $html )->toContain( 'name="upload_width"' );
-	expect( $html )->toContain( 'name="upload_width_mode"' );
+	expect( $html )->not->toContain( 'name="upload_width_mode"' );
+	expect( $html )->not->toContain( 'Original dimensions' );
 	expect( $html )->toContain( 'name="upload_quality"' );
 	expect( $html )->toContain( 'value="95"' );
 	expect( $html )->toContain( 'name="full_width"' );
@@ -332,6 +334,55 @@ test( 'the create form has no format field and no uploader-folders field', funct
 	// so neither input name appears.
 	expect( $html )->not->toContain( 'name="format"' );
 	expect( $html )->not->toContain( 'name="uploader_folders"' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form renders the upload width as a single blank-able number field', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_render_stubs( $basedir );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The upload width is one number input with no mode radio: a blank field means
+	// the original dimensions, so the input has no enforced minimum that would block
+	// an empty submit and the help text documents the blank-is-original rule (#70).
+	expect( $html )->toContain( 'name="upload_width"' );
+	expect( $html )->not->toContain( 'name="upload_width_mode"' );
+	expect( $html )->not->toContain( 'type="radio"' );
+	expect( $html )->toContain( 'Leave blank to keep the original dimensions.' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form upload-quality help recommends 95 and warns about 100', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_render_stubs( $basedir );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The upload-quality help text recommends 95 and warns that 100 spends roughly
+	// 30 % more bytes for no visible benefit, and that a blank field means maximum
+	// quality (#70, ADR-0002).
+	expect( $html )->toContain( '95 is recommended' );
+	expect( $html )->toContain( '30' );
+	expect( $html )->toContain( 'Leave blank for maximum quality (100).' );
 
 	$_GET = [];
 	admin_remove_tree( $basedir );
@@ -520,7 +571,6 @@ test( 'handle_create reads the path-components field from the POST', function ()
 		'slug'              => 'posted-template',
 		'name'              => 'Posted Template',
 		'path_components'   => '%year%/%uploader%',
-		'upload_width_mode' => 'limit',
 		'upload_width'      => '1920',
 		'upload_quality'    => '90',
 		'full_width'        => '1600',
@@ -970,14 +1020,15 @@ test( 'create writes a valid three-rendition collection.json from the form field
 	admin_remove_tree( $basedir );
 } );
 
-test( 'create defaults each blank rendition field from its filter', function (): void {
+test( 'create maps a blank upload pair to original dimensions and maximum quality', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	// Every rendition field blank falls back to its documented default: upload
-	// width null (the source's own dimensions), upload 95, full 1920/85, thumbnail
-	// 640/75.
+	// A blank upload width means the source's own dimensions (null, "no max"), and a
+	// blank upload quality means maximum (100) — full fidelity reachable without an
+	// as-is mode (#70, ADR-0002). The re-derivable full and thumbnail fields still
+	// fall back to their filter defaults (full 1920/85, thumbnail 640/75).
 	$page->create_collection( 'defaulted', 'Defaulted', [
 		'upload-width'      => '',
 		'upload-quality'    => '',
@@ -989,7 +1040,7 @@ test( 'create defaults each blank rendition field from its filter', function ():
 
 	$descriptor = Descriptor::read( $root . 'defaulted' );
 	expect( $descriptor->upload_width )->toBeNull();
-	expect( $descriptor->upload_quality )->toBe( 95 );
+	expect( $descriptor->upload_quality )->toBe( 100 );
 	expect( $descriptor->full_width )->toBe( 1920 );
 	expect( $descriptor->full_quality )->toBe( 85 );
 	expect( $descriptor->thumbnail_width )->toBe( 640 );
@@ -1003,7 +1054,7 @@ test( 'handle_create writes the descriptor from the six posted rendition fields'
 	$root    = wire_admin_stubs( $basedir );
 
 	// The handler needs the request guard, nonce, and redirect stubs; it reads the
-	// six rendition fields from $_POST and the upload-width radio mode.
+	// six rendition fields from $_POST, the upload width now a single number field.
 	Functions\when( 'current_user_can' )->justReturn( true );
 	Functions\when( 'check_admin_referer' )->justReturn( true );
 	Functions\when( 'wp_unslash' )->returnArg( 1 );
@@ -1024,7 +1075,6 @@ test( 'handle_create writes the descriptor from the six posted rendition fields'
 	$_POST = [
 		'slug'              => 'posted',
 		'name'              => 'Posted',
-		'upload_width_mode' => 'limit',
 		'upload_width'      => '3000',
 		'upload_quality'    => '90',
 		'full_width'        => '1600',
@@ -1051,7 +1101,7 @@ test( 'handle_create writes the descriptor from the six posted rendition fields'
 	admin_remove_tree( $basedir );
 } );
 
-test( 'handle_create maps the "Original dimensions" upload-width radio to null', function (): void {
+test( 'handle_create maps a blank upload pair to original dimensions and maximum quality', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 
@@ -1075,9 +1125,8 @@ test( 'handle_create maps the "Original dimensions" upload-width radio to null',
 	$_POST = [
 		'slug'              => 'sourced',
 		'name'              => 'Sourced',
-		'upload_width_mode' => 'none',
-		'upload_width'      => '1234',
-		'upload_quality'    => '95',
+		'upload_width'      => '',
+		'upload_quality'    => '',
 		'full_width'        => '1920',
 		'full_quality'      => '85',
 		'thumbnail_width'   => '640',
@@ -1090,9 +1139,11 @@ test( 'handle_create maps the "Original dimensions" upload-width radio to null',
 		$noop = true;
 	}
 
-	// With the radio on "Original dimensions" the typed pixel value is ignored and
-	// the upload width is stored as null.
-	expect( Descriptor::read( $root . 'sourced' )->upload_width )->toBeNull();
+	// A blank upload width stores null (the source's own dimensions) and a blank
+	// upload quality stores the maximum 100 — full fidelity with no as-is mode (#70).
+	$descriptor = Descriptor::read( $root . 'sourced' );
+	expect( $descriptor->upload_width )->toBeNull();
+	expect( $descriptor->upload_quality )->toBe( 100 );
 
 	$_POST = [];
 	admin_remove_tree( $basedir );
@@ -1241,7 +1292,6 @@ test( 'handle_create with a blank slug establishes the collection at the auto-su
 	$_POST = [
 		'slug'              => '',
 		'name'              => 'Field Trip',
-		'upload_width_mode' => 'limit',
 		'upload_width'      => '1920',
 		'upload_quality'    => '80',
 		'full_width'        => '1920',
@@ -1294,7 +1344,6 @@ test( 'handle_create rejects a typed colliding slug instead of auto-suffixing it
 	$_POST = [
 		'slug'              => 'field-trip',
 		'name'              => 'Field Trip',
-		'upload_width_mode' => 'limit',
 		'upload_width'      => '1920',
 		'upload_quality'    => '80',
 		'full_width'        => '1920',
@@ -1612,7 +1661,6 @@ test( 'an un-capable user is refused before any collection is created', function
 	$_POST                = [
 		'slug'              => 'sneaky',
 		'name'              => 'Sneaky',
-		'upload_width_mode' => 'limit',
 		'upload_width'      => '1920',
 		'upload_quality'    => '80',
 	];
