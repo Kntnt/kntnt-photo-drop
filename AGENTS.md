@@ -106,7 +106,7 @@ There is no live WordPress on the maintainer's machine. For interactive verifica
 
 ## Cutting a release
 
-Mirror gpx-blocks: bump the `Version:` header in `kntnt-photo-drop.php` **and** `"version"` in `package.json` (must match), run every gate over the merged work, commit, tag `vX.Y.Z`, `./build-release-zip.sh` to produce `kntnt-photo-drop.zip` (runtime artefacts only, single top-level folder), push the commit and tag, then `gh release create vX.Y.Z ./kntnt-photo-drop.zip`. The `Updater` finds the asset by `content_type === "application/zip"`, so the stable filename is intentional. Skipping the ZIP means the auto-updater sees no new version.
+Mirror gpx-blocks: bump the `Version:` header in `kntnt-photo-drop.php` **and** `"version"` in `package.json` (must match), run every gate over the merged work, commit, tag `vX.Y.Z`, `./build-release-zip.sh` to produce `dist/kntnt-photo-drop.zip` (runtime artefacts only, single top-level folder), push the commit and tag, then `gh release create vX.Y.Z ./dist/kntnt-photo-drop.zip`. The `Updater` finds the asset by `content_type === "application/zip"`, so the stable filename is intentional. Skipping the ZIP means the auto-updater sees no new version.
 
 ## Conventions for these docs
 

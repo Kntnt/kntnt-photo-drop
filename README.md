@@ -279,7 +279,7 @@ npm run build           # compile src/blocks/** into build/blocks/**
 ./build-release-zip.sh
 ```
 
-This produces `kntnt-photo-drop.zip` in the project root, containing the runtime artefacts only (PHP, the production Composer install, and the compiled `build/`) under a single top-level folder. The filename is deliberately version-less: the auto-updater selects the release asset by its `application/zip` content type, not by name, so a release published without this ZIP offers no installable package.
+This produces `dist/kntnt-photo-drop.zip` (the `dist/` directory is gitignored), containing the runtime artefacts only (PHP, the production Composer install, and the compiled `build/`) under a single top-level folder. The filename is deliberately version-less: the auto-updater selects the release asset by its `application/zip` content type, not by name, so a release published without this ZIP offers no installable package.
 
 ### Run tests
 

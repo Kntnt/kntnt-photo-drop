@@ -19,7 +19,7 @@ The behaviour is unit-tested with `wp_remote_get` stubbed via Brain Monkey (`tes
 
 ## Why the ZIP filename is version-less
 
-`build-release-zip.sh` always writes `kntnt-photo-drop.zip` — no version segment. The per-release tag in the GitHub asset URL already encodes the version, and the `Updater` matches the asset by `content_type`, so a stable filename keeps the asset URL predictable across releases. **Skipping the ZIP on a release means the auto-updater sees no installable package and offers nothing**, even though a newer tag exists.
+`build-release-zip.sh` always writes `dist/kntnt-photo-drop.zip` — the basename carries no version segment. The per-release tag in the GitHub asset URL already encodes the version, and the `Updater` matches the asset by `content_type`, so a stable filename keeps the asset URL predictable across releases. **Skipping the ZIP on a release means the auto-updater sees no installable package and offers nothing**, even though a newer tag exists.
 
 ## The release ZIP
 
@@ -29,7 +29,7 @@ The behaviour is unit-tested with `wp_remote_get` stubbed via Brain Monkey (`tes
 - `classes/`, `vendor/` (production install), `build/` (compiled blocks)
 - `js/`, `css/`, `languages/` — copied only if present (the plugin currently ships none; all client code compiles into `build/`)
 
-It parses the `Version:` header, runs `composer install --no-dev --optimize-autoloader`, `npm ci`, and `npm run build`, stages into a `mktemp -d` directory cleaned up by an `EXIT` trap, writes `kntnt-photo-drop.zip` to the project root, and finally **restores the development composer install** so the working tree returns to dev mode. Dev-only files (`tests/`, `node_modules/`, `src/`, `docs/`, dotfiles, the lock files) never enter the archive.
+It parses the `Version:` header, runs `composer install --no-dev --optimize-autoloader`, `npm ci`, and `npm run build`, stages into a `mktemp -d` directory cleaned up by an `EXIT` trap, writes `kntnt-photo-drop.zip` into the gitignored `dist/` directory, and finally **restores the development composer install** so the working tree returns to dev mode. Dev-only files (`tests/`, `node_modules/`, `src/`, `docs/`, dotfiles, the lock files) never enter the archive.
 
 ## Cutting a release — the six steps
 
@@ -39,7 +39,7 @@ Mirror gpx-blocks. Run these in order from a clean, merged working tree:
 2. **Run every gate** over the merged work: `composer phpstan`, `composer phpcs`, `composer test`, `npm run build` (plus the JS lint/test gates). All green — the union of merged work, not just the last change. See [`definition-of-done.md`](definition-of-done.md).
 3. **Commit** the version bump.
 4. **Tag** `vX.Y.Z` on that commit.
-5. **Build the ZIP**: `./build-release-zip.sh` produces `kntnt-photo-drop.zip` (runtime artefacts only, single top-level folder), then restores the dev composer install.
-6. **Push and publish**: push the commit and the tag, then `gh release create vX.Y.Z ./kntnt-photo-drop.zip`. GitHub serves the asset with `content_type: application/zip`, which is exactly what the `Updater` looks for.
+5. **Build the ZIP**: `./build-release-zip.sh` produces `dist/kntnt-photo-drop.zip` (runtime artefacts only, single top-level folder), then restores the dev composer install.
+6. **Push and publish**: push the commit and the tag, then `gh release create vX.Y.Z ./dist/kntnt-photo-drop.zip`. GitHub serves the asset with `content_type: application/zip`, which is exactly what the `Updater` looks for.
 
 Once the release is published, sites running the plugin pick up the new version on their next update check.
