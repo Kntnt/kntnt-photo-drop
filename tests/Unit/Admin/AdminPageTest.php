@@ -1184,12 +1184,16 @@ test( 'create defaults the display name to a humanised slug when left blank', fu
 	admin_remove_tree( $basedir );
 } );
 
-test( 'create maps the "Original dimensions" upload width to a null ceiling', function (): void {
+test( 'create maps a blank upload width to a null ceiling', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	$page->create_collection( 'archive', 'Full Archive', admin_renditions( [ 'upload-width' => 'none' ] ) );
+	// The simplified form has no mode radio and cannot submit any keyword: a blank
+	// upload-width field is the one way to say "original dimensions", stored as a
+	// null ceiling (#70). Guarding the blank path directly — not the CLI's "none"
+	// keyword, which the admin form can never produce — keeps this test honest.
+	$page->create_collection( 'archive', 'Full Archive', admin_renditions( [ 'upload-width' => '' ] ) );
 
 	expect( Descriptor::read( $root . 'archive' )->upload_width )->toBeNull();
 
@@ -1232,6 +1236,7 @@ test( 'create rejects a malformed rendition value', function ( array $overrides 
 } )->with( [
 	'zero upload width'    => [ [ 'upload-width' => '0' ] ],
 	'non-numeric upload'   => [ [ 'upload-width' => 'wide' ] ],
+	'literal none upload'  => [ [ 'upload-width' => 'none' ] ],
 	'upload quality 101'   => [ [ 'upload-quality' => '101' ] ],
 	'upload quality 0'     => [ [ 'upload-quality' => '0' ] ],
 	'zero full width'      => [ [ 'full-width' => '0' ] ],

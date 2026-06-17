@@ -733,6 +733,32 @@ function write_jpeg( string $path, int $width = 1600, int $height = 900 ): void 
 }
 
 /**
+ * Writes a high-frequency-noise JPEG fixture with GD.
+ *
+ * The flat-band canvas of `paint_fixture()` is so compressible that WebP size is
+ * non-monotonic in quality — a flat region can even encode *smaller* at maximum
+ * quality than at the lowest, defeating any "higher quality → larger file"
+ * assertion. A per-cell random canvas is the opposite: incompressible detail
+ * where the encoded byte count rises monotonically with quality, which is what a
+ * size-delta discrimination of the encode quality needs (#70). The JPEG is
+ * written at maximum quality so the source itself does not pre-quantise the
+ * detail away before the plugin re-encodes it to WebP.
+ *
+ * @since 0.13.0
+ *
+ * @param string $path   The absolute target path.
+ * @param int    $width  The pixel width.
+ * @param int    $height The pixel height.
+ * @throws \RuntimeException When GD cannot produce the file.
+ */
+function write_noisy_jpeg( string $path, int $width = 1600, int $height = 900 ): void {
+	$image = paint_noise( $width, $height );
+	if ( ! imagejpeg( $image, $path, 100 ) ) {
+		throw new \RuntimeException( "Cannot write the noisy JPEG fixture {$path}." );
+	}
+}
+
+/**
  * Writes a real WebP fixture with GD.
  *
  * @since 0.3.0
@@ -784,6 +810,43 @@ function paint_fixture( int $width, int $height ): \GdImage {
 	for ( $band = 0; $band < $bands; $band++ ) {
 		$color = imagecolorallocate( $image, 30 * $band, 255 - 30 * $band, 60 + 20 * $band );
 		imagefilledrectangle( $image, $band * $step, 0, ( $band + 1 ) * $step - 1, $height - 1, (int) $color );
+	}
+
+	return $image;
+
+}
+
+/**
+ * Paints a high-frequency-noise canvas: random colour cells.
+ *
+ * Each 2×2 cell takes an independent random colour, producing detail GD's WebP
+ * encoder cannot compress away — so the encoded size grows monotonically with
+ * quality, the property a quality-discrimination assertion relies on. The 2×2
+ * cell (rather than per-pixel) keeps the paint loop cheap on a 1500-px canvas
+ * while leaving the result effectively incompressible.
+ *
+ * @since 0.13.0
+ *
+ * @param int $width  The pixel width.
+ * @param int $height The pixel height.
+ * @return \GdImage The painted canvas.
+ * @throws \RuntimeException When the canvas cannot be allocated.
+ */
+function paint_noise( int $width, int $height ): \GdImage {
+
+	// Allocate the canvas; a failure here means GD itself is unusable.
+	$image = imagecreatetruecolor( $width, $height );
+	if ( $image === false ) {
+		throw new \RuntimeException( 'GD cannot allocate the noise canvas.' );
+	}
+
+	// Fill 2×2 cells with independent random colours so the image is detail-dense
+	// and effectively incompressible.
+	for ( $y = 0; $y < $height; $y += 2 ) {
+		for ( $x = 0; $x < $width; $x += 2 ) {
+			$color = imagecolorallocate( $image, random_int( 0, 255 ), random_int( 0, 255 ), random_int( 0, 255 ) );
+			imagefilledrectangle( $image, $x, $y, $x + 1, $y + 1, (int) $color );
+		}
 	}
 
 	return $image;
