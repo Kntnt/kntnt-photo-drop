@@ -16,10 +16,13 @@
  * save falls back to clicking a *same-document, same-tab* `<a download>` at the
  * remote URL: the documented no-JS fallback. This downloads in place wherever
  * the browser honours `download` (same-origin uploads, the default), and where
- * it cannot (a cross-origin host without CORS) the browser decides — but the
- * gallery never forces a current-tab navigation and never opens a new tab. The
- * earlier fallback was `window.location.assign`, which always navigated the tab
- * away from the gallery; this one never does.
+ * it cannot (a cross-origin host without CORS, where browsers ignore `download`)
+ * the browser decides the outcome — Safari, notably, opens the image in a new
+ * tab. The gallery never *forces* a current-tab navigation, and never opens a
+ * new tab of its own; what it cannot do is stop a browser that turns a
+ * cross-origin `<a download>` into one. The earlier fallback was
+ * `window.location.assign`, which always navigated the tab away from the gallery;
+ * this one never does.
  *
  * @since 0.5.0
  */
@@ -123,10 +126,13 @@ export function filenameFromUrl( url: string, base?: string ): string {
  * The shared download primitive: both the blob hand-off and the no-JS fallback
  * drive the browser's download machinery this way. The anchor is appended only
  * for the synthetic click and removed immediately after, so the document is left
- * exactly as it was found. No `target` is set, so the click stays in the current
- * tab and never opens a new one.
+ * exactly as it was found. No `target` is set, so the gallery never *forces* a
+ * new tab. For a same-origin or CORS-served href the click is a pure download in
+ * the current tab; for a cross-origin href without CORS the browser ignores the
+ * `download` attribute and decides the outcome itself (Safari, for one, then
+ * opens the image in a new tab regardless of `target`) — see `saveFile`.
  *
- * @since 0.10.2
+ * @since 0.11.0
  *
  * @param href         - The href to click (an object URL, or the remote image URL).
  * @param downloadName - The value of the `download` attribute, the saved file name.
@@ -148,13 +154,14 @@ function clickDownloadAnchor( href: string, downloadName: string ): void {
  * environment turns into a tab. When the fetch fails (network error, a non-OK
  * response, or a cross-origin host without CORS) the fallback clicks a
  * same-document, same-tab `<a download>` at the remote URL — the no-JS fallback —
- * rather than navigating: the gallery tab is never sent away and no new tab
- * opens. Where the browser honours `download` (same-origin) the image still
- * saves; where it cannot (cross-origin without CORS) the browser decides, but
- * the gallery never forces the outcome.
+ * rather than navigating, so the gallery itself never sends its own tab away.
+ * Where the browser honours `download` (same-origin, or cross-origin with CORS)
+ * the image still saves in place; where it cannot (cross-origin without CORS,
+ * where browsers ignore `download`) the browser decides the outcome — Safari, for
+ * one, opens the image in a new tab — and the gallery cannot override that.
  *
  * @since 0.5.0
- * @since 0.10.2 Fetch-failure fallback is a same-tab `<a download>`, not navigation (#59).
+ * @since 0.11.0 Fetch-failure fallback is a same-tab `<a download>`, not navigation (#59).
  *
  * @param url - The image URL to save.
  */
@@ -176,7 +183,10 @@ export async function saveFile( url: string ): Promise< void > {
 		setTimeout( () => URL.revokeObjectURL( objectUrl ), REVOKE_DELAY );
 	} catch {
 		// Last resort: a same-tab <a download> at the remote URL still requests a
-		// save and can never open a new tab — never current-tab navigation.
+		// save without the gallery navigating its own tab. Where the browser
+		// honours `download` this saves in place; for a cross-origin host without
+		// CORS the browser decides (Safari may open a new tab), which the gallery
+		// cannot override.
 		clickDownloadAnchor( url, filenameFromUrl( url ) );
 	}
 }
