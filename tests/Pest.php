@@ -36,6 +36,11 @@ require_once __DIR__ . '/Unit/fixtures/Format_Items_Recorder.php';
 // so it is loaded explicitly rather than autoloaded.
 require_once __DIR__ . '/Unit/fixtures/Encode_Failing_Codec.php';
 
+// Pull in the decode-counting codec double the regenerator test injects to prove
+// the completeness sweep reads main widths from the index rather than decoding
+// each main. Kept out of the PSR-4 path so it is loaded explicitly.
+require_once __DIR__ . '/Unit/fixtures/Counting_Codec.php';
+
 // Pull in the WP_CLI test double the CLI command tests drive. The real WP_CLI
 // facade is absent from the unit-test runtime; the double records output and
 // turns error()/declined confirm() into a catchable exception. Kept out of the

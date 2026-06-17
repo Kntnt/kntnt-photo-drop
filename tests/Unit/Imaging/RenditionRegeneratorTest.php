@@ -30,6 +30,7 @@ use Kntnt\Photo_Drop\Imaging\Rendition_Regenerator;
 use Kntnt\Photo_Drop\Imaging\Thumbnailer;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
+use Tests\Unit\Fixtures\Counting_Codec;
 use Tests\Unit\Fixtures\Encode_Failing_Codec;
 
 // The flip writes collection.json through the descriptor, and the deriver reaches
@@ -237,6 +238,34 @@ test( 'finalise flips and prunes when every main is complete on disk', function 
 	$on_disk = Descriptor::read( $root );
 	expect( $on_disk->full_width )->toBe( 800 );
 	expect( $on_disk->thumbnail_width )->toBe( 300 );
+
+	regen_remove_tree( $root );
+} );
+
+test( 'finalise verifies completeness from the index without decoding each main', function (): void {
+	$root = fresh_regen_root();
+
+	// Seed a complete collection with a real deriver: the wide main plus both the old
+	// 1200/600 and the target 800/300 renditions on disk, so the completeness sweep
+	// has every expected file to find.
+	$main = write_regen_main( $root, 'wide.webp', 4000, 2400 );
+	regen_gd_thumbnailer()->generate( $main, 'wide.webp', 1200, 85, 600, 75 );
+	regen_gd_thumbnailer()->generate( $main, 'wide.webp', 800, 85, 300, 75 );
+	seed_regen_descriptor( $root, 1200, 600 );
+
+	// Point the regenerator at a decode-counting codec so any full decode the sweep
+	// performs is observable; the index supplies the main's width, so a verified flip
+	// must not decode a single main.
+	$counting    = new Counting_Codec();
+	$regenerator = new Rendition_Regenerator( $root, Descriptor::read( $root ), new Thumbnailer( $counting ) );
+
+	$result = $regenerator->finalise( 800, 85, 300, 75 );
+
+	// The flip succeeds from the index alone — the completeness sweep read the main's
+	// width from the per-folder index and confirmed each rendition with is_file(),
+	// allocating no pixel buffer.
+	expect( $result )->not->toBeFalse();
+	expect( $counting->decodes )->toBe( 0 );
 
 	regen_remove_tree( $root );
 } );
