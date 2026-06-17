@@ -268,6 +268,64 @@ test( 'the create form has no format field and no uploader-folders field', funct
 } );
 
 // ---------------------------------------------------------------------------
+// One uniform rendition section — the contract/renditions split is dropped (#67)
+// ---------------------------------------------------------------------------
+
+test( 'the create form presents the tiers as one uniform section without the contract/renditions split', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_render_stubs( $basedir );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The two separately-labelled section headings are gone: once every tier is a
+	// width/quality pair, splitting the upload pair from the full/thumbnail pairs
+	// into "Upload contract" vs "Renditions" blocks is just visual noise (#67).
+	expect( $html )->not->toContain( 'Upload contract (immutable)' );
+	expect( $html )->not->toContain( 'Renditions (re-derivable)' );
+
+	// The three tiers sit under one uniform heading, rendered exactly once so the
+	// six fields read as a single set rather than two labelled groups.
+	expect( substr_count( $html, '<h2>Image settings</h2>' ) )->toBe( 1 );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the edit form presents the tiers as one uniform section without the contract/renditions split', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	seed_admin_collection( $root, 'uniform', 'Uniform', 1440, 65 );
+
+	$_GET = [
+		'page'       => Admin_Page::MENU_SLUG,
+		'action'     => 'edit',
+		'collection' => 'uniform',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The same uniform presentation on Edit: no split headings, one shared heading.
+	// Uniform layout is not uniform behaviour — the read-only upload pair and the
+	// editable, regenerate-driven full/thumbnail pairs still differ (#67, ADR-0013);
+	// only the two separately-labelled section blocks are merged into one.
+	expect( $html )->not->toContain( 'Upload contract (immutable)' );
+	expect( $html )->not->toContain( 'Renditions (re-derivable)' );
+	expect( substr_count( $html, '<h2>Image settings</h2>' ) )->toBe( 1 );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
 // Path components field + live preview on the Create form (ADR-0014)
 // ---------------------------------------------------------------------------
 
