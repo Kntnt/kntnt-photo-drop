@@ -151,6 +151,37 @@ export function last( state: LightboxState ): LightboxState {
 }
 
 /**
+ * Removes the image at `removedIndex` and realigns the shown index to the shrunk
+ * set.
+ *
+ * The live trash overlay (ADR-0015) deletes an image while the lightbox may be
+ * open on it, so the navigable state must shrink in lock-step and never page onto
+ * a gone image. Removing an image *before* the shown one shifts the shown image
+ * left by one (its index decrements, keeping the same image visible). Removing
+ * the shown image — or one after it — keeps the index, which then clamps onto the
+ * image that slid into the slot: the next image, or the new last when the removed
+ * one was the last. Emptying the set closes the lightbox (`open: false`, index
+ * `0`), since there is nothing left to show. An index outside `[0, count)` removes
+ * nothing and returns the state unchanged.
+ *
+ * @since 0.13.0
+ *
+ * @param state        - The current state.
+ * @param removedIndex - The zero-based index of the image being removed.
+ * @return The state with the count shrunk and the index realigned, closed when emptied.
+ */
+export function removeImageAt(
+	state: LightboxState,
+	removedIndex: number
+): LightboxState {
+
+	// STUB (RED): returns the state unchanged so the new assertions fail for a
+	// real reason; the implementation lands in the following commit.
+	return state;
+
+}
+
+/**
  * The indices of the images adjacent to the current one, for neighbour preload.
  *
  * Both neighbours wrap the same way `next`/`prev` do, so the preload covers the
