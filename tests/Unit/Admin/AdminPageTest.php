@@ -683,6 +683,33 @@ test( 'the edit form renders the Display name field above the read-only Slug', f
 	admin_remove_tree( $basedir );
 } );
 
+test( 'the edit form marks the read-only upload contract with the ⚠ permanence marker (#62)', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	seed_admin_collection( $root, 'marked', 'Marked', 1440, 65 );
+
+	$_GET = [
+		'page'       => Admin_Page::MENU_SLUG,
+		'action'     => 'edit',
+		'collection' => 'marked',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	$_GET = [];
+
+	// The read-only upload width and quality rows carry the ⚠ permanence marker so the
+	// amber colour rule has something to paint on the edit form, satisfying "amber
+	// wherever they appear" for the read-only contract (#62). They are the marked
+	// fields on this form; the Format row is unmarked (WebP by construction).
+	expect( substr_count( $html, 'kntnt-photo-drop-permanence' ) )->toBeGreaterThanOrEqual( 2 );
+	expect( $html )->toContain( '⚠' );
+
+	admin_remove_tree( $basedir );
+} );
+
 test( 'the edit form carries the regenerate progress region and the collection slug', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_render_stubs( $basedir );
@@ -892,6 +919,13 @@ test( 'the page assets — stylesheet and preview script — are added on this a
 	expect( $styles[0][0] )->toBe( 'common' );
 	expect( $styles[0][1] )->toContain( 'margin-top' );
 	expect( $styles[0][1] )->toContain( 'kntnt-photo-drop-actions' );
+
+	// The permanence ⚠ markers carry a colour rule so they render in WordPress's
+	// amber/warning hue rather than inheriting black body text, wherever they appear
+	// (create form and the read-only edit contract) (#62).
+	expect( $styles[0][1] )->toContain( '.kntnt-photo-drop-permanence' );
+	expect( $styles[0][1] )->toContain( '#dba617' );
+
 	expect( $scripts )->toHaveCount( 1 );
 	expect( implode( "\n", $inline ) )->toContain( 'kntntPhotoDropPathPreview' );
 	expect( implode( "\n", $inline ) )->toContain( 'data-kntnt-photo-drop-path-preview' );
@@ -1544,6 +1578,133 @@ test( 'the create form marks the permanent fields and states the set-once rule b
 	// The re-derivable full/thumbnail fields carry the milder "regenerates images"
 	// note rather than the permanence marker.
 	expect( $html )->toContain( 'regenerate' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form puts the immutability warning at the top, above every field (#62)', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The warning notice opens before any field and before the "Image settings"
+	// heading, so its scope is unambiguously the whole form rather than only the
+	// upload pair it used to sit between (#62, #67, ADR-0013).
+	$notice_at   = strpos( $html, 'notice-warning' );
+	$first_field = strpos( $html, 'name="name"' );
+	$contract_at = strpos( $html, 'Image settings' );
+	expect( $notice_at )->not->toBeFalse();
+	expect( $first_field )->not->toBeFalse();
+	expect( $contract_at )->not->toBeFalse();
+	expect( $notice_at )->toBeLessThan( $first_field );
+	expect( $notice_at )->toBeLessThan( $contract_at );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form warning explains the ⚠ marks in plain language (#62)', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// Isolate the warning notice's own text so the assertions read the message
+	// rather than incidental matches elsewhere on the page.
+	$open   = strpos( $html, 'notice-warning' );
+	$close  = $open === false ? false : strpos( $html, '</div>', $open );
+	$notice = $open === false || $close === false ? '' : substr( $html, $open, $close - $open );
+
+	// The notice carries the ⚠ glyph so it can name the marker it explains, states in
+	// plain words that ⚠ fields cannot be changed once the collection is created,
+	// names the irreversible cause (the original is re-encoded and discarded), and
+	// reassures that the other renditions can be changed later (#62, ADR-0013).
+	expect( $notice )->toContain( '⚠' );
+	expect( $notice )->toContain( 'cannot be changed' );
+	expect( $notice )->toContain( 'discarded' );
+	expect( $notice )->toContain( 'later' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form warning does not present width/quality as the whole ⚠ set (#62)', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// Isolate the warning notice's own text so the assertion reads only the message.
+	$open   = strpos( $html, 'notice-warning' );
+	$close  = $open === false ? false : strpos( $html, '</div>', $open );
+	$notice = $open === false || $close === false ? '' : substr( $html, $open, $close - $open );
+
+	// The Slug field also carries a ⚠ marker, so the notice must not enumerate the
+	// complete ⚠ set as width/quality only — that phrasing contradicts the visible
+	// slug marker and the method docstring. It may still name the upload pair as the
+	// irreversible cause without claiming it is the whole set (#62).
+	expect( $notice )->not->toContain( 'These are the upload width and quality' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form warning scopes the changeable reassurance to fields not marked ⚠ (#62)', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// Isolate the warning notice's own text so the assertion reads only the message.
+	$open   = strpos( $html, 'notice-warning' );
+	$close  = $open === false ? false : strpos( $html, '</div>', $open );
+	$notice = $open === false || $close === false ? '' : substr( $html, $open, $close - $open );
+
+	// The reassurance that things "can be changed" is relative to the upload pair, but
+	// the Slug is also ⚠ and is not changeable — so an unscoped "everything else"
+	// sweeps the slug into the changeable set and contradicts its marker. The notice
+	// must scope the reassurance to fields the reader can see are not marked ⚠, and
+	// must not make the blanket "everything else" claim (#62, ADR-0013).
+	expect( $notice )->not->toContain( 'Everything else' );
+	expect( $notice )->toContain( 'not marked ⚠' );
 
 	$_GET = [];
 	admin_remove_tree( $basedir );

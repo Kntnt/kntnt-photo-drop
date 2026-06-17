@@ -262,14 +262,17 @@ final class Admin_Page {
 		}
 
 		// The spacing rule separates the header row from the list table; the actions
-		// rule pins the Edit/Delete buttons to the row's right-hand end; the regenerate
-		// rules give the shared progress view a visible bar and a readable summary row
-		// on the Edit view (the same block-element classes the Drop Zone bar uses, under
-		// this page's own prefix).
+		// rule pins the Edit/Delete buttons to the row's right-hand end; the permanence
+		// rule paints the ⚠ markers in WordPress's amber/warning hue (#dba617) so they
+		// stand out instead of inheriting black body text, wherever they appear (create
+		// form and the read-only edit contract); the regenerate rules give the shared
+		// progress view a visible bar and a readable summary row on the Edit view (the
+		// same block-element classes the Drop Zone bar uses, under this page's own prefix).
 		wp_add_inline_style(
 			'common',
 			'.kntnt-photo-drop-collections { margin-top: 1em; }'
 			. ' .kntnt-photo-drop-actions { text-align: right; white-space: nowrap; }'
+			. ' .kntnt-photo-drop-permanence { color: #dba617; }'
 			. ' .kntnt-photo-drop-regenerate__progress-bar { position: relative; height: 1.5em; max-width: 30em;'
 			. ' margin: 0.5em 0; background: #f0f0f1; border: 1px solid #c3c4c7; border-radius: 2px;'
 			. ' overflow: hidden; }'
@@ -1269,9 +1272,9 @@ final class Admin_Page {
 	 * uniform behaviour. The upload width is a single number field where a blank value
 	 * means the original dimensions, and a blank upload quality submits as the maximum
 	 * 100 (#70). There is deliberately no format field (always WebP). The slug and the
-	 * upload pair carry a permanence ⚠️ marker; a prominent irreversibility warning
-	 * sits above the two upload-contract fields, and a set-once rule line sits beside
-	 * the Save button (blocks.md "Create", ADR-0013).
+	 * upload pair carry a permanence ⚠️ marker; a plain-language irreversibility warning
+	 * opens the form above every field, explaining what the ⚠ marks mean, and a set-once
+	 * rule line sits beside the Save button (blocks.md "Create", #62, ADR-0013).
 	 *
 	 * @since 0.5.0
 	 */
@@ -1283,6 +1286,25 @@ final class Admin_Page {
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		wp_nonce_field( self::ACTION_CREATE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_CREATE ) . '" />';
+
+		// The immutability warning opens the form, above every field, so its scope is
+		// unambiguously the whole form rather than only the upload pair it once sat
+		// between. It explains the ⚠ marker in plain language: ⚠ fields are set once
+		// at creation and cannot be changed. The body names the upload width and
+		// quality as the irreversible cause without claiming they are the whole ⚠ set
+		// — the slug also carries a ⚠ marker — so it never contradicts a visible
+		// marker. The closing reassurance is scoped to fields *not* marked ⚠ (rather
+		// than a blanket "everything else") so it cannot read as sweeping the ⚠ slug
+		// into the changeable set (#62, ADR-0013).
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$warning_lead = __( 'Fields marked ⚠ are set when you create the collection and cannot be changed afterwards.', 'kntnt-photo-drop' );
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$warning_body = __( 'Two of them are the upload width and quality: each image is shrunk and re-saved as it comes in and the original is discarded, so there is no way to redo it later. Everything not marked ⚠ — including the full and thumbnail sizes — can be changed at any time.', 'kntnt-photo-drop' );
+		echo '<div class="notice notice-warning inline"><p><strong>';
+		echo esc_html( $warning_lead );
+		echo '</strong> ';
+		echo esc_html( $warning_body );
+		echo '</p></div>';
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
@@ -1328,25 +1350,12 @@ final class Admin_Page {
 		echo '</tbody></table>';
 
 		// All three tiers — upload (main), full, thumbnail — sit under one uniform
-		// heading: every field is a width/quality pair, so splitting the upload pair
-		// from the full/thumbnail pairs into separately-labelled sections is just
-		// visual noise (#67). Uniform layout is not uniform behaviour: only the upload
-		// pair is permanent, so the irreversibility warning still sits directly above
-		// it, and the re-derivable pairs still carry their milder note below.
+		// heading: every field is a width/quality pair, so splitting the upload pair from
+		// the full/thumbnail pairs into separately-labelled sections is just visual noise
+		// (#67). Uniform layout is not uniform behaviour: only the upload pair is permanent
+		// (marked ⚠), but the form-opening warning above already explains why, so no second
+		// notice is repeated here (#62, ADR-0013).
 		echo '<h2>' . esc_html__( 'Image settings', 'kntnt-photo-drop' ) . '</h2>';
-
-		// The irreversibility warning sits directly above the two upload-contract
-		// fields so it cannot be missed before they are set; only the upload pair is
-		// permanent (ADR-0013).
-		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$warning_lead = __( 'The upload width and quality fix the collection’s immutable output contract and cannot be changed afterwards.', 'kntnt-photo-drop' );
-		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-		$warning_body = __( 'The main image is downscaled and re-encoded at ingestion and the original is never kept, so these two values are permanent. The full and thumbnail renditions below are re-derived from the main and can be changed later.', 'kntnt-photo-drop' );
-		echo '<div class="notice notice-warning inline"><p><strong>';
-		echo esc_html( $warning_lead );
-		echo '</strong> ';
-		echo esc_html( $warning_body );
-		echo '</p></div>';
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
@@ -1536,11 +1545,13 @@ final class Admin_Page {
 	 * Echoes the ⚠️ permanence marker appended to a permanent field's label.
 	 *
 	 * A small, accessible badge for every field that is set once and cannot be changed
-	 * after the collection is created — the slug and the upload width/quality (blocks.md
-	 * "Create"). The visible glyph is hidden from assistive tech (`aria-hidden`); the
-	 * accessible name and the hover tooltip both carry the supplied reason, so the
-	 * warning reaches sighted, screen-reader, and pointer-hover users alike. The reason
-	 * is escaped at output, so the marker is safe to render directly into a label cell.
+	 * after the collection is created — the slug and the upload width/quality on the
+	 * create form, and the read-only upload width/quality on the edit contract
+	 * (blocks.md "Create"/"Update"). The visible glyph is hidden from assistive tech
+	 * (`aria-hidden`); the accessible name and the hover tooltip both carry the supplied
+	 * reason, so the warning reaches sighted, screen-reader, and pointer-hover users
+	 * alike. The reason is escaped at output, so the marker is safe to render directly
+	 * into a label cell.
 	 *
 	 * @since 0.12.0
 	 *
@@ -1683,23 +1694,32 @@ final class Admin_Page {
 		echo '</tbody></table>';
 
 		// All three tiers — upload (main), full, thumbnail — sit under one uniform
-		// heading (#67); the read-only upload pair opens it here, inside the
-		// instant-save form, and the editable full/thumbnail pairs continue it in the
-		// regenerate section below (no separate heading there). Uniform layout is not
-		// uniform behaviour: the upload width and quality were fixed at establishment
-		// (the source is discarded) and the format is always WebP, so none of these is
-		// an editable field and none POSTs — a save touches only the display name and
-		// the placement template.
+		// heading (#67); the read-only upload pair opens it here, inside the instant-save
+		// form, and the editable full/thumbnail pairs continue it in the regenerate
+		// section below (no separate heading there). Uniform layout is not uniform
+		// behaviour: the upload width and quality were fixed at establishment (the source
+		// is discarded) and the format is always WebP, so none of these is an editable
+		// field and none POSTs — a save touches only the display name and the placement
+		// template. The read-only upload pair carries the same ⚠ permanence marker as the
+		// create form so the amber colour rule applies here too (#62); the Format row is
+		// unmarked (WebP by construction).
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		$contract_note = __( 'The upload width and quality were fixed when the collection was established and cannot be changed.', 'kntnt-photo-drop' );
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		$upload_reason = __( 'Permanent: the main image is downscaled and re-encoded at ingestion and the source is discarded, so this cannot be changed afterwards.', 'kntnt-photo-drop' );
 		echo '<h2>' . esc_html__( 'Image settings', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<p class="description">' . esc_html( $contract_note ) . '</p>';
 		echo '<table class="form-table" role="presentation"><tbody>';
 		$this->render_disabled_row(
 			__( 'Upload width', 'kntnt-photo-drop' ),
 			$this->format_upload_width( $descriptor->upload_width ),
+			$upload_reason,
 		);
-		$this->render_disabled_row( __( 'Upload quality', 'kntnt-photo-drop' ), (string) $descriptor->upload_quality );
+		$this->render_disabled_row(
+			__( 'Upload quality', 'kntnt-photo-drop' ),
+			(string) $descriptor->upload_quality,
+			$upload_reason,
+		);
 		$this->render_disabled_row( __( 'Format', 'kntnt-photo-drop' ), __( 'WebP', 'kntnt-photo-drop' ) );
 		echo '</tbody></table>';
 
@@ -1931,16 +1951,25 @@ final class Admin_Page {
 	 * Renders one read-only contract row as a disabled text input.
 	 *
 	 * Used by the edit view to display each rendition value (upload width/quality,
-	 * full, thumbnail, format) without making it editable. The disabled input never
-	 * POSTs, so the value survives a save untouched.
+	 * format) without making it editable. The disabled input never POSTs, so the value
+	 * survives a save untouched. When `$reason` is supplied the label carries the same
+	 * ⚠ permanence marker the create form uses, so the amber colour rule has a marker
+	 * to paint here too — "amber wherever they appear" covers this read-only contract,
+	 * not only the create form (#62). The Format row omits the reason: WebP is the
+	 * format by construction, not a permanent choice made at creation.
 	 *
 	 * @since 0.5.0
 	 *
-	 * @param string $label The row label.
-	 * @param string $value The contract value to display.
+	 * @param string      $label  The row label.
+	 * @param string      $value  The contract value to display.
+	 * @param string|null $reason The permanence reason; when set, appends the ⚠ marker.
 	 */
-	private function render_disabled_row( string $label, string $value ): void {
-		echo '<tr><th scope="row">' . esc_html( $label ) . '</th><td>';
+	private function render_disabled_row( string $label, string $value, ?string $reason = null ): void {
+		echo '<tr><th scope="row">' . esc_html( $label ) . ' ';
+		if ( $reason !== null ) {
+			$this->render_permanence_marker( $reason );
+		}
+		echo '</th><td>';
 		echo '<input type="text" class="regular-text" value="' . esc_attr( $value ) . '" disabled />';
 		echo '</td></tr>';
 	}
