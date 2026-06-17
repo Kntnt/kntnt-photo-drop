@@ -11,10 +11,12 @@
  * server re-validates every width at submit (blocks.md "Create"/"Edit"), so the page
  * works unchanged when this script is absent.
  *
- * The Create form carries all three tiers plus the upload-width-mode radios; the Edit
- * form has only the re-derivable Full/Thumbnail fields (the upload width is the
- * immutable contract, shown read-only), so there is no live upload ceiling there and
- * the upload mode resolves to "no limit" — only the Thumbnail-to-Full rule applies.
+ * The Create form carries all three tiers; the upload width is a single blank-able
+ * field (blank = the source's own dimensions, so no ceiling — #70 retired the
+ * upload-width-mode radio). The Edit form has only the re-derivable Full/Thumbnail
+ * fields (the upload width is the immutable contract, shown read-only), so there is no
+ * live upload ceiling there and the upload mode resolves to "no limit" — only the
+ * Thumbnail-to-Full rule applies.
  *
  * @since 0.13.0
  */
@@ -23,22 +25,19 @@ import { clampWidths } from './width-clamp';
 import type { UploadWidthMode } from './width-clamp';
 
 /**
- * Resolves the live upload-width mode from the Create form's radios.
+ * Resolves the live upload-width mode from the single blank-able upload-width field.
  *
- * The "Limit to" radio means there is an active pixel ceiling for Full; the "Original
- * dimensions" radio (and the Edit form, where no such radio is rendered) means there
- * is none. A checked radio whose value is the no-limit token resolves to `none`;
- * everything else — including the absent-radio Edit case — resolves to `limit` only
- * when a "Limit to" radio is actually checked, else `none`.
+ * A non-blank upload width is an active pixel ceiling for Full (`limit`); a blank
+ * upload width means the source's own dimensions, so there is no ceiling (`none`). The
+ * Edit form renders the upload width read-only (the immutable contract) and passes no
+ * editable field here, which also resolves to `none` — only the Thumbnail-to-Full rule
+ * applies there.
  *
- * @param root - The form element to search within.
+ * @param upload - The upload-width input, or null when the form omits it.
  * @return The resolved upload-width mode.
  */
-function readUploadMode( root: ParentNode ): UploadWidthMode {
-	const checked = root.querySelector< HTMLInputElement >(
-		'input[name="upload_width_mode"]:checked'
-	);
-	return checked?.value === 'limit' ? 'limit' : 'none';
+function readUploadMode( upload: HTMLInputElement | null ): UploadWidthMode {
+	return upload && upload.value.trim() !== '' ? 'limit' : 'none';
 }
 
 /**
@@ -61,13 +60,11 @@ function findInput( root: ParentNode, name: string ): HTMLInputElement | null {
  * clamped Full and Thumbnail, and assigns each back only when it actually changed, so
  * the input's caret and the browser's own validation UI are not disturbed on a no-op.
  *
- * @param root      - The form the fields live in.
  * @param upload    - The upload-width number input, or null on the Edit form.
  * @param full      - The Full-width number input.
  * @param thumbnail - The Thumbnail-width number input.
  */
 function applyClamp(
-	root: ParentNode,
 	upload: HTMLInputElement | null,
 	full: HTMLInputElement,
 	thumbnail: HTMLInputElement
@@ -75,7 +72,7 @@ function applyClamp(
 	// Ask the pure core for the clamped lower tiers from the current field state, then
 	// write each back only when it changed so a no-op never disturbs the caret.
 	const clamped = clampWidths( {
-		uploadMode: readUploadMode( root ),
+		uploadMode: readUploadMode( upload ),
 		upload: upload?.value ?? '',
 		full: full.value,
 		thumbnail: thumbnail.value,
@@ -93,9 +90,9 @@ function applyClamp(
  *
  * No-ops when neither lower-tier field is present (any other admin view), so it is
  * safe to run on every page the script is enqueued on. The Full/Thumbnail pair is the
- * minimum the clamp needs; the upload input and the mode radios are optional (the Edit
- * form omits them), in which case Full is left unconstrained from above and only the
- * Thumbnail-to-Full rule applies.
+ * minimum the clamp needs; the upload input is optional (the Edit form omits it), in
+ * which case Full is left unconstrained from above and only the Thumbnail-to-Full rule
+ * applies.
  */
 function init(): void {
 	// Both lower tiers must be present for the ladder to mean anything; without them
@@ -107,25 +104,16 @@ function init(): void {
 		return;
 	}
 
-	// The upload input and its mode radios are the optional top of the ladder (absent
-	// on the Edit form); collect them so a change to any tier re-runs the clamp.
+	// The upload input is the optional top of the ladder (absent on the Edit form); a
+	// blank value means no ceiling, so a change to it re-runs the clamp too.
 	const upload = findInput( root, 'upload_width' );
-	const modeRadios = Array.from(
-		root.querySelectorAll< HTMLInputElement >(
-			'input[name="upload_width_mode"]'
-		)
-	);
 
-	// Re-clamp on any change to any tier or to the upload mode: typing in a field fires
-	// `input`, while flipping a radio fires `change`. Each listener is passive — the
-	// clamp never needs to cancel the event, only react to it.
-	const recompute = (): void => applyClamp( root, upload, full, thumbnail );
+	// Re-clamp on any change to any tier: typing in a field fires `input`. Each listener
+	// is passive — the clamp never needs to cancel the event, only react to it.
+	const recompute = (): void => applyClamp( upload, full, thumbnail );
 	[ upload, full, thumbnail ].forEach(
 		( input ) =>
 			input?.addEventListener( 'input', recompute, { passive: true } )
-	);
-	modeRadios.forEach( ( radio ) =>
-		radio.addEventListener( 'change', recompute, { passive: true } )
 	);
 }
 
