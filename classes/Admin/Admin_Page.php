@@ -623,9 +623,11 @@ final class Admin_Page {
 	 *
 	 * The GUI counterpart of `collection create`. The slug must be a valid,
 	 * unused slug; the six rendition fields are parsed by the shared
-	 * `Collection_Input` (so the upload width's `none` → null form and the 0–100
-	 * quality bounds match the CLI); the placement template is normalised and
-	 * validated by the shared `Descriptor::normalize_path_components()` gate (a
+	 * `Collection_Input` (so the upload width's `none` → null form and the quality
+	 * ceiling match the CLI), with the immutable upload quality additionally barred
+	 * from the degenerate `0` the re-derivable tiers tolerate (#70); the placement
+	 * template is normalised and validated by the shared
+	 * `Descriptor::normalize_path_components()` gate (a
 	 * blank field means the default, a stray `%` or an unsafe template is rejected;
 	 * ADR-0014). On success it creates the directory and writes `collection.json`
 	 * with the three-rendition shape and the validated template. Each failure
@@ -725,10 +727,12 @@ final class Admin_Page {
 	 * The four re-derivable full/thumbnail fields still fall back to their
 	 * `kntnt_photo_drop_default_*` filters (via `Rendition_Defaults`) when blank.
 	 * A present field is parsed by the shared `Collection_Input` so the positive-int
-	 * widths and the 0–100 qualities match the CLI exactly. The first malformed
-	 * value queues a precise error and returns `null`, so the caller aborts before
-	 * any directory is made. On success it returns the typed values keyed for the
-	 * descriptor constructor.
+	 * widths and the quality ceiling match the CLI; the upload quality additionally
+	 * rejects the degenerate `0` (its 1–100 floor is the immutable contract's, #70),
+	 * while the re-derivable full/thumbnail qualities keep the shared 0–100 range.
+	 * The first malformed value queues a precise error and returns `null`, so the
+	 * caller aborts before any directory is made. On success it returns the typed
+	 * values keyed for the descriptor constructor.
 	 *
 	 * @since 0.7.0
 	 *
@@ -755,11 +759,13 @@ final class Admin_Page {
 		}
 
 		// The upload quality is permanent and full-fidelity by default: a blank field
-		// means the maximum 100, and a present value must be a 0–100 integer.
+		// means the maximum 100, and a present value must be a 1–100 integer — the
+		// immutable contract bars the degenerate 0 the re-derivable tiers tolerate (#70).
 		$upload_quality = $this->parse_quality_field(
 			$raw['upload-quality'] ?? '',
 			100,
-			__( 'Upload quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
+			__( 'Upload quality must be an integer between 1 and 100.', 'kntnt-photo-drop' ),
+			1,
 		);
 
 		// Parse the full and thumbnail width/quality pairs; the first malformed one
@@ -839,28 +845,33 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Parses one 0–100 quality field, defaulting from its filter.
+	 * Parses one quality field with a configurable lower bound, defaulting from its filter.
 	 *
 	 * A blank field takes the supplied filter default; a present one must be an
-	 * integer in 0–100, and a malformed value queues the supplied error and returns
-	 * `null` so the caller aborts.
+	 * integer in `$minimum`–100, and a value that is malformed or below the floor
+	 * queues the supplied error and returns `null` so the caller aborts. The shared
+	 * `Collection_Input::parse_quality()` enforces the 0–100 ceiling; the floor is
+	 * applied here because it differs by tier: the re-derivable full/thumbnail
+	 * qualities allow the degenerate `0`, but the upload quality is the immutable
+	 * contract and the AC bars `0` (#70), so its caller passes `$minimum = 1`.
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param string $value   The raw field value.
+	 * @param string $value    The raw field value.
 	 * @param int    $fallback The filter-resolved default quality.
-	 * @param string $error   The translated error to queue when the value is malformed.
-	 * @return int|null The parsed quality, or null when malformed.
+	 * @param string $error    The translated error to queue when the value is malformed or below the floor.
+	 * @param int    $minimum  The inclusive lower bound a present value must meet.
+	 * @return int|null The parsed quality, or null when malformed or out of range.
 	 */
-	private function parse_quality_field( string $value, int $fallback, string $error ): ?int {
+	private function parse_quality_field( string $value, int $fallback, string $error, int $minimum = 0 ): ?int {
 
-		// A blank field is the documented default; a present one is parsed, and an
-		// out-of-range or malformed value queues its error and aborts.
+		// A blank field is the documented default; a present one is parsed, and a
+		// malformed, over-ceiling, or below-floor value queues its error and aborts.
 		if ( $value === '' ) {
 			return $fallback;
 		}
 		$parsed = $this->input->parse_quality( $value );
-		if ( $parsed === false ) {
+		if ( $parsed === false || $parsed < $minimum ) {
 			$this->add_error( $error );
 			return null;
 		}
@@ -1323,13 +1334,15 @@ final class Admin_Page {
 
 		// Upload quality — permanent; pre-filled with the recommended 95 and carrying
 		// the same ⚠️ marker. The blank-is-maximum rule and the size warning ride in
-		// the dedicated upload-quality help text below.
+		// the dedicated upload-quality help text below. The HTML floor is 1, not the
+		// re-derivable tiers' 0, matching the help text and server validation (#70).
 		$this->render_quality_field(
 			'upload_quality',
 			__( 'Upload quality', 'kntnt-photo-drop' ),
 			Rendition_Defaults::upload_quality(),
 			$upload_reason,
 			$this->upload_quality_help(),
+			1,
 		);
 
 		echo '</tbody></table>';
@@ -1405,7 +1418,7 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Renders one 0–100 quality field pre-filled from its default.
+	 * Renders one quality field pre-filled from its default, with a configurable floor.
 	 *
 	 * Shared by the create form's upload, full, and thumbnail quality rows. The
 	 * field name is the raw POST key the handler reads; the value carries the filter
@@ -1413,7 +1426,9 @@ final class Admin_Page {
 	 * supplied for the permanent upload-quality row, omitted for the re-derivable
 	 * full/thumbnail rows. A non-empty `$help` overrides the generic "WebP quality,
 	 * 0–100." note — the upload row passes its richer recommend-95/warn-100 guidance
-	 * (#70).
+	 * (#70). `$min` sets the input's HTML floor: the re-derivable tiers tolerate the
+	 * degenerate `0`, but the upload row passes `1` so its browser floor agrees with
+	 * the server validation and the help text (#70).
 	 *
 	 * @since 0.7.0
 	 *
@@ -1422,20 +1437,22 @@ final class Admin_Page {
 	 * @param int    $fallback      The filter-resolved default quality to pre-fill.
 	 * @param string $marker_reason The permanence reason, or '' for no marker.
 	 * @param string $help          The translated help text, or '' for the generic note.
+	 * @param int    $min           The input's inclusive HTML minimum.
 	 */
 	private function render_quality_field(
 		string $name,
 		string $label,
 		int $fallback,
 		string $marker_reason = '',
-		string $help = ''
+		string $help = '',
+		int $min = 0
 	): void {
 
 		// Fall back to the generic quality note when the caller passes no override.
 		$help = $help !== '' ? $help : __( 'WebP quality, 0–100.', 'kntnt-photo-drop' );
 
 		// A bounded number input pre-filled with the default; the handler parses it
-		// as a 0–100 integer. The label cell carries the optional permanence marker
+		// as a $min–100 integer. The label cell carries the optional permanence marker
 		// and the row carries its help text.
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label> ';
@@ -1444,9 +1461,10 @@ final class Admin_Page {
 		}
 		echo '</th><td>';
 		printf(
-			'<input name="%s" id="%s" type="number" min="0" max="100" step="1" value="%s" class="small-text" />',
+			'<input name="%s" id="%s" type="number" min="%s" max="100" step="1" value="%s" class="small-text" />',
 			esc_attr( $name ),
 			esc_attr( $id ),
+			esc_attr( (string) $min ),
 			esc_attr( (string) $fallback ),
 		);
 		echo ' <span class="description">' . esc_html( $help ) . '</span>';
