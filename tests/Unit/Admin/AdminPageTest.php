@@ -106,6 +106,69 @@ function fresh_admin_basedir(): string {
 }
 
 /**
+ * Replaces the no-op `sanitize_text_field` stub with WordPress's real octet
+ * stripping, so a test sees what the live admin POST actually does to a field.
+ *
+ * The default `wire_admin_stubs` aliases `sanitize_text_field` to a plain
+ * `trim`, which hides the very behaviour issue #64 is about: real
+ * `sanitize_text_field` strips percent-encoded octets (`/%[a-f0-9]{2}/i`), so
+ * `%day%` is mangled into `y%`. This faithful stub reproduces that core — UTF-8
+ * collapse of whitespace, then the octet-stripping loop with its trailing
+ * single-space collapse — so the path-components read path is exercised against
+ * the real corruption rather than a no-op that can never fail.
+ */
+function wire_real_sanitize_text_field(): void {
+	Functions\when( 'sanitize_text_field' )->alias(
+		static function ( string $str ): string {
+
+			// Collapse runs of whitespace and trim, mirroring the non-octet half
+			// of WordPress's `_sanitize_text_fields()`.
+			$filtered = trim( (string) preg_replace( '/[\r\n\t ]+/', ' ', $str ) );
+
+			// Strip every percent-encoded octet to a fixed point — the exact step
+			// that mangles `%day%` — collapsing double spaces only when one was
+			// removed, as core does.
+			$found = false;
+			while ( preg_match( '/%[a-f0-9]{2}/i', $filtered, $match ) ) {
+				$filtered = str_replace( $match[0], '', $filtered );
+				$found    = true;
+			}
+			if ( $found ) {
+				$filtered = trim( (string) preg_replace( '/ +/', ' ', $filtered ) );
+			}
+
+			return $filtered;
+		}
+	);
+}
+
+/**
+ * Wires the request-guard, nonce, and post/redirect/get stubs every admin POST
+ * handler needs, halting the redirect so the handler's on-disk effect can be
+ * asserted without leaving the test process.
+ *
+ * Shared by the `handle_create` / `handle_update` POST tests so each one states
+ * only its own payload and assertion.
+ */
+function wire_admin_post_handler_stubs(): void {
+	Functions\when( 'current_user_can' )->justReturn( true );
+	Functions\when( 'check_admin_referer' )->justReturn( true );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'set_transient' )->justReturn( true );
+	Functions\when( 'get_settings_errors' )->justReturn( [] );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'admin_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/wp-admin/' . $path
+	);
+	Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url );
+	Functions\when( 'wp_safe_redirect' )->alias(
+		static function (): void {
+			throw new Admin_Page_Halt();
+		}
+	);
+}
+
+/**
  * Removes a directory tree, used to clean up the temp uploads basedir.
  *
  * @param string $dir The directory to remove.
@@ -1562,3 +1625,183 @@ test( 'an un-capable user is refused before any collection is created', function
 	$_REQUEST = [];
 	admin_remove_tree( $basedir );
 } );
+
+// Real-sanitisation path-components tests (issue #64). These deliberately replace
+// the no-op `sanitize_text_field` stub with WordPress's real percent-octet
+// stripping, so the `%day%`-mangling that corrupts the legal default template can
+// never silently return: a no-op stub passed these inputs through untouched and so
+// could not catch the bug.
+
+test( 'handle_create accepts the default path-components template through real sanitisation', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	wire_real_sanitize_text_field();
+	wire_admin_post_handler_stubs();
+
+	// The submitted template is the legal default; under real sanitisation `%day%`
+	// would be mangled to `y%` and the value false-rejected (#64). It must survive
+	// intact and the collection must be created with the default template.
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'              => 'default-template',
+		'name'              => 'Default Template',
+		'path_components'   => Descriptor::DEFAULT_PATH_COMPONENTS,
+		'upload_width_mode' => 'limit',
+		'upload_width'      => '1920',
+		'upload_quality'    => '90',
+		'full_width'        => '1600',
+		'full_quality'      => '82',
+		'thumbnail_width'   => '480',
+		'thumbnail_quality' => '70',
+	];
+
+	try {
+		$page->handle_create();
+	} catch ( Admin_Page_Halt ) {
+		$noop = true;
+	}
+
+	$descriptor = Descriptor::read( $root . 'default-template' );
+	expect( $descriptor )->not->toBeNull();
+	expect( $descriptor->path_components )->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
+
+	$_POST = [];
+	admin_remove_tree( $basedir );
+} );
+
+test(
+	'handle_create preserves every legal placeholder template through real sanitisation',
+	function ( string $template ): void {
+		$basedir = fresh_admin_basedir();
+		$root    = wire_admin_stubs( $basedir );
+		wire_real_sanitize_text_field();
+		wire_admin_post_handler_stubs();
+
+		// Each template combines only the four legal placeholders; none may be mangled
+		// by the percent-octet stripping, so every one stores verbatim.
+		$page  = new Admin_Page( new Repository() );
+		$_POST = [
+			'slug'              => 'legal-template',
+			'name'              => 'Legal Template',
+			'path_components'   => $template,
+			'upload_width_mode' => 'limit',
+			'upload_width'      => '1920',
+			'upload_quality'    => '90',
+			'full_width'        => '1600',
+			'full_quality'      => '82',
+			'thumbnail_width'   => '480',
+			'thumbnail_quality' => '70',
+		];
+
+		try {
+			$page->handle_create();
+		} catch ( Admin_Page_Halt ) {
+			$noop = true;
+		}
+
+		$descriptor = Descriptor::read( $root . 'legal-template' );
+		expect( $descriptor )->not->toBeNull();
+		expect( $descriptor->path_components )->toBe( $template );
+
+		$_POST = [];
+		admin_remove_tree( $basedir );
+	}
+)->with( [
+	'day alone'       => [ '%day%' ],
+	'month and day'   => [ '%month%/%day%' ],
+	'full default'    => [ '%year%/%month%/%day%/%uploader%' ],
+	'uploader first'  => [ '%uploader%/%year%/%day%' ],
+	'literal segment' => [ 'events/%year%/%day%' ],
+] );
+
+test( 'handle_update accepts the default path-components template through real sanitisation', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	seed_admin_collection( $root, 'edited-default', 'Edited Default', 1920, 80 );
+	wire_real_sanitize_text_field();
+	wire_admin_post_handler_stubs();
+
+	// Seed a distinct, non-default template first, so a false-reject of the default
+	// leaves this value behind and the assertion below catches it rather than reading
+	// back a pre-existing default.
+	$seeded = Descriptor::read( $root . 'edited-default' )->with_renditions( 1600, 82, 480, 70 );
+	$distinct = new Descriptor(
+		$seeded->name,
+		$seeded->upload_width,
+		$seeded->upload_quality,
+		$seeded->full_width,
+		$seeded->full_quality,
+		$seeded->thumbnail_width,
+		$seeded->thumbnail_quality,
+		'events/%uploader%',
+	);
+	$distinct->write( $root . 'edited-default' );
+
+	// Re-saving the Edit form with the legal default template — the exact #64
+	// reproduction — must succeed, not false-reject the value `%day%` mangles into.
+	$page  = new Admin_Page( new Repository() );
+	$_POST = [
+		'slug'            => 'edited-default',
+		'name'            => 'Edited Default',
+		'path_components' => Descriptor::DEFAULT_PATH_COMPONENTS,
+	];
+
+	try {
+		$page->handle_update();
+	} catch ( Admin_Page_Halt ) {
+		$noop = true;
+	}
+
+	expect( Descriptor::read( $root . 'edited-default' )->path_components )
+		->toBe( Descriptor::DEFAULT_PATH_COMPONENTS );
+
+	$_POST = [];
+	admin_remove_tree( $basedir );
+} );
+
+test(
+	'handle_create still rejects a genuinely invalid template through real sanitisation',
+	function ( string $template ): void {
+		$basedir = fresh_admin_basedir();
+		$root    = wire_admin_stubs( $basedir );
+		( new Repository() )->get_root();
+		wire_real_sanitize_text_field();
+		wire_admin_post_handler_stubs();
+
+		// The fix must not over-correct: a stray `%`, an unknown token, a traversal, a
+		// backslash, or a NUL is still rejected before any directory is made (#64
+		// out-of-scope guard — the grammar and lexical checks are untouched). A leading
+		// slash is not here: `Path_Template::normalise` legitimately drops it to a
+		// relative template, so it is not a genuinely invalid input.
+		$page  = new Admin_Page( new Repository() );
+		$_POST = [
+			'slug'              => 'still-rejected',
+			'name'              => 'Still Rejected',
+			'path_components'   => $template,
+			'upload_width_mode' => 'limit',
+			'upload_width'      => '1920',
+			'upload_quality'    => '90',
+			'full_width'        => '1600',
+			'full_quality'      => '82',
+			'thumbnail_width'   => '480',
+			'thumbnail_quality' => '70',
+		];
+
+		try {
+			$page->handle_create();
+		} catch ( Admin_Page_Halt ) {
+			$noop = true;
+		}
+
+		expect( glob( $root . '*', GLOB_ONLYDIR ) )->toBe( [] );
+
+		$_POST = [];
+		admin_remove_tree( $basedir );
+	}
+)->with( [
+	'stray percent' => [ '%year%/%moth%' ],
+	'unknown token' => [ '%year%/%hour%' ],
+	'traversal'     => [ '%year%/../../escape' ],
+	'backslash'     => [ '%year%\\evil' ],
+	'nul byte'      => [ "%year%/x\0y" ],
+] );
