@@ -24,6 +24,7 @@ use Kntnt\Photo_Drop\Ingestion\Ingest_Outcome;
 use Kntnt\Photo_Drop\Ingestion\Ingestor;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
+use Tests\Unit\Fixtures\Counting_Codec;
 
 /**
  * Wires the WordPress helper the ingestor's directory creation may reach for.
@@ -112,6 +113,23 @@ function ingest_remove_tree( string $dir ): void {
  */
 function gd_ingestor( string $root, Descriptor $descriptor ): Ingestor {
 	$codec = new Gd_Webp_Codec();
+	return new Ingestor( $root, $descriptor, new Optimizer( $codec ), new Thumbnailer( $codec ) );
+}
+
+/**
+ * Builds an ingestor whose optimiser and deriver share one decode-counting codec.
+ *
+ * The same `Counting_Codec` backs both collaborators, so the tally is the total
+ * number of full-resolution decodes one `ingest()` performs across the whole
+ * ingestion path — the instrument the equal-widths parity test reads to prove no
+ * redundant second decode happens (issue #57).
+ *
+ * @param string         $root       The collection root.
+ * @param Descriptor     $descriptor The output contract.
+ * @param Counting_Codec $codec      The shared decode-counting codec.
+ * @return Ingestor The ingestor under test, instrumented for decode counting.
+ */
+function counting_ingestor( string $root, Descriptor $descriptor, Counting_Codec $codec ): Ingestor {
 	return new Ingestor( $root, $descriptor, new Optimizer( $codec ), new Thumbnailer( $codec ) );
 }
 
@@ -324,6 +342,54 @@ test( 'a stored main and its derived renditions leave no staging files behind', 
 	expect( $result->outcome )->toBe( Ingest_Outcome::Reencoded );
 	expect( glob( $root . '/*.tmp-*' ) )->toBe( [] );
 	expect( glob( $root . '/' . Index::THUMBNAILS_DIRNAME . '/*/*.tmp-*' ) )->toBe( [] );
+
+	ingest_remove_tree( $root );
+} );
+
+// ---------------------------------------------------------------------------
+// Per-image decode parity — one decode per ingest, no redundant second pass
+// (issue #57: equal-width collections must not cost more than the two-tier baseline)
+// ---------------------------------------------------------------------------
+
+test( 'ingesting an accepted-as-is main decodes it exactly once across the whole path', function (): void {
+	wire_ingestor_stubs();
+	$root  = fresh_collection_root();
+	$codec = new Counting_Codec();
+
+	// The equal-widths collection (full = upload): the contract enforcement and the
+	// rendition derivation are the same per-image work as the two-tier baseline, so a
+	// conforming WebP under the ceiling must be decoded once for integrity validation
+	// and never re-read and re-decoded to derive its thumbnail.
+	$descriptor = ingest_descriptor( [ 'upload_width' => 1920, 'full_width' => 1920, 'thumbnail_width' => 640 ] );
+	counting_ingestor( $root, $descriptor, $codec )->ingest( ingest_webp( 1600, 1000 ), 'photo.webp' );
+
+	// The main and its 640 thumbnail are on disk, yet only a single full-resolution
+	// decode happened: the deriver reused the optimiser's already-decoded handle
+	// rather than re-reading and re-decoding the freshly stored main.
+	expect( is_file( $root . '/photo.webp' ) )->toBeTrue();
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.webp' ) )->toBeTrue();
+	expect( $codec->decodes )->toBe( 1 );
+
+	ingest_remove_tree( $root );
+} );
+
+test( 'ingesting a re-encoded main decodes it exactly once across the whole path', function (): void {
+	wire_ingestor_stubs();
+	$root  = fresh_collection_root();
+	$codec = new Counting_Codec();
+
+	// A 3000px JPEG into an equal-widths collection: the optimiser decodes, downscales
+	// to the 1920 upload ceiling, and re-encodes; the deriver then needs the 1920 main
+	// to write the 640 thumbnail. That main is exactly the optimiser's scaled handle,
+	// so no second decode of the stored main is needed.
+	$descriptor = ingest_descriptor( [ 'upload_width' => 1920, 'full_width' => 1920, 'thumbnail_width' => 640 ] );
+	$result     = counting_ingestor( $root, $descriptor, $codec )->ingest( ingest_jpeg( 3000, 1800 ), 'big.jpg' );
+
+	// The downscaled main and its thumbnail are written, and the whole ingest decoded
+	// the pixels just once — the redundant re-decode the redesign introduced is gone.
+	expect( $result->outcome )->toBe( Ingest_Outcome::Reencoded );
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/big.jpg.webp' ) )->toBeTrue();
+	expect( $codec->decodes )->toBe( 1 );
 
 	ingest_remove_tree( $root );
 } );
