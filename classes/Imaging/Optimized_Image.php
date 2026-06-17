@@ -23,7 +23,7 @@ declare( strict_types = 1 );
 namespace Kntnt\Photo_Drop\Imaging;
 
 /**
- * An immutable `{ bytes, width, reencoded }` view of an optimiser result.
+ * An immutable `{ bytes, width, reencoded, image }` view of an optimiser result.
  *
  * Produced only by `Optimizer::optimize()`; a value object with no behaviour
  * beyond holding the facts a caller needs to persist the main and report the
