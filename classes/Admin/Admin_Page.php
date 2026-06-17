@@ -740,7 +740,7 @@ final class Admin_Page {
 	 * @since 0.7.0
 	 *
 	 * @param array<string,string> $raw The six raw rendition strings keyed by flag name.
-	 * @return array{upload_width:int|null,upload_quality:int,full_width:int,full_quality:int,thumbnail_width:int,thumbnail_quality:int}|null
+	 * @return array{upload_width:int|null,upload_quality:int,full_width:int|null,full_quality:int|null,thumbnail_width:int|null,thumbnail_quality:int}|null
 	 */
 	private function parse_renditions( array $raw ): ?array {
 
@@ -764,32 +764,16 @@ final class Admin_Page {
 			}
 		}
 
-		// The upload quality is permanent and full-fidelity by default: a blank field
-		// means the maximum 100, and a present value must be a 1–100 integer — the
-		// immutable contract bars the degenerate 0 the re-derivable tiers tolerate (#70).
+		// The two always-concrete quality fields. The upload quality is permanent and
+		// full-fidelity by default — a blank field means the maximum 100 and a present
+		// value must be a 1–100 integer, the immutable contract barring the degenerate
+		// 0 the re-derivable tiers tolerate (#70). The thumbnail quality defaults from
+		// its filter when blank (0–100). The first malformed one aborts.
 		$upload_quality = $this->parse_quality_field(
 			$raw['upload-quality'] ?? '',
 			100,
 			__( 'Upload quality must be an integer between 1 and 100.', 'kntnt-photo-drop' ),
 			1,
-		);
-
-		// Parse the full and thumbnail width/quality pairs; the first malformed one
-		// aborts. Each blank field defaults from its filter.
-		$full_width = $this->parse_width_field(
-			$raw['full-width'] ?? '',
-			Rendition_Defaults::full_width(),
-			__( 'Full width must be a positive integer.', 'kntnt-photo-drop' ),
-		);
-		$full_quality = $this->parse_quality_field(
-			$raw['full-quality'] ?? '',
-			Rendition_Defaults::full_quality(),
-			__( 'Full quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
-		);
-		$thumb_width = $this->parse_width_field(
-			$raw['thumbnail-width'] ?? '',
-			Rendition_Defaults::thumbnail_width(),
-			__( 'Thumbnail width must be a positive integer.', 'kntnt-photo-drop' ),
 		);
 		$thumb_quality = $this->parse_quality_field(
 			$raw['thumbnail-quality'] ?? '',
@@ -797,13 +781,32 @@ final class Admin_Page {
 			__( 'Thumbnail quality must be an integer between 0 and 100.', 'kntnt-photo-drop' ),
 		);
 
-		// Any malformed numeric field has already queued its error and read back as
-		// null; one null aborts the whole parse so nothing is written.
+		// The three collapsible re-derivable fields treat a blank as "unset" (collapse
+		// to the tier above) rather than the filter default: an unset full width makes
+		// the main serve the full role, an unset full quality follows the upload
+		// quality, and an unset thumbnail width follows the full width (ADR-0013/#71). A
+		// present value must still be a positive integer / 0–100; `false` flags malformed.
+		$full_width = $this->parse_optional_width_field(
+			$raw['full-width'] ?? '',
+			__( 'Full width must be a positive integer, or left empty.', 'kntnt-photo-drop' ),
+		);
+		$full_quality = $this->parse_optional_quality_field(
+			$raw['full-quality'] ?? '',
+			__( 'Full quality must be an integer between 0 and 100, or left empty.', 'kntnt-photo-drop' ),
+		);
+		$thumb_width = $this->parse_optional_width_field(
+			$raw['thumbnail-width'] ?? '',
+			__( 'Thumbnail width must be a positive integer, or left empty.', 'kntnt-photo-drop' ),
+		);
+
+		// A `null` from an always-concrete quality field or a `false` from a collapsible
+		// field means malformed input that already queued its error; either aborts the
+		// whole parse so nothing is written. A genuine `null` unset is carried through.
 		$malformed = $upload_quality === null
-			|| $full_width === null
-			|| $full_quality === null
-			|| $thumb_width === null
-			|| $thumb_quality === null;
+			|| $thumb_quality === null
+			|| $full_width === false
+			|| $full_quality === false
+			|| $thumb_width === false;
 		if ( $malformed ) {
 			return null;
 		}
@@ -816,37 +819,6 @@ final class Admin_Page {
 			'thumbnail_width'   => $thumb_width,
 			'thumbnail_quality' => $thumb_quality,
 		];
-
-	}
-
-	/**
-	 * Parses one positive-integer width field, defaulting from its filter.
-	 *
-	 * A blank field takes the supplied filter default; a present one must be a
-	 * strictly positive integer, and a malformed value queues the supplied error
-	 * and returns `null` so the caller aborts.
-	 *
-	 * @since 0.7.0
-	 *
-	 * @param string $value   The raw field value.
-	 * @param int    $fallback The filter-resolved default width.
-	 * @param string $error   The translated error to queue when the value is malformed.
-	 * @return int|null The parsed width, or null when malformed.
-	 */
-	private function parse_width_field( string $value, int $fallback, string $error ): ?int {
-
-		// A blank field is the documented default; a present one is parsed, and a
-		// non-positive or malformed value queues its error and aborts.
-		if ( $value === '' ) {
-			return $fallback;
-		}
-		$parsed = $this->input->parse_width( $value );
-		if ( $parsed === false ) {
-			$this->add_error( $error );
-			return null;
-		}
-
-		return $parsed;
 
 	}
 
@@ -880,6 +852,70 @@ final class Admin_Page {
 		if ( $parsed === false || $parsed < $minimum ) {
 			$this->add_error( $error );
 			return null;
+		}
+
+		return $parsed;
+
+	}
+
+	/**
+	 * Parses one collapsible width field, where blank means "unset".
+	 *
+	 * The re-derivable full and thumbnail widths may be left empty to collapse to the
+	 * tier above (ADR-0013/#71), so a blank field returns `null` (unset) rather than a
+	 * filter default. A present value must be a strictly positive integer; a malformed
+	 * one queues the supplied error and returns `false` so the caller aborts — `false`
+	 * distinguishes malformed input from the valid `null` unset.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param string $value The raw field value.
+	 * @param string $error The translated error to queue when the value is malformed.
+	 * @return int|null|false The parsed width, null for unset, or false when malformed.
+	 */
+	private function parse_optional_width_field( string $value, string $error ): int|null|false {
+
+		// A blank field is unset (collapse to the tier above); a present one is parsed,
+		// and a non-positive or malformed value queues its error and aborts.
+		if ( $value === '' ) {
+			return null;
+		}
+		$parsed = $this->input->parse_width( $value );
+		if ( $parsed === false ) {
+			$this->add_error( $error );
+			return false;
+		}
+
+		return $parsed;
+
+	}
+
+	/**
+	 * Parses one collapsible 0–100 quality field, where blank means "unset".
+	 *
+	 * The re-derivable full quality may be left empty to follow the upload quality
+	 * (ADR-0013/#71), so a blank field returns `null` (unset) rather than a filter
+	 * default. A present value must be an integer in 0–100; a malformed one queues the
+	 * supplied error and returns `false` so the caller aborts — `false` distinguishes
+	 * malformed input from the valid `null` unset.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param string $value The raw field value.
+	 * @param string $error The translated error to queue when the value is malformed.
+	 * @return int|null|false The parsed quality, null for unset, or false when malformed.
+	 */
+	private function parse_optional_quality_field( string $value, string $error ): int|null|false {
+
+		// A blank field is unset (follow the tier above); a present one is parsed, and
+		// an out-of-range or malformed value queues its error and aborts.
+		if ( $value === '' ) {
+			return null;
+		}
+		$parsed = $this->input->parse_quality( $value );
+		if ( $parsed === false ) {
+			$this->add_error( $error );
+			return false;
 		}
 
 		return $parsed;
@@ -1771,21 +1807,21 @@ final class Admin_Page {
 	 *
 	 * @since 0.11.0
 	 *
-	 * @param string $name    The form field name (and id stem).
-	 * @param string $label   The translated field label.
-	 * @param int    $current The stored width to pre-fill.
+	 * @param string   $name    The form field name (and id stem).
+	 * @param string   $label   The translated field label.
+	 * @param int|null $current The stored width to pre-fill, or null to render the field empty (unset).
 	 */
-	private function render_editable_width_field( string $name, string $label, int $current ): void {
+	private function render_editable_width_field( string $name, string $label, ?int $current ): void {
 
-		// A plain number input pre-filled with the stored width; the regenerate script
-		// reads it as the target full/thumbnail width.
+		// A plain number input pre-filled with the stored width; an unset width renders
+		// the field empty so the builder sees the collapse-to-parent state (ADR-0013/#71).
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
 		printf(
 			'<input name="%s" id="%s" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
 			esc_attr( $name ),
 			esc_attr( $id ),
-			esc_attr( (string) $current ),
+			esc_attr( $current === null ? '' : (string) $current ),
 			esc_html__( 'pixels', 'kntnt-photo-drop' ),
 		);
 		echo '</td></tr>';
@@ -1801,21 +1837,22 @@ final class Admin_Page {
 	 *
 	 * @since 0.11.0
 	 *
-	 * @param string $name    The form field name (and id stem).
-	 * @param string $label   The translated field label.
-	 * @param int    $current The stored quality to pre-fill.
+	 * @param string   $name    The form field name (and id stem).
+	 * @param string   $label   The translated field label.
+	 * @param int|null $current The stored quality to pre-fill, or null to render the field empty (unset).
 	 */
-	private function render_editable_quality_field( string $name, string $label, int $current ): void {
+	private function render_editable_quality_field( string $name, string $label, ?int $current ): void {
 
-		// A bounded number input pre-filled with the stored quality; the regenerate
-		// script reads it as the target full/thumbnail quality.
+		// A bounded number input pre-filled with the stored quality; an unset quality
+		// renders the field empty so the builder sees the collapse-to-parent state
+		// (the full quality following the upload quality; ADR-0013/#71).
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
 		printf(
 			'<input name="%s" id="%s" type="number" min="0" max="100" step="1" value="%s" class="small-text" />',
 			esc_attr( $name ),
 			esc_attr( $id ),
-			esc_attr( (string) $current ),
+			esc_attr( $current === null ? '' : (string) $current ),
 		);
 		echo ' <span class="description">' . esc_html__( 'WebP quality, 0–100.', 'kntnt-photo-drop' ) . '</span>';
 		echo '</td></tr>';
@@ -2075,18 +2112,33 @@ final class Admin_Page {
 	/**
 	 * Formats a rendition's width and quality as one "W px, quality Q" string.
 	 *
-	 * Used for the re-derivable full and thumbnail renditions in the list and edit
-	 * views.
+	 * Used for the re-derivable full and thumbnail renditions in the list view. Both
+	 * the width and the quality are nullable, where `null` means the field is *unset*
+	 * and collapses to the tier above (ADR-0013/#71): an unset width renders as the
+	 * translatable "Auto" and an unset quality as "auto", so the list shows the
+	 * collapse rather than a misleading "0 px" or a stale concrete value.
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param int $width   The rendition width in pixels.
-	 * @param int $quality The rendition WebP quality (0–100).
-	 * @return string A display string such as "1920 px, quality 85".
+	 * @param int|null $width   The rendition width in pixels, or null when unset.
+	 * @param int|null $quality The rendition WebP quality (0–100), or null when unset.
+	 * @return string A display string such as "1920 px, quality 85" or "Auto, quality auto".
 	 */
-	private function format_rendition( int $width, int $quality ): string {
-		/* translators: 1: rendition width in pixels; 2: WebP quality, 0–100. */
-		return sprintf( __( '%1$d px, quality %2$d', 'kntnt-photo-drop' ), $width, $quality );
+	private function format_rendition( ?int $width, ?int $quality ): string {
+
+		// An unset width or quality renders as the collapse marker rather than a number,
+		// so the list reflects "follows the tier above" instead of a fabricated value.
+		$width_label = $width === null
+			? __( 'Auto', 'kntnt-photo-drop' )
+			/* translators: %d: width in pixels. */
+			: sprintf( __( '%d px', 'kntnt-photo-drop' ), $width );
+		$quality_label = $quality === null
+			? __( 'auto', 'kntnt-photo-drop' )
+			: (string) $quality;
+
+		/* translators: 1: rendition width (a pixel count or "Auto"); 2: WebP quality (0–100 or "auto"). */
+		return sprintf( __( '%1$s, quality %2$s', 'kntnt-photo-drop' ), $width_label, $quality_label );
+
 	}
 
 	/**

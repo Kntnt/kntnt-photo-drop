@@ -260,12 +260,23 @@ final class Rendition_Regenerator {
 	 * success"). Only once the whole collection is verified complete is the descriptor
 	 * rewritten and the retired buckets pruned.
 	 *
+	 * The four width/quality arguments are the *effective* targets the verify-sweep
+	 * and the prune compare against — they must already be resolved, so an unset
+	 * (collapsed) tier arrives as its unbounded effective width (`PHP_INT_MAX`), which
+	 * simply matches no real on-disk bucket (ADR-0013/#71). What the descriptor flips
+	 * *to* is a separate question: when `$flip_to` is given, that raw target descriptor
+	 * is written verbatim, so an unset re-derivable field persists as JSON null rather
+	 * than being frozen to a concrete value; when it is omitted (the REST batch path,
+	 * which only ever flips to concrete widths) the descriptor flips via
+	 * `with_renditions()` from the four arguments, as before.
+	 *
 	 * @since 0.11.0
 	 *
-	 * @param int $full_width        The target full-image width.
-	 * @param int $full_quality      The target full-image quality.
-	 * @param int $thumbnail_width   The target thumbnail width.
-	 * @param int $thumbnail_quality The target thumbnail quality.
+	 * @param int             $full_width        The effective target full-image width.
+	 * @param int             $full_quality      The effective target full-image quality.
+	 * @param int             $thumbnail_width   The effective target thumbnail width.
+	 * @param int             $thumbnail_quality The effective target thumbnail quality.
+	 * @param Descriptor|null $flip_to           The raw target descriptor to write, or null to flip from the arguments.
 	 * @return int|false The number of pruned thumbnail files, or false when verification or the flip failed.
 	 */
 	public function finalise(
@@ -273,6 +284,7 @@ final class Rendition_Regenerator {
 		int $full_quality,
 		int $thumbnail_width,
 		int $thumbnail_quality,
+		?Descriptor $flip_to = null,
 	): int|false {
 
 		// Verify the whole collection before touching anything: a single main missing a
@@ -283,16 +295,20 @@ final class Rendition_Regenerator {
 			return false;
 		}
 
-		// Compute which old buckets the flip retires before the descriptor changes, so
-		// the comparison is against the still-current widths.
-		$old_widths = [ $this->descriptor->full_width, $this->descriptor->thumbnail_width ];
-		$new_widths = [ $full_width, $thumbnail_width ];
-		$stale      = self::stale_widths( $old_widths, $new_widths );
+		// Compute which old buckets the flip retires before the descriptor changes,
+		// comparing the still-current effective widths against the effective targets so a
+		// collapsed (unbounded) tier never lists a real bucket as stale.
+		$old_renditions = $this->descriptor->effective_renditions();
+		$old_widths     = [ $old_renditions['full_width'], $old_renditions['thumbnail_width'] ];
+		$new_widths     = [ $full_width, $thumbnail_width ];
+		$stale          = self::stale_widths( $old_widths, $new_widths );
 
 		// Flip the descriptor — the one moment the gallery starts serving the new
-		// renditions. A failed write leaves the old descriptor (and old renditions)
-		// live and prunes nothing, so the collection stays consistent.
-		$flipped = $this->descriptor->with_renditions(
+		// renditions. The raw target descriptor wins when supplied (so an unset field
+		// persists as null); otherwise the flip is built from the effective arguments. A
+		// failed write leaves the old descriptor (and old renditions) live and prunes
+		// nothing, so the collection stays consistent.
+		$flipped = $flip_to ?? $this->descriptor->with_renditions(
 			$full_width,
 			$full_quality,
 			$thumbnail_width,

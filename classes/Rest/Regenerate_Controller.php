@@ -206,10 +206,13 @@ class Regenerate_Controller {
 			return new \WP_Error( 'kntnt_photo_drop_unreadable_collection', $message, [ 'status' => 500 ] );
 		}
 
-		// Validate the four target rendition values; a malformed width or quality is a
-		// 400 with nothing written, so a bad request never reaches the deriver or flips
-		// the descriptor to a degenerate width.
-		$target = $this->read_target( $request );
+		// Validate the target into a raw target descriptor that carries the upload
+		// contract over and the re-derivable trio possibly *unset* (collapse-to-parent,
+		// ADR-0013/#71); a malformed width or quality is a 400 with nothing written, so a
+		// bad request never reaches the deriver or flips the descriptor to a degenerate
+		// width. A present-but-empty re-derivable field arrives as JSON null (unset),
+		// distinct from a non-numeric value, which is malformed.
+		$target = $this->read_target( $request, $descriptor );
 		if ( $target === null ) {
 			$message = __( 'The full and thumbnail width must be positive and the quality 0–100.', 'kntnt-photo-drop' );
 			return new \WP_Error( 'kntnt_photo_drop_invalid_target', $message, [ 'status' => 400 ] );
@@ -237,24 +240,29 @@ class Regenerate_Controller {
 	 *
 	 * @param \WP_REST_Request      $request     The incoming request.
 	 * @param Rendition_Regenerator $regenerator The per-collection regenerator.
-	 * @param array<string,int>     $target      The validated target widths (the four rendition keys).
+	 * @param Descriptor            $target      The raw target descriptor (re-derivable trio possibly unset).
 	 * @return \WP_REST_Response|\WP_Error The batch progress, or a 500 when the main's renditions are incomplete.
 	 */
 	private function regenerate_batch(
 		\WP_REST_Request $request,
 		Rendition_Regenerator $regenerator,
-		array $target,
+		Descriptor $target,
 	): \WP_REST_Response|\WP_Error {
 
-		// Re-derive the addressed main at the target widths; the new buckets land beside
-		// the live old ones, so the gallery keeps serving until the flip.
+		// Resolve the raw target's re-derivable knobs to the concrete widths the deriver
+		// and the completeness check act on; an unset tier collapses to its effective
+		// width (an unbounded ceiling that matches no real bucket, ADR-0013/#71).
+		$effective = $target->effective_renditions();
+
+		// Re-derive the addressed main at the effective target widths; the new buckets
+		// land beside the live old ones, so the gallery keeps serving until the flip.
 		$index   = $this->read_index( $request );
 		$written = $regenerator->regenerate_main(
 			$index,
-			$target['full_width'],
-			$target['full_quality'],
-			$target['thumbnail_width'],
-			$target['thumbnail_quality'],
+			$effective['full_width'],
+			$effective['full_quality'],
+			$effective['thumbnail_width'],
+			$effective['thumbnail_quality'],
 		);
 
 		// Confirm the main's expected new renditions actually landed on disk; a shortfall
@@ -262,10 +270,10 @@ class Regenerate_Controller {
 		// silent 200, so the browser driver stops here and never reaches the finalise.
 		$complete = $regenerator->main_complete(
 			$index,
-			$target['full_width'],
-			$target['full_quality'],
-			$target['thumbnail_width'],
-			$target['thumbnail_quality'],
+			$effective['full_width'],
+			$effective['full_quality'],
+			$effective['thumbnail_width'],
+			$effective['thumbnail_quality'],
 		);
 		if ( ! $complete ) {
 			$message = __( 'An image could not be regenerated. Nothing was changed.', 'kntnt-photo-drop' );
@@ -288,29 +296,37 @@ class Regenerate_Controller {
 	}
 
 	/**
-	 * Flips the descriptor to the target widths and prunes the retired buckets.
+	 * Flips the descriptor to the target and prunes the retired buckets.
 	 *
 	 * The finalise step: it is reached only after every main has been re-derived, and
-	 * it is the one instant the gallery switches to the new renditions. A failed flip
-	 * (the descriptor write failed) is a 500 with nothing pruned, so the old
-	 * renditions stay live and the collection consistent; a success reports the new
-	 * widths and the count of pruned files.
+	 * it is the one instant the gallery switches to the new renditions. The raw target
+	 * descriptor is what the flip *writes* — so an unset re-derivable field persists as
+	 * JSON null (collapse-to-parent), never frozen to a concrete value (ADR-0013/#71) —
+	 * while its `effective_renditions()` are what the verify-then-flip sweep and the
+	 * prune compare against, mirroring the CLI's `regenerate_and_flip`. A failed flip
+	 * (the descriptor write failed, or a main is incomplete) is a 500 with nothing
+	 * pruned, so the old renditions stay live and the collection consistent; a success
+	 * reports the effective new widths and the count of pruned files.
 	 *
 	 * @since 0.11.0
 	 *
 	 * @param Rendition_Regenerator $regenerator The per-collection regenerator.
-	 * @param array<string,int>     $target      The validated target widths (the four rendition keys).
+	 * @param Descriptor            $target      The raw target descriptor (re-derivable trio possibly unset).
 	 * @return \WP_REST_Response|\WP_Error The finalise result, or a 500 when the flip failed.
 	 */
-	private function finalize( Rendition_Regenerator $regenerator, array $target ): \WP_REST_Response|\WP_Error {
+	private function finalize( Rendition_Regenerator $regenerator, Descriptor $target ): \WP_REST_Response|\WP_Error {
 
-		// Flip the descriptor and prune; a false return means the descriptor write
-		// failed, which is a server-side fault that leaves the old renditions serving.
-		$pruned = $regenerator->finalise(
-			$target['full_width'],
-			$target['full_quality'],
-			$target['thumbnail_width'],
-			$target['thumbnail_quality'],
+		// Resolve the target's effective widths for the verify/prune comparison, then
+		// flip to the *raw* target so an unset field stays null; a false return means the
+		// completeness sweep or the descriptor write failed, leaving the old renditions
+		// serving.
+		$effective = $target->effective_renditions();
+		$pruned    = $regenerator->finalise(
+			$effective['full_width'],
+			$effective['full_quality'],
+			$effective['thumbnail_width'],
+			$effective['thumbnail_quality'],
+			$target,
 		);
 		if ( $pruned === false ) {
 			// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
@@ -318,13 +334,13 @@ class Regenerate_Controller {
 			return new \WP_Error( 'kntnt_photo_drop_flip_failed', $message, [ 'status' => 500 ] );
 		}
 
-		// Report the flipped widths and the prune count so the browser can confirm the
-		// change landed.
+		// Report the flipped (effective) widths and the prune count so the browser can
+		// confirm the change landed.
 		return new \WP_REST_Response(
 			[
 				'finalized'      => true,
-				'fullWidth'      => $target['full_width'],
-				'thumbnailWidth' => $target['thumbnail_width'],
+				'fullWidth'      => $effective['full_width'],
+				'thumbnailWidth' => $effective['thumbnail_width'],
 				'pruned'         => $pruned,
 			],
 			200,
@@ -349,42 +365,125 @@ class Regenerate_Controller {
 	}
 
 	/**
-	 * Reads and validates the four target rendition values from the request.
+	 * Reads and validates the target into a raw target descriptor.
 	 *
-	 * The target is the new full and thumbnail width/quality pair the re-derive aims
-	 * at. Each width must be a strictly-positive integer and each quality an integer
-	 * in 0–100; any malformed value yields `null`, which the caller answers with a 400
-	 * so a bad request never reaches the deriver or flips the descriptor to a
-	 * degenerate width. The upload contract is deliberately *not* read here — it comes
-	 * only from the stored descriptor — so the endpoint cannot reconfigure it.
+	 * The target is the new full and thumbnail width/quality pair the re-derive aims at,
+	 * applied onto the stored descriptor via `with_renditions()` so the immutable upload
+	 * contract, the display name, and the placement template carry over untouched — the
+	 * endpoint can never reconfigure the contract or rename a collection. The three
+	 * re-derivable fields (full width, full quality, thumbnail width) may each be left
+	 * **unset** — sent over the wire as JSON null (an emptied Edit-page field) — to
+	 * collapse to the tier above (ADR-0013/#71); the raw target carries those nulls so
+	 * the flip persists "unset" distinct from a concrete value. A *present* width must be
+	 * a strictly-positive integer and a *present* quality an integer in 0–100, while the
+	 * always-concrete thumbnail quality must be a valid quality; any malformed value (a
+	 * non-numeric string, a non-positive width, an out-of-range quality) yields `null`,
+	 * which the caller answers with a 400 — distinct from a legitimate unset.
 	 *
 	 * @since 0.11.0
 	 *
-	 * @param \WP_REST_Request $request The incoming request.
-	 * @return array<string,int>|null The validated target (the four rendition keys), or null when malformed.
+	 * @param \WP_REST_Request $request    The incoming request.
+	 * @param Descriptor       $descriptor The stored descriptor the target is applied onto.
+	 * @return Descriptor|null The raw target descriptor, or null when any field is malformed.
 	 */
-	private function read_target( \WP_REST_Request $request ): ?array {
+	private function read_target( \WP_REST_Request $request, Descriptor $descriptor ): ?Descriptor {
 
-		// Coerce each value to an int and bound it; a width must be positive and a
-		// quality 0–100, mirroring the create form's and the CLI's rendition rules.
-		$full_width        = $this->read_int( $request, 'fullWidth' );
-		$full_quality      = $this->read_int( $request, 'fullQuality' );
-		$thumbnail_width   = $this->read_int( $request, 'thumbnailWidth' );
-		$thumbnail_quality = $this->read_int( $request, 'thumbnailQuality' );
-		$widths_ok         = $full_width !== null && $full_width > 0
-			&& $thumbnail_width !== null && $thumbnail_width > 0;
-		$qualities_ok      = $this->is_quality( $full_quality ) && $this->is_quality( $thumbnail_quality );
-		if ( ! $widths_ok || ! $qualities_ok ) {
+		// Read the three re-derivable fields three-state: a concrete int, null (unset —
+		// collapse to the tier above), or the malformed sentinel. A malformed width or
+		// quality aborts the whole target, so a bad request never flips the descriptor.
+		$full_width      = $this->read_optional_width( $request, 'fullWidth' );
+		$full_quality    = $this->read_optional_quality( $request, 'fullQuality' );
+		$thumbnail_width = $this->read_optional_width( $request, 'thumbnailWidth' );
+		if ( $full_width === false || $full_quality === false || $thumbnail_width === false ) {
 			return null;
 		}
 
-		return [
-			'full_width'        => $full_width,
-			'full_quality'      => (int) $full_quality,
-			'thumbnail_width'   => $thumbnail_width,
-			'thumbnail_quality' => (int) $thumbnail_quality,
-		];
+		// The thumbnail quality is always concrete in the descriptor; an absent or
+		// out-of-range value is malformed, never unset.
+		$thumbnail_quality = $this->read_int( $request, 'thumbnailQuality' );
+		if ( ! $this->is_quality( $thumbnail_quality ) ) {
+			return null;
+		}
 
+		// Apply the validated target onto the stored descriptor so only the re-derivable
+		// trio changes; nulls persist as "unset" through the flip.
+		return $descriptor->with_renditions(
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			(int) $thumbnail_quality,
+		);
+
+	}
+
+	/**
+	 * Reads a re-derivable width three-state: concrete, unset, or malformed.
+	 *
+	 * The wire carries an emptied Edit-page width as JSON null (or an absent key), which
+	 * means **unset** — collapse to the tier above (ADR-0013/#71) — and returns `null`.
+	 * A present value must be a strictly-positive integer; a non-positive or non-numeric
+	 * value is malformed and returns `false`, which the caller turns into a 400. The
+	 * `false` sentinel is what distinguishes garbage from a legitimate unset.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param \WP_REST_Request $request The incoming request.
+	 * @param string           $key     The width parameter name.
+	 * @return int|null|false The positive width, null for unset, or false when malformed.
+	 */
+	private function read_optional_width( \WP_REST_Request $request, string $key ): int|null|false {
+
+		// An absent or JSON-null field is unset; a present one must parse to a positive
+		// integer, otherwise it is malformed.
+		if ( $this->is_unset_param( $request, $key ) ) {
+			return null;
+		}
+		$width = $this->read_int( $request, $key );
+		return $width !== null && $width > 0 ? $width : false;
+
+	}
+
+	/**
+	 * Reads a re-derivable quality three-state: concrete, unset, or malformed.
+	 *
+	 * The wire carries an emptied Edit-page quality as JSON null (or an absent key),
+	 * which means **unset** — follow the upload quality (ADR-0013/#71) — and returns
+	 * `null`. A present value must be an integer in 0–100; anything else is malformed and
+	 * returns `false`, which the caller turns into a 400.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param \WP_REST_Request $request The incoming request.
+	 * @param string           $key     The quality parameter name.
+	 * @return int|null|false The 0–100 quality, null for unset, or false when malformed.
+	 */
+	private function read_optional_quality( \WP_REST_Request $request, string $key ): int|null|false {
+
+		// An absent or JSON-null field is unset; a present one must be a valid 0–100
+		// quality, otherwise it is malformed.
+		if ( $this->is_unset_param( $request, $key ) ) {
+			return null;
+		}
+		$quality = $this->read_int( $request, $key );
+		return $this->is_quality( $quality ) ? $quality : false;
+
+	}
+
+	/**
+	 * Reports whether a parameter is absent or explicitly JSON null — i.e. unset.
+	 *
+	 * The Edit page sends an emptied re-derivable field as JSON null; an absent key is
+	 * treated the same way. Either is the collapse-to-parent "unset" state, distinct from
+	 * a present-but-garbage value, which the optional readers reject as malformed.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param \WP_REST_Request $request The incoming request.
+	 * @param string           $key     The parameter name.
+	 * @return bool True when the parameter is absent or explicitly null.
+	 */
+	private function is_unset_param( \WP_REST_Request $request, string $key ): bool {
+		return $request->get_param( $key ) === null;
 	}
 
 	/**

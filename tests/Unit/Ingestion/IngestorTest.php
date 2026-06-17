@@ -326,6 +326,105 @@ test( 'ingestion derives the full and thumbnail renditions but never writes the 
 } );
 
 // ---------------------------------------------------------------------------
+// Collapse-to-parent — an unset re-derivable field collapses during ingest (#71)
+// ---------------------------------------------------------------------------
+
+test( 'an unset full width writes no separate full; the main serves the full role', function (): void {
+	wire_ingestor_stubs();
+	$root = fresh_collection_root();
+
+	// A null full width is the collapse-to-parent "unset": effective_renditions()
+	// resolves it to PHP_INT_MAX, so no main is ever strictly wider than the full
+	// ceiling and no separate full file is written — the main itself is the full
+	// rendition (#71, ADR-0013). The thumbnail still derives at its own width.
+	$descriptor = ingest_descriptor( [
+		'upload_width'    => 1920,
+		'full_width'      => null,
+		'thumbnail_width' => 320,
+	] );
+	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 1600, 1000 ), 'photo.jpg' );
+
+	// Only the 320 thumbnail bucket exists; there is no separate full bucket at the
+	// main's own width, and the main is on disk serving the full role itself.
+	expect( $result->thumbnails )->toHaveCount( 1 );
+	expect( is_file( $root . '/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_dir( $root . '/' . Index::THUMBNAILS_DIRNAME . '/1600' ) )->toBeFalse();
+
+	ingest_remove_tree( $root );
+} );
+
+test( 'an unset thumbnail width collapses into the full bucket during ingest', function (): void {
+	wire_ingestor_stubs();
+	$root = fresh_collection_root();
+
+	// A null thumbnail width follows the effective full width (#71), so the thumbnail
+	// derives at the full's 1280 width and collapses into the single 1280 bucket rather
+	// than producing a second, narrower bucket.
+	$descriptor = ingest_descriptor( [
+		'upload_width'    => 1920,
+		'full_width'      => 1280,
+		'thumbnail_width' => null,
+	] );
+	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 2000, 1200 ), 'photo.jpg' );
+
+	// The main downscales to the 1920 ceiling and the single derived rendition is the
+	// 1280 full, which the thumbnail collapses into — exactly one bucket, no 320.
+	expect( $result->thumbnails )->toHaveCount( 1 );
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280/photo.jpg.webp' ) )->toBeTrue();
+	expect( is_dir( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320' ) )->toBeFalse();
+
+	ingest_remove_tree( $root );
+} );
+
+test( 'unset full width and thumbnail width together write no derived buckets', function (): void {
+	wire_ingestor_stubs();
+	$root = fresh_collection_root();
+
+	// Both re-derivable widths unset: the full collapses to the unbounded ceiling and
+	// the thumbnail follows it, so the main serves every role and no derived bucket is
+	// written at all (the maximal collapse; #71, ADR-0013).
+	$descriptor = ingest_descriptor( [
+		'upload_width'    => 1920,
+		'full_width'      => null,
+		'thumbnail_width' => null,
+	] );
+	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 1600, 1000 ), 'photo.jpg' );
+
+	// The main is stored and no thumbnail corral bucket exists beneath it.
+	expect( $result->thumbnails )->toHaveCount( 0 );
+	expect( is_file( $root . '/photo.jpg.webp' ) )->toBeTrue();
+	expect( glob( $root . '/' . Index::THUMBNAILS_DIRNAME . '/*', GLOB_ONLYDIR ) )->toBe( [] );
+
+	ingest_remove_tree( $root );
+} );
+
+test( 'an unset full quality encodes the full at the upload quality during ingest', function (): void {
+	wire_ingestor_stubs();
+	$root = fresh_collection_root();
+
+	// A null full quality follows the upload quality (#71). With a distinct upload
+	// quality and a full width below the main width, the full is written at the upload
+	// quality the descriptor's effective renditions resolve to.
+	$descriptor = ingest_descriptor( [
+		'upload_width'    => 1920,
+		'upload_quality'  => 90,
+		'full_width'      => 1280,
+		'full_quality'    => null,
+		'thumbnail_width' => 320,
+	] );
+	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 2000, 1200 ), 'photo.jpg' );
+
+	// The full bucket is written (the unset full quality resolved to the upload 90), and
+	// the effective renditions confirm the resolution the ingest acted on.
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280/photo.jpg.webp' ) )->toBeTrue();
+	expect( $descriptor->effective_renditions()['full_quality'] )->toBe( 90 );
+	expect( $result->thumbnails )->toHaveCount( 2 );
+
+	ingest_remove_tree( $root );
+} );
+
+// ---------------------------------------------------------------------------
 // Mains and derived renditions are published atomically
 // ---------------------------------------------------------------------------
 

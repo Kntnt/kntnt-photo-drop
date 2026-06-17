@@ -101,16 +101,19 @@ final class Collection_Command {
 	 * the kntnt_photo_drop_default_upload_quality filter (95).
 	 *
 	 * [--full-width=<pixels>]
-	 * : The re-derivable full-image width. Defaults to the
-	 * kntnt_photo_drop_default_full_width filter (1920).
+	 * : The re-derivable full-image width. Omit for the
+	 * kntnt_photo_drop_default_full_width filter (1920); pass empty (--full-width=)
+	 * to leave it unset, so the main image itself serves the full role.
 	 *
 	 * [--full-quality=<0-100>]
-	 * : The re-derivable full-image WebP quality. Defaults to the
-	 * kntnt_photo_drop_default_full_quality filter (85).
+	 * : The re-derivable full-image WebP quality. Omit for the
+	 * kntnt_photo_drop_default_full_quality filter (85); pass empty (--full-quality=)
+	 * to leave it unset, so the full image follows the upload quality.
 	 *
 	 * [--thumbnail-width=<pixels>]
-	 * : The re-derivable thumbnail width. Defaults to the
-	 * kntnt_photo_drop_default_thumbnail_width filter (640).
+	 * : The re-derivable thumbnail width. Omit for the
+	 * kntnt_photo_drop_default_thumbnail_width filter (640); pass empty
+	 * (--thumbnail-width=) to leave it unset, so it follows the full width.
 	 *
 	 * [--thumbnail-quality=<0-100>]
 	 * : The re-derivable thumbnail WebP quality. Defaults to the
@@ -148,9 +151,17 @@ final class Collection_Command {
 		// which the production runtime exits on and the test double throws on).
 		$upload_width = $this->resolve_upload_width( $assoc_args );
 		$upload_qual  = $this->resolve_quality( $assoc_args, 'upload-quality', Rendition_Defaults::upload_quality() );
-		$full_width   = $this->resolve_width( $assoc_args, 'full-width', Rendition_Defaults::full_width() );
-		$full_qual    = $this->resolve_quality( $assoc_args, 'full-quality', Rendition_Defaults::full_quality() );
-		$thumb_width  = $this->resolve_width( $assoc_args, 'thumbnail-width', Rendition_Defaults::thumbnail_width() );
+		$full_width   = $this->resolve_optional_width( $assoc_args, 'full-width', Rendition_Defaults::full_width() );
+		$full_qual    = $this->resolve_optional_quality(
+			$assoc_args,
+			'full-quality',
+			Rendition_Defaults::full_quality(),
+		);
+		$thumb_width  = $this->resolve_optional_width(
+			$assoc_args,
+			'thumbnail-width',
+			Rendition_Defaults::thumbnail_width(),
+		);
 		$thumb_qual   = $this->resolve_quality(
 			$assoc_args,
 			'thumbnail-quality',
@@ -231,12 +242,15 @@ final class Collection_Command {
 	 *
 	 * [--full-width=<pixels>]
 	 * : The re-derivable full-image width. Changing it regenerates the full renditions.
+	 * Pass empty (--full-width=) to unset it, so the main image serves the full role.
 	 *
 	 * [--full-quality=<0-100>]
 	 * : The re-derivable full-image WebP quality. Changing it regenerates the full renditions.
+	 * Pass empty (--full-quality=) to unset it, so the full image follows the upload quality.
 	 *
 	 * [--thumbnail-width=<pixels>]
 	 * : The re-derivable thumbnail width. Changing it regenerates the thumbnail renditions.
+	 * Pass empty (--thumbnail-width=) to unset it, so it follows the full width.
 	 *
 	 * [--thumbnail-quality=<0-100>]
 	 * : The re-derivable thumbnail WebP quality. Changing it regenerates the thumbnail renditions.
@@ -297,9 +311,9 @@ final class Collection_Command {
 		// Resolve each re-derivable rendition value: an absent flag carries the current
 		// value over, a present one is parsed and validated (a malformed value halts
 		// here, before anything is written).
-		$full_width  = $this->resolve_width( $assoc_args, 'full-width', $current->full_width );
-		$full_qual   = $this->resolve_quality( $assoc_args, 'full-quality', $current->full_quality );
-		$thumb_width = $this->resolve_width( $assoc_args, 'thumbnail-width', $current->thumbnail_width );
+		$full_width  = $this->resolve_optional_width( $assoc_args, 'full-width', $current->full_width );
+		$full_qual   = $this->resolve_optional_quality( $assoc_args, 'full-quality', $current->full_quality );
+		$thumb_width = $this->resolve_optional_width( $assoc_args, 'thumbnail-width', $current->thumbnail_width );
 		$thumb_qual  = $this->resolve_quality( $assoc_args, 'thumbnail-quality', $current->thumbnail_quality );
 
 		// A change to any re-derivable value must regenerate the derived renditions before
@@ -319,7 +333,8 @@ final class Collection_Command {
 				$current->thumbnail_quality,
 				$path_components,
 			);
-			$this->regenerate_and_flip( $slug, $path, $base, $full_width, $full_qual, $thumb_width, $thumb_qual );
+			$target = $base->with_renditions( $full_width, $full_qual, $thumb_width, $thumb_qual );
+			$this->regenerate_and_flip( $slug, $path, $base, $target );
 			return;
 		}
 
@@ -357,25 +372,34 @@ final class Collection_Command {
 	 * does `finalise()` flip the descriptor to `$base`'s name and template plus the new
 	 * widths (the one instant the gallery switches over) and prune the retired buckets.
 	 *
+	 * The widths actually derived and verified are the *effective* renditions of the
+	 * target descriptor, so an unset (collapsed) re-derivable field — an empty Full
+	 * width, Full quality, or Thumbnail width — derives at its collapsed effective
+	 * width (the main serving the full role, the full quality following the upload
+	 * quality, ADR-0013/#71). The flip writes the target descriptor *raw*, so the
+	 * unset field persists on disk as null rather than freezing a concrete value.
+	 *
 	 * @since 0.13.0
 	 *
-	 * @param string     $slug              The collection slug, for the operator-facing messages.
-	 * @param string     $path              Absolute path to the collection root.
-	 * @param Descriptor $base              The new name/template on the OLD renditions, flipped by finalise.
-	 * @param int        $full_width        The target full-image width.
-	 * @param int        $full_quality      The target full-image quality.
-	 * @param int        $thumbnail_width   The target thumbnail width.
-	 * @param int        $thumbnail_quality The target thumbnail quality.
+	 * @param string     $slug   The collection slug, for the operator-facing messages.
+	 * @param string     $path   Absolute path to the collection root.
+	 * @param Descriptor $base   The new name/template on the OLD renditions; the live descriptor until the flip.
+	 * @param Descriptor $target The new name/template on the NEW (raw, possibly unset) renditions, written by the flip.
 	 */
 	private function regenerate_and_flip(
 		string $slug,
 		string $path,
 		Descriptor $base,
-		int $full_width,
-		int $full_quality,
-		int $thumbnail_width,
-		int $thumbnail_quality,
+		Descriptor $target,
 	): void {
+
+		// Resolve the target's re-derivable knobs to the concrete widths the deriver and
+		// the completeness sweep act on; an unset tier collapses to its effective width.
+		$effective         = $target->effective_renditions();
+		$full_width        = $effective['full_width'];
+		$full_quality      = $effective['full_quality'];
+		$thumbnail_width   = $effective['thumbnail_width'];
+		$thumbnail_quality = $effective['thumbnail_quality'];
 
 		// Build the regenerator over the base descriptor (new name/template, old
 		// renditions): the on-disk descriptor is untouched until the flip, so the gallery
@@ -383,9 +407,10 @@ final class Collection_Command {
 		// and new widths together.
 		$regenerator = new Rendition_Regenerator( $path, $base );
 
-		// Re-derive every main at the target widths in process. A main that cannot produce
-		// its new renditions aborts here — before the flip — so the descriptor is never
-		// pointed at files that were never written (verify-then-flip, ADR-0013).
+		// Re-derive every main at the effective target widths in process. A main that
+		// cannot produce its new renditions aborts here — before the flip — so the
+		// descriptor is never pointed at files that were never written (verify-then-flip,
+		// ADR-0013).
 		$count = $regenerator->main_count();
 		for ( $index = 0; $index < $count; $index++ ) {
 			$regenerator->regenerate_main( $index, $full_width, $full_quality, $thumbnail_width, $thumbnail_quality );
@@ -403,10 +428,11 @@ final class Collection_Command {
 			}
 		}
 
-		// Flip the descriptor to the new renditions and prune the retired width buckets —
-		// the one moment the gallery switches over. A false return means the completeness
-		// sweep or the descriptor write failed, leaving the old renditions live.
-		$pruned = $regenerator->finalise( $full_width, $full_quality, $thumbnail_width, $thumbnail_quality );
+		// Flip to the raw target descriptor (so an unset field stays null) and prune the
+		// retired width buckets — the one moment the gallery switches over. A false return
+		// means the completeness sweep or the descriptor write failed, leaving the old
+		// renditions live.
+		$pruned = $regenerator->finalise( $full_width, $full_quality, $thumbnail_width, $thumbnail_quality, $target );
 		if ( $pruned === false ) {
 			WP_CLI::error( "Failed to finalise the re-derive for '{$slug}'; the previous renditions are kept." );
 			return;
@@ -705,40 +731,6 @@ final class Collection_Command {
 	}
 
 	/**
-	 * Resolves a positive-integer width flag, defaulting from its filter.
-	 *
-	 * Shared by the `--full-width` and `--thumbnail-width` flags. An absent flag
-	 * takes the supplied filter default; a present one must be a strictly positive
-	 * integer, and a malformed value halts the command via `WP_CLI::error()` before
-	 * any directory is made.
-	 *
-	 * @since 0.7.0
-	 *
-	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
-	 * @param string                    $flag       The flag name (`full-width` or `thumbnail-width`).
-	 * @param int                       $fallback   The filter-resolved default width.
-	 * @return int The resolved positive width.
-	 */
-	private function resolve_width( array $assoc_args, string $flag, int $fallback ): int {
-
-		// An absent flag takes the default; a present one is parsed, and a
-		// non-positive or malformed value halts before any write. The post-error
-		// return is unreachable (WP_CLI::error() exits; the test double throws) but
-		// satisfies the declared return type.
-		if ( ! isset( $assoc_args[ $flag ] ) ) {
-			return $fallback;
-		}
-		$parsed = $this->input->parse_width( (string) $assoc_args[ $flag ] );
-		if ( $parsed === false ) {
-			WP_CLI::error( "The --{$flag} flag must be a positive integer." );
-			return $fallback;
-		}
-
-		return $parsed;
-
-	}
-
-	/**
 	 * Resolves a 0–100 quality flag, defaulting from its filter.
 	 *
 	 * Shared by every `--*-quality` flag. An absent flag takes the supplied filter
@@ -764,6 +756,85 @@ final class Collection_Command {
 		$parsed = $this->input->parse_quality( (string) $assoc_args[ $flag ] );
 		if ( $parsed === false ) {
 			WP_CLI::error( "The --{$flag} flag must be an integer between 0 and 100." );
+			return $fallback;
+		}
+
+		return $parsed;
+
+	}
+
+	/**
+	 * Resolves a collapsible width flag, where an explicit empty value means "unset".
+	 *
+	 * Shared by the re-derivable `--full-width` and `--thumbnail-width` flags, which may
+	 * be left empty to collapse to the tier above (ADR-0013/#71). An *absent* flag
+	 * carries the supplied fallback (the filter default on create, the current value on
+	 * update — either of which may itself be null); an *explicitly empty* flag
+	 * (`--full-width=`) means unset and returns `null`, mirroring an emptied admin form
+	 * field; a present value must be a strictly positive integer, and a malformed one
+	 * halts the command via `WP_CLI::error()` before any write. The post-error return is
+	 * unreachable (WP_CLI::error() exits; the test double throws) but satisfies the type.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
+	 * @param string                    $flag       The flag name (`full-width` or `thumbnail-width`).
+	 * @param int|null                  $fallback   The value an absent flag carries (filter default or current).
+	 * @return int|null The resolved positive width, or null for unset.
+	 */
+	private function resolve_optional_width( array $assoc_args, string $flag, ?int $fallback ): ?int {
+
+		// An absent flag carries the fallback; an explicitly empty one is unset; a present
+		// one is parsed, and a non-positive or malformed value halts before any write.
+		if ( ! isset( $assoc_args[ $flag ] ) ) {
+			return $fallback;
+		}
+		$raw = (string) $assoc_args[ $flag ];
+		if ( $raw === '' ) {
+			return null;
+		}
+		$parsed = $this->input->parse_width( $raw );
+		if ( $parsed === false ) {
+			WP_CLI::error( "The --{$flag} flag must be a positive integer, or empty to use the tier above." );
+			return $fallback;
+		}
+
+		return $parsed;
+
+	}
+
+	/**
+	 * Resolves a collapsible quality flag, where an explicit empty value means "unset".
+	 *
+	 * The re-derivable `--full-quality` flag may be left empty to follow the upload
+	 * quality (ADR-0013/#71). An *absent* flag carries the supplied fallback (the filter
+	 * default on create, the current value on update — either of which may be null); an
+	 * *explicitly empty* flag (`--full-quality=`) means unset and returns `null`; a
+	 * present value must be an integer in 0–100, and a malformed one halts the command
+	 * via `WP_CLI::error()` before any write. The post-error return is unreachable
+	 * (WP_CLI::error() exits; the test double throws) but satisfies the type.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
+	 * @param string                    $flag       The flag name (`full-quality`).
+	 * @param int|null                  $fallback   The value an absent flag carries (filter default or current).
+	 * @return int|null The resolved quality, or null for unset.
+	 */
+	private function resolve_optional_quality( array $assoc_args, string $flag, ?int $fallback ): ?int {
+
+		// An absent flag carries the fallback; an explicitly empty one is unset; a present
+		// one is parsed, and an out-of-range or malformed value halts before any write.
+		if ( ! isset( $assoc_args[ $flag ] ) ) {
+			return $fallback;
+		}
+		$raw = (string) $assoc_args[ $flag ];
+		if ( $raw === '' ) {
+			return null;
+		}
+		$parsed = $this->input->parse_quality( $raw );
+		if ( $parsed === false ) {
+			WP_CLI::error( "The --{$flag} flag must be an integer between 0 and 100, or empty to use the tier above." );
 			return $fallback;
 		}
 

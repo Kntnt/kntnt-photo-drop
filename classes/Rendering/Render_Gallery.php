@@ -502,10 +502,11 @@ final class Render_Gallery {
 		// rendition is served from the hidden width directory.
 		$relative   = $item->relative_path();
 		$main_url   = Image_Url::main( $base_url, $relative );
+		$renditions = $descriptor->effective_renditions();
 		$candidates = Srcset_Builder::candidates(
 			$item->width,
-			$descriptor->full_width,
-			$descriptor->thumbnail_width,
+			$renditions['full_width'],
+			$renditions['thumbnail_width'],
 			$main_url,
 			static fn ( int $width ): string => Image_Url::thumbnail( $base_url, $relative, $width ),
 		);

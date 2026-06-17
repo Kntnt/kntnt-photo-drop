@@ -373,14 +373,15 @@ final class Doctor {
 	 * @return array<int,int> The ascending derived-rendition widths.
 	 */
 	private function expected_widths( int $main_width ): array {
+		$renditions = $this->descriptor->effective_renditions();
 		return array_map(
 			static fn ( array $rendition ): int => $rendition['width'],
 			Rendition_Plan::derived(
 				$main_width,
-				$this->descriptor->full_width,
-				$this->descriptor->full_quality,
-				$this->descriptor->thumbnail_width,
-				$this->descriptor->thumbnail_quality,
+				$renditions['full_width'],
+				$renditions['full_quality'],
+				$renditions['thumbnail_width'],
+				$renditions['thumbnail_quality'],
 			),
 		);
 	}
@@ -560,8 +561,12 @@ final class Doctor {
 	private function prune_stale_width_dirs( array $folders ): int {
 
 		// The two configured derived widths — the full and the thumbnail — are the
-		// only buckets that may survive; everything else is a de-configured width.
-		$configured = [ $this->descriptor->full_width, $this->descriptor->thumbnail_width ];
+		// only buckets that may survive; everything else is a de-configured width. The
+		// effective widths are used so an unset (collapsed) tier never lists a stored
+		// bucket as de-configured (ADR-0013/#71); an unbounded effective width simply
+		// matches no numeric bucket on disk.
+		$renditions = $this->descriptor->effective_renditions();
+		$configured = [ $renditions['full_width'], $renditions['thumbnail_width'] ];
 
 		// Visit each folder's real width buckets and clear the ones whose numeric
 		// width is no longer configured; non-numeric directories are not ours to
@@ -744,13 +749,14 @@ final class Doctor {
 	 * @return array<int,string> Absolute paths of the renditions written.
 	 */
 	private function derive_renditions( string $main_path ): array {
+		$renditions = $this->descriptor->effective_renditions();
 		return $this->thumbnailer->generate(
 			$main_path,
 			basename( $main_path ),
-			$this->descriptor->full_width,
-			$this->descriptor->full_quality,
-			$this->descriptor->thumbnail_width,
-			$this->descriptor->thumbnail_quality,
+			$renditions['full_width'],
+			$renditions['full_quality'],
+			$renditions['thumbnail_width'],
+			$renditions['thumbnail_quality'],
 		);
 	}
 

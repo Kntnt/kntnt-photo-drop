@@ -6,7 +6,7 @@ The ubiquitous language for this project. Terms only — no implementation detai
 
 **Output contract** — The fixed, *lossy* rules a collection applies to every main image at ingestion: the **upload width** (a maximum width; may be unset, meaning the source's own dimensions) and the **upload quality**. The stored format is always WebP (not a choice); inputs in other formats are accepted and converted. Fixed at establishment and irreversible, because the source bytes are discarded once the main image is encoded.
 
-**Derived settings** — A collection's re-derivable rendition knobs that are *not* part of the immutable output contract: the **full-image width** and **full-image quality**, and the **thumbnail width** and **thumbnail quality**. Changeable after establishment; changing one regenerates the affected derived artifacts (via the doctor), because each is losslessly re-derivable from the main image.
+**Derived settings** — A collection's re-derivable rendition knobs that are *not* part of the immutable output contract: the **full-image width** and **full-image quality**, and the **thumbnail width** and **thumbnail quality**. Changeable after establishment; changing one regenerates the affected derived artifacts (via the doctor), because each is losslessly re-derivable from the main image. Three of these knobs — the full-image width, the full-image quality, and the thumbnail width — may each be **unset** (distinct from any concrete value), meaning **collapse to the tier above**: an unset full-image width makes the main image serve the full role (no separate full), an unset full-image quality follows the upload quality, and an unset thumbnail width follows the (effective) full-image width.
 
 **Descriptor** — The stored record of a collection's output contract, its display name, and its derived settings.
 
@@ -18,9 +18,9 @@ The ubiquitous language for this project. Terms only — no implementation detai
 
 **Main image** — The primary, highest-fidelity stored rendition of an image, bounded by the collection's upload width. The unit of truth for whether an image exists, and the rendition served for download and for copying into the Media Library. (Its settings are labelled "upload width/quality" in the UI, because it is what the Drop Zone produces.)
 
-**Full image** — The mid-size rendition derived from the main image, bounded by the collection's full-image width, shown in the lightbox and the slideshow. Re-derivable; when the main image is no wider than the full-image width, the main image serves this role directly.
+**Full image** — The mid-size rendition derived from the main image, bounded by the collection's full-image width, shown in the lightbox and the slideshow. Re-derivable; when the main image is no wider than the full-image width — or the full-image width is unset — the main image serves this role directly (no separate full).
 
-**Thumbnail** (also **variant**) — The small rendition derived from the full image (or, when there is no separate full image, from the main image), bounded by the collection's thumbnail width, shown in the gallery grid. Re-derivable; the browser may still upgrade to the full or main image via srcset.
+**Thumbnail** (also **variant**) — The small rendition derived from the full image (or, when there is no separate full image, from the main image), bounded by the collection's thumbnail width, shown in the gallery grid. Re-derivable; the browser may still upgrade to the full or main image via srcset. When the thumbnail width is unset it follows the (effective) full-image width.
 
 **Derived artifact** — Anything generated from a main image: its full image, its thumbnail, and its index entry. Always slaved to the main image — created from it, removed when it is gone.
 

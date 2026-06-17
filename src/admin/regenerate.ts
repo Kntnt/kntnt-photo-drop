@@ -20,7 +20,7 @@ import { createProgressModel } from '../blocks/drop-zone/progress-model';
 import { createProgressView } from '../blocks/drop-zone/progress-view';
 import type { ProgressStrings } from '../blocks/drop-zone/progress-view';
 import { runRegeneration } from './regenerate-run';
-import type { RegenerateTarget } from './regenerate-run';
+import { readTarget } from './regenerate-target';
 
 /**
  * The block-element class the regenerate UI's progress markup is rooted on.
@@ -40,59 +40,6 @@ const BLOCK = 'kntnt-photo-drop-regenerate';
 interface WpApiSettings {
 	readonly root: string;
 	readonly nonce: string;
-}
-
-/**
- * Reads an integer from a number input by selector, or null when malformed.
- *
- * @param root     - The host element to search within.
- * @param selector - The input's CSS selector.
- * @return The parsed integer, or null when the field is absent or not integer-valued.
- */
-function readInt( root: HTMLElement, selector: string ): number | null {
-	const input = root.querySelector< HTMLInputElement >( selector );
-	if ( ! input ) {
-		return null;
-	}
-	const value = Number( input.value );
-	return Number.isInteger( value ) ? value : null;
-}
-
-/**
- * Reads the four target rendition values from the regenerate fields.
- *
- * Returns null when any width is not a positive integer or any quality is outside
- * 0–100, so the click handler can refuse to start a run that the server would
- * reject anyway — the same bounds the REST endpoint re-enforces.
- *
- * @param root - The regenerate host element.
- * @return The validated target, or null when a field is malformed.
- */
-function readTarget( root: HTMLElement ): RegenerateTarget | null {
-	const fullWidth = readInt( root, '[name="full_width"]' );
-	const fullQuality = readInt( root, '[name="full_quality"]' );
-	const thumbnailWidth = readInt( root, '[name="thumbnail_width"]' );
-	const thumbnailQuality = readInt( root, '[name="thumbnail_quality"]' );
-
-	// Both widths must be positive and both qualities in range; otherwise the target
-	// is not a usable re-derive request.
-	const widthsOk =
-		fullWidth !== null &&
-		fullWidth > 0 &&
-		thumbnailWidth !== null &&
-		thumbnailWidth > 0;
-	const qualitiesOk =
-		fullQuality !== null &&
-		fullQuality >= 0 &&
-		fullQuality <= 100 &&
-		thumbnailQuality !== null &&
-		thumbnailQuality >= 0 &&
-		thumbnailQuality <= 100;
-	if ( ! widthsOk || ! qualitiesOk ) {
-		return null;
-	}
-
-	return { fullWidth, fullQuality, thumbnailWidth, thumbnailQuality };
 }
 
 /**
@@ -197,11 +144,13 @@ function wireRegenerate( root: HTMLElement ): void {
 
 	button.addEventListener( 'click', async () => {
 		// Refuse a run with malformed fields and tell the operator through the live
-		// region rather than silently doing nothing.
+		// region rather than silently doing nothing. An emptied re-derivable field is
+		// not malformed — it leaves that rendition unset (collapse-to-parent) — so the
+		// message only fires for a present-but-invalid value.
 		const target = readTarget( root );
 		if ( ! target ) {
 			summary.textContent = __(
-				'Enter a positive width and a quality between 0 and 100.',
+				'Enter a whole-number width above 0 and a quality between 0 and 100, or leave the field empty to use the size above.',
 				'kntnt-photo-drop'
 			);
 			return;

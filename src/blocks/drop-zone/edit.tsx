@@ -84,9 +84,12 @@ interface CollectionSummary {
 	/** The immutable upload-width ceiling in pixels, or `null` for the source's own dimensions. */
 	readonly uploadWidth: number | null;
 	readonly uploadQuality: number;
-	readonly fullWidth: number;
-	readonly fullQuality: number;
-	readonly thumbnailWidth: number;
+	/** The full-image width, or `null` when unset (the main image serves the full role). */
+	readonly fullWidth: number | null;
+	/** The full-image quality, or `null` when unset (it follows the upload quality). */
+	readonly fullQuality: number | null;
+	/** The thumbnail width, or `null` when unset (it follows the effective full width). */
+	readonly thumbnailWidth: number | null;
 	readonly thumbnailQuality: number;
 }
 
@@ -265,21 +268,35 @@ function formatUploadWidth( uploadWidth: number | null ): string {
 /**
  * Formats a rendition's width and quality as one read-only "W px, quality Q" cell.
  *
- * Used for the re-derivable full and thumbnail renditions. Kept tiny and local
- * because it is presentation only.
+ * Used for the re-derivable full and thumbnail renditions. Both the width and the
+ * quality are nullable, where `null` means the field is unset and collapses to the
+ * tier above (#71): an unset width shows as the translatable "Auto" and an unset
+ * quality as "auto", mirroring the admin list so the inspector reflects the
+ * collapse rather than a misleading "0 px". Kept tiny and local because it is
+ * presentation only.
  *
  * @since 0.7.0
  *
- * @param width   - The rendition width in pixels.
- * @param quality - The rendition WebP quality, 0–100.
+ * @param width   - The rendition width in pixels, or `null` when unset.
+ * @param quality - The rendition WebP quality (0–100), or `null` when unset.
  * @return The display string.
  */
-function formatRendition( width: number, quality: number ): string {
+function formatRendition(
+	width: number | null,
+	quality: number | null
+): string {
+	const widthLabel =
+		width === null
+			? __( 'Auto', 'kntnt-photo-drop' )
+			: /* translators: %d: the rendition width in pixels. */
+			  sprintf( __( '%d px', 'kntnt-photo-drop' ), width );
+	const qualityLabel =
+		quality === null ? __( 'auto', 'kntnt-photo-drop' ) : String( quality );
 	return sprintf(
-		/* translators: 1: rendition width in pixels; 2: WebP quality, 0–100. */
-		__( '%1$d px, quality %2$d', 'kntnt-photo-drop' ),
-		width,
-		quality
+		/* translators: 1: rendition width (a pixel count or "Auto"); 2: WebP quality (0–100 or "auto"). */
+		__( '%1$s, quality %2$s', 'kntnt-photo-drop' ),
+		widthLabel,
+		qualityLabel
 	);
 }
 

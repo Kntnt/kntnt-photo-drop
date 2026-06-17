@@ -35,12 +35,18 @@ export interface RegenerateResponse {
 /**
  * The four target rendition values a regenerate run aims at.
  *
+ * The three re-derivable fields are `number | null`: `null` is the collapse-to-parent
+ * **unset** state (an emptied Edit-page field), sent to the server as JSON null so the
+ * flip persists "unset" distinct from a concrete width/quality (ADR-0013/#71). The
+ * thumbnail quality is always concrete. The dispatcher serialises these verbatim, so a
+ * `null` reaches the REST endpoint as JSON null, which it reads as unset.
+ *
  * @since 0.11.0
  */
 export interface RegenerateTarget {
-	readonly fullWidth: number;
-	readonly fullQuality: number;
-	readonly thumbnailWidth: number;
+	readonly fullWidth: number | null;
+	readonly fullQuality: number | null;
+	readonly thumbnailWidth: number | null;
 	readonly thumbnailQuality: number;
 }
 

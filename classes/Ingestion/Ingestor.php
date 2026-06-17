@@ -156,16 +156,19 @@ final class Ingestor {
 		// so the deriver decides via Rendition_Plan which tiers survive without
 		// re-reading and re-decoding the stored main, the redundant full-resolution
 		// decode an equal-widths collection must not pay over the two-tier baseline
-		// (#57). The index is deliberately left untouched — it self-heals on the next
-		// view.
+		// (#57). The descriptor's re-derivable knobs are resolved through
+		// effective_renditions() first, so an unset full/thumbnail width or full
+		// quality collapses to the tier above (ADR-0013/#71). The index is
+		// deliberately left untouched — it self-heals on the next view.
+		$renditions = $this->descriptor->effective_renditions();
 		$thumbnails = $this->thumbnailer->generate_from_image(
 			$optimized->image,
 			$target,
 			$stored_name,
-			$this->descriptor->full_width,
-			$this->descriptor->full_quality,
-			$this->descriptor->thumbnail_width,
-			$this->descriptor->thumbnail_quality,
+			$renditions['full_width'],
+			$renditions['full_quality'],
+			$renditions['thumbnail_width'],
+			$renditions['thumbnail_quality'],
 		);
 
 		// Split the two "now stored" outcomes by whether the optimiser had to

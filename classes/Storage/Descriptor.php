@@ -126,18 +126,25 @@ final readonly class Descriptor {
 	 *
 	 * Callers resolve each value first — the lifecycle surfaces (the admin page
 	 * and the CLI) default any omitted rendition field through `Rendition_Defaults`
-	 * and normalise the path-components template — then hand the concrete nine
-	 * fields here. `upload_width` is nullable (`null` = the source's own
-	 * dimensions); every other width and quality is a concrete integer.
+	 * and normalise the path-components template — then hand the nine fields here.
+	 * `upload_width` is nullable (`null` = the source's own dimensions). The three
+	 * re-derivable knobs `full_width`, `full_quality`, and `thumbnail_width` are
+	 * *also* nullable, where `null` means **unset** — collapse to the tier above it
+	 * (ADR-0013, #71): an unset full width makes the main itself the full rendition,
+	 * an unset full quality follows the upload quality, and an unset thumbnail width
+	 * follows the (effective) full width. `effective_renditions()` resolves those
+	 * nulls into the concrete widths/qualities every deriver, doctor, and srcset
+	 * reads; the raw fields stay nullable so "unset" persists on disk distinct from
+	 * a concrete value. `upload_quality` and `thumbnail_quality` are always concrete.
 	 *
 	 * @since 0.1.0
 	 *
 	 * @param string   $name              The human display name.
 	 * @param int|null $upload_width      The immutable upload-width ceiling, or null for the source's own dimensions.
 	 * @param int      $upload_quality    The immutable upload (main) WebP quality (0–100).
-	 * @param int      $full_width        The re-derivable full-image width.
-	 * @param int      $full_quality      The re-derivable full-image WebP quality (0–100).
-	 * @param int      $thumbnail_width   The re-derivable thumbnail width.
+	 * @param int|null $full_width        The re-derivable full-image width, or null to collapse (main serves full).
+	 * @param int|null $full_quality      The re-derivable full-image quality (0–100), or null to follow upload quality.
+	 * @param int|null $thumbnail_width   The re-derivable thumbnail width, or null to follow the effective full width.
 	 * @param int      $thumbnail_quality The re-derivable thumbnail WebP quality (0–100).
 	 * @param string   $path_components   The mutable Drop Zone placement template.
 	 */
@@ -145,12 +152,51 @@ final readonly class Descriptor {
 		public string $name,
 		public ?int $upload_width,
 		public int $upload_quality,
-		public int $full_width,
-		public int $full_quality,
-		public int $thumbnail_width,
+		public ?int $full_width,
+		public ?int $full_quality,
+		public ?int $thumbnail_width,
 		public int $thumbnail_quality,
 		public string $path_components,
 	) {}
+
+	/**
+	 * Resolves the re-derivable knobs into the concrete renditions to derive from.
+	 *
+	 * The collapse-to-parent rule (ADR-0013, #71): an unset re-derivable field means
+	 * "use the tier above", so this turns the descriptor's possibly-null full/thumbnail
+	 * settings into the concrete widths and qualities every deriver, doctor, and srcset
+	 * acts on. An unset **full width** resolves to `PHP_INT_MAX` — an unbounded ceiling
+	 * no main is ever strictly wider than, so no separate full file is ever written and
+	 * the main is itself the full rendition at its own width. An unset **full quality**
+	 * follows the upload quality (the main's own quality). An unset **thumbnail width**
+	 * follows the effective full width — so it collapses into the full when the full is
+	 * set, and inherits the same unbounded ceiling (the main serves every role) when the
+	 * full is unset too. The thumbnail quality is always concrete and passes through.
+	 *
+	 * Keeping this resolution in one deep method means the three consumers read the same
+	 * effective values from one authority and can never drift, while the stored fields
+	 * stay nullable so "unset" survives a write/read cycle distinct from a concrete value.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @return array{full_width:int,full_quality:int,thumbnail_width:int,thumbnail_quality:int} The renditions.
+	 */
+	public function effective_renditions(): array {
+
+		// An unset full width is an unbounded ceiling (no separate full; the main serves
+		// the full role), an unset full quality follows the upload quality, and an unset
+		// thumbnail width follows the effective full width.
+		$full_width      = $this->full_width ?? PHP_INT_MAX;
+		$thumbnail_width = $this->thumbnail_width ?? $full_width;
+
+		return [
+			'full_width'        => $full_width,
+			'full_quality'      => $this->full_quality ?? $this->upload_quality,
+			'thumbnail_width'   => $thumbnail_width,
+			'thumbnail_quality' => $this->thumbnail_quality,
+		];
+
+	}
 
 	/**
 	 * Returns a copy with the re-derivable rendition pairs replaced — the flip.
@@ -168,16 +214,16 @@ final readonly class Descriptor {
 	 *
 	 * @since 0.11.0
 	 *
-	 * @param int $full_width        The new full-image width.
-	 * @param int $full_quality      The new full-image WebP quality (0–100).
-	 * @param int $thumbnail_width   The new thumbnail width.
-	 * @param int $thumbnail_quality The new thumbnail WebP quality (0–100).
+	 * @param int|null $full_width        The new full-image width, or null to collapse (main serves the full role).
+	 * @param int|null $full_quality      The new full-image WebP quality (0–100), or null to follow the upload quality.
+	 * @param int|null $thumbnail_width   The new thumbnail width, or null to follow the effective full width.
+	 * @param int      $thumbnail_quality The new thumbnail WebP quality (0–100).
 	 * @return self A new descriptor carrying the new re-derivable settings.
 	 */
 	public function with_renditions(
-		int $full_width,
-		int $full_quality,
-		int $thumbnail_width,
+		?int $full_width,
+		?int $full_quality,
+		?int $thumbnail_width,
 		int $thumbnail_quality,
 	): self {
 		return new self(
@@ -199,7 +245,10 @@ final readonly class Descriptor {
 	 * or not a JSON object — a degraded state the caller surfaces rather than
 	 * crashing on. Fields are coerced defensively so an externally hand-edited
 	 * file still yields a sane shape: `uploadWidth` accepts an int or `null` (no
-	 * limit); the five remaining width/quality fields coerce to int (a missing or
+	 * limit); the re-derivable `fullWidth`, `fullQuality`, and `thumbnailWidth`
+	 * accept an int or `null` (unset — collapse to the tier above, ADR-0013/#71),
+	 * with a missing or non-int value reading as `null` (unset) too; the always-
+	 * concrete `uploadQuality` and `thumbnailQuality` coerce to int (a missing or
 	 * non-int value reads as `0`, which the doctor and optimiser then surface);
 	 * and `pathComponents` falls back to the default template when absent or
 	 * non-string, since an empty field means the default (ADR-0014).
@@ -230,15 +279,17 @@ final readonly class Descriptor {
 			return null;
 		}
 
-		// Coerce each field to its declared type. The upload width is the nullable
-		// half of the contract; every other width/quality coerces to int, and the
-		// path-components template falls back to the default when absent (ADR-0014).
+		// Coerce each field to its declared type. The upload width and the three
+		// re-derivable knobs (full width/quality, thumbnail width) are nullable —
+		// `null` means unset (ADR-0013/#71); the always-concrete qualities coerce to
+		// int; and the path-components template falls back to the default when absent
+		// (ADR-0014).
 		$name           = isset( $data['name'] ) && is_string( $data['name'] ) ? $data['name'] : '';
-		$upload_width   = isset( $data['uploadWidth'] ) && is_int( $data['uploadWidth'] ) ? $data['uploadWidth'] : null;
+		$upload_width   = self::nullable_int_field( $data, 'uploadWidth' );
 		$upload_quality = self::int_field( $data, 'uploadQuality' );
-		$full_width     = self::int_field( $data, 'fullWidth' );
-		$full_quality   = self::int_field( $data, 'fullQuality' );
-		$thumb_width    = self::int_field( $data, 'thumbnailWidth' );
+		$full_width     = self::nullable_int_field( $data, 'fullWidth' );
+		$full_quality   = self::nullable_int_field( $data, 'fullQuality' );
+		$thumb_width    = self::nullable_int_field( $data, 'thumbnailWidth' );
 		$thumb_quality  = self::int_field( $data, 'thumbnailQuality' );
 		$stored_path    = $data['pathComponents'] ?? null;
 		$path           = is_string( $stored_path ) && $stored_path !== ''
@@ -310,7 +361,7 @@ final readonly class Descriptor {
 	 *
 	 * @since 0.1.0
 	 *
-	 * @return array{schema:int,name:string,uploadWidth:int|null,uploadQuality:int,fullWidth:int,fullQuality:int,thumbnailWidth:int,thumbnailQuality:int,pathComponents:string}
+	 * @return array{schema:int,name:string,uploadWidth:int|null,uploadQuality:int,fullWidth:int|null,fullQuality:int|null,thumbnailWidth:int|null,thumbnailQuality:int,pathComponents:string}
 	 */
 	public function to_array(): array {
 		return [
@@ -342,6 +393,25 @@ final readonly class Descriptor {
 	 */
 	private static function int_field( array $data, string $key ): int {
 		return isset( $data[ $key ] ) && is_int( $data[ $key ] ) ? $data[ $key ] : 0;
+	}
+
+	/**
+	 * Reads a nullable integer field from a decoded descriptor.
+	 *
+	 * The reader for the fields where `null` is a meaningful value: the upload width
+	 * (no ceiling) and the re-derivable full width/quality and thumbnail width (unset
+	 * — collapse to the tier above, ADR-0013/#71). A JSON `null`, a missing key, or a
+	 * non-integer value all read as `null` so "unset" survives a hand-edit rather than
+	 * silently coercing to a concrete `0` that would freeze a degenerate value.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param array<array-key,mixed> $data The decoded descriptor.
+	 * @param string                 $key  The nullable integer field name.
+	 * @return int|null The coerced integer value, or null when absent, null, or non-integer.
+	 */
+	private static function nullable_int_field( array $data, string $key ): ?int {
+		return isset( $data[ $key ] ) && is_int( $data[ $key ] ) ? $data[ $key ] : null;
 	}
 
 	/**

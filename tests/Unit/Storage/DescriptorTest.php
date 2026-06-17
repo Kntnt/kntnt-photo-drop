@@ -122,6 +122,20 @@ test( 'with_renditions replaces the re-derivable pairs and keeps everything immu
 	expect( $flipped->path_components )->toBe( '%year%/%uploader%' );
 } );
 
+test( 'with_renditions carries an unset re-derivable target through the flip', function (): void {
+	$original = make_descriptor( [ 'upload_quality' => 90 ] );
+
+	// The flip primitive must be able to land on unset targets too, so a regenerate
+	// that collapses a tier (e.g. a now-empty full width) persists as unset rather
+	// than freezing a concrete value (#71). Thumbnail quality stays concrete.
+	$flipped = $original->with_renditions( null, null, null, 60 );
+
+	expect( $flipped->full_width )->toBeNull();
+	expect( $flipped->full_quality )->toBeNull();
+	expect( $flipped->thumbnail_width )->toBeNull();
+	expect( $flipped->thumbnail_quality )->toBe( 60 );
+} );
+
 test( 'with_renditions leaves the original descriptor unmutated', function (): void {
 	$original = make_descriptor( [
 		'full_width'      => 1920,
@@ -135,6 +149,76 @@ test( 'with_renditions leaves the original descriptor unmutated', function (): v
 
 	expect( $original->full_width )->toBe( 1920 );
 	expect( $original->thumbnail_width )->toBe( 640 );
+} );
+
+// ---------------------------------------------------------------------------
+// effective_renditions — collapse-to-parent for unset re-derivable fields (#71)
+// ---------------------------------------------------------------------------
+
+test( 'effective_renditions returns the concrete values unchanged when all are set', function (): void {
+
+	// A fully-specified descriptor resolves to exactly its stored re-derivable
+	// values — collapse only happens for an unset (null) field (#71).
+	$effective = make_descriptor( [
+		'upload_quality'    => 95,
+		'full_width'        => 1600,
+		'full_quality'      => 82,
+		'thumbnail_width'   => 480,
+		'thumbnail_quality' => 70,
+	] )->effective_renditions();
+
+	expect( $effective )->toBe( [
+		'full_width'        => 1600,
+		'full_quality'      => 82,
+		'thumbnail_width'   => 480,
+		'thumbnail_quality' => 70,
+	] );
+} );
+
+test( 'an unset full width collapses so no separate full is ever produced', function (): void {
+
+	// Empty Full width means the main serves the full role: the effective full width
+	// is unbounded (PHP_INT_MAX), so no main is ever strictly wider and no separate
+	// full file is written, while the thumbnail still derives from the main (#71,
+	// ADR-0013). The thumbnail width, being set, is unchanged.
+	$effective = make_descriptor( [
+		'full_width'      => null,
+		'thumbnail_width' => 640,
+	] )->effective_renditions();
+
+	expect( $effective['full_width'] )->toBe( PHP_INT_MAX );
+	expect( $effective['thumbnail_width'] )->toBe( 640 );
+} );
+
+test( 'an unset full quality defaults to the upload quality', function (): void {
+
+	// Empty Full quality means the full rendition is encoded at the same quality as
+	// the main image — the upload quality (#71).
+	$effective = make_descriptor( [
+		'upload_quality' => 88,
+		'full_quality'   => null,
+	] )->effective_renditions();
+
+	expect( $effective['full_quality'] )->toBe( 88 );
+} );
+
+test( 'an unset thumbnail width defaults to the effective full width', function (): void {
+
+	// Empty Thumbnail width follows the Full width: with a concrete full width it
+	// equals that width (collapsing the thumbnail into the full), and with an unset
+	// full width it inherits the unbounded effective full width so the main serves
+	// every role (#71).
+	$with_full = make_descriptor( [
+		'full_width'      => 1600,
+		'thumbnail_width' => null,
+	] )->effective_renditions();
+	expect( $with_full['thumbnail_width'] )->toBe( 1600 );
+
+	$all_unset = make_descriptor( [
+		'full_width'      => null,
+		'thumbnail_width' => null,
+	] )->effective_renditions();
+	expect( $all_unset['thumbnail_width'] )->toBe( PHP_INT_MAX );
 } );
 
 // ---------------------------------------------------------------------------
@@ -184,6 +268,47 @@ test( 'a descriptor round-trips a null upload width', function (): void {
 
 	$read = Descriptor::read( $dir );
 	expect( $read->upload_width )->toBeNull();
+
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'a descriptor round-trips the unset re-derivable fields as null', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	// Full width, full quality, and thumbnail width may each be unset, meaning
+	// collapse-to-parent; "unset" must persist as JSON null distinct from a concrete
+	// value and read back as null, not coerce to 0 (#71).
+	make_descriptor( [
+		'full_width'      => null,
+		'full_quality'    => null,
+		'thumbnail_width' => null,
+	] )->write( $dir );
+
+	$read = Descriptor::read( $dir );
+	expect( $read->full_width )->toBeNull();
+	expect( $read->full_quality )->toBeNull();
+	expect( $read->thumbnail_width )->toBeNull();
+
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'the unset re-derivable fields are emitted as JSON null', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	make_descriptor( [
+		'full_width'      => null,
+		'full_quality'    => null,
+		'thumbnail_width' => null,
+	] )->write( $dir );
+
+	// An unset field is written as JSON null so it is distinguishable from a concrete
+	// value on disk and by a human reading the file (#71).
+	$contents = (string) file_get_contents( $dir . '/' . Descriptor::FILENAME );
+	expect( str_contains( $contents, '"fullWidth": null' ) )->toBeTrue();
+	expect( str_contains( $contents, '"fullQuality": null' ) )->toBeTrue();
+	expect( str_contains( $contents, '"thumbnailWidth": null' ) )->toBeTrue();
 
 	descriptor_remove_tree( $dir );
 } );
@@ -365,6 +490,61 @@ test( 'read coerces a null upload width and keeps a concrete one', function (): 
 	file_put_contents( $dir . '/' . Descriptor::FILENAME, json_encode( $payload ) );
 
 	expect( Descriptor::read( $dir )->upload_width )->toBeNull();
+
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'read reads a missing re-derivable field as unset, not a concrete zero', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	// A hand-edited descriptor that omits fullWidth, fullQuality, and thumbnailWidth
+	// reads each as null (unset — collapse to the tier above), never the degenerate 0
+	// that would freeze a concrete value and defeat collapse-to-parent (#71). This is
+	// the missing-key half of the defensive coercion the read() PHPDoc promises.
+	$payload = [
+		'schema'           => Descriptor::SCHEMA,
+		'name'             => 'Sparse',
+		'uploadWidth'      => 4000,
+		'uploadQuality'    => 95,
+		'thumbnailQuality' => 75,
+		'pathComponents'   => '%year%',
+	];
+	file_put_contents( $dir . '/' . Descriptor::FILENAME, json_encode( $payload ) );
+
+	$read = Descriptor::read( $dir );
+	expect( $read->full_width )->toBeNull();
+	expect( $read->full_quality )->toBeNull();
+	expect( $read->thumbnail_width )->toBeNull();
+
+	descriptor_remove_tree( $dir );
+} );
+
+test( 'read reads a non-integer re-derivable field as unset, not a concrete zero', function (): void {
+	wire_descriptor_stubs();
+	$dir = fresh_collection_dir();
+
+	// A hand-edited descriptor whose re-derivable knobs carry a non-integer value (a
+	// string here) reads each as null (unset), never coercing to 0 — the same guard
+	// uploadWidth gets, extended to the trio so a malformed hand-edit collapses to the
+	// tier above rather than freezing a degenerate width/quality (#71).
+	$payload = [
+		'schema'           => Descriptor::SCHEMA,
+		'name'             => 'Malformed',
+		'uploadWidth'      => 4000,
+		'uploadQuality'    => 95,
+		'fullWidth'        => '1920',
+		'fullQuality'      => '85',
+		'thumbnailWidth'   => '640',
+		'thumbnailQuality' => 75,
+		'pathComponents'   => '%year%',
+	];
+	file_put_contents( $dir . '/' . Descriptor::FILENAME, json_encode( $payload ) );
+
+	$read = Descriptor::read( $dir );
+	expect( $read->full_width )->toBeNull();
+	expect( $read->full_quality )->toBeNull();
+	expect( $read->thumbnail_width )->toBeNull();
 
 	descriptor_remove_tree( $dir );
 } );

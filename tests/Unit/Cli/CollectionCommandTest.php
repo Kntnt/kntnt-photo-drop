@@ -166,6 +166,29 @@ test( 'create defaults every omitted rendition field from its filter', function 
 	command_remove_tree( $basedir );
 } );
 
+test( 'create unsets a re-derivable field passed empty, mirroring the admin form', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// An explicitly-empty re-derivable flag (e.g. --full-width=) means "unset" — the
+	// collapse-to-parent default — not the filter default, mirroring an emptied admin
+	// form field (#71). An absent flag still takes the documented filter default.
+	$command->create( [ 'collapsed' ], [
+		'full-width'      => '',
+		'full-quality'    => '',
+		'thumbnail-width' => '',
+	] );
+
+	$descriptor = Descriptor::read( $root . 'collapsed' );
+	expect( $descriptor->full_width )->toBeNull();
+	expect( $descriptor->full_quality )->toBeNull();
+	expect( $descriptor->thumbnail_width )->toBeNull();
+	expect( $descriptor->thumbnail_quality )->toBe( 75 );
+
+	command_remove_tree( $basedir );
+} );
+
 test( 'create defaults the name to a humanised slug', function (): void {
 	$basedir = fresh_command_basedir();
 	$root    = wire_command_stubs( $basedir );
@@ -519,6 +542,43 @@ test( 'update mutates the re-derivable full and thumbnail settings and flips the
 	expect( $after->thumbnail_width )->toBe( 300 );
 	expect( $after->thumbnail_quality )->toBe( 60 );
 	expect( $after->name )->toBe( 'Rederive' );
+	expect( $after->upload_quality )->toBe( 95 );
+	expect( WP_CLI::$successes )->toHaveCount( 1 );
+
+	command_remove_tree( $basedir );
+} );
+
+test( 'update unsets a re-derivable field passed empty, persisting null through the flip', function (): void {
+	$basedir = fresh_command_basedir();
+	$root    = wire_command_stubs( $basedir );
+	$command = make_command();
+
+	// Establish on concrete re-derivable widths, then clear Full width, Full quality, and
+	// Thumbnail width by passing each flag empty. The collection holds no images, so the
+	// regenerate-then-flip finalises straight to the flipped descriptor; the raw target is
+	// the $flip_to, so each cleared field persists as null (unset/collapse-to-parent, #71)
+	// rather than freezing a concrete value.
+	$command->create( [ 'collapse-update' ], [
+		'full-width'      => '1600',
+		'full-quality'    => '82',
+		'thumbnail-width' => '480',
+		'name'            => 'Collapse',
+	] );
+
+	WP_CLI::reset();
+	$command->update( [ 'collapse-update' ], [
+		'full-width'      => '',
+		'full-quality'    => '',
+		'thumbnail-width' => '',
+	] );
+	$after = Descriptor::read( $root . 'collapse-update' );
+
+	// All three re-derivable fields are now unset on disk; the always-concrete thumbnail
+	// quality and the immutable upload pair carry over.
+	expect( $after->full_width )->toBeNull();
+	expect( $after->full_quality )->toBeNull();
+	expect( $after->thumbnail_width )->toBeNull();
+	expect( $after->thumbnail_quality )->toBe( 75 );
 	expect( $after->upload_quality )->toBe( 95 );
 	expect( WP_CLI::$successes )->toHaveCount( 1 );
 

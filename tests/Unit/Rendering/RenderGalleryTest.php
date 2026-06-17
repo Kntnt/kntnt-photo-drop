@@ -451,6 +451,39 @@ test( 'a main no wider than the full is the full candidate, served from the main
 	gallery_remove_tree( $basedir );
 } );
 
+test( 'an unset full width makes the wide main the full candidate at its own width', function (): void {
+
+	// With the Full width unset, the main serves the full role at any size: a 4000px
+	// main is a srcset candidate at its own 4000w from the main URL (no separate full
+	// directory), alongside the 320 thumbnail (#71, ADR-0013).
+	$descriptor = gallery_descriptor( [
+		'upload_width'    => null,
+		'full_width'      => null,
+		'full_quality'    => null,
+		'thumbnail_width' => 320,
+	] );
+	$html = render_seeded_gallery(
+		[],
+		[
+			[
+				'path'   => 'wide.jpg.webp',
+				'width'  => 4000,
+				'height' => 2400,
+			],
+		],
+		$descriptor,
+		can_edit: false,
+		basedir_out: $basedir,
+	);
+
+	expect( $html )->toContain( '320w' );
+	expect( $html )->toContain( '4000w' );
+	expect( $html )->toContain( '/.kntnt-thumbnails/320/' );
+	expect( $html )->not->toContain( '/.kntnt-thumbnails/4000/' );
+
+	gallery_remove_tree( $basedir );
+} );
+
 // ---------------------------------------------------------------------------
 // sizes — layout-aware hints, never a blanket 100vw
 // ---------------------------------------------------------------------------

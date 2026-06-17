@@ -708,6 +708,67 @@ test( 'the edit form carries the regenerate progress region and the collection s
 	admin_remove_tree( $basedir );
 } );
 
+test( 'the edit form renders an unset re-derivable field as an empty input', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+
+	// Seed a collection whose Full width and Full quality are unset (the collapse-to-
+	// parent state, #71); the edit form must render those inputs empty so the operator
+	// sees and can preserve "unset" rather than a fabricated concrete value.
+	$path       = (string) ( new Repository() )->create_collection( 'collapsed' );
+	$descriptor = new Descriptor( 'Collapsed', 1920, 90, null, null, 320, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
+	$descriptor->write( $path );
+
+	$_GET = [
+		'page'       => Admin_Page::MENU_SLUG,
+		'action'     => 'edit',
+		'collection' => 'collapsed',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The unset Full width and Full quality render with an empty value attribute, while
+	// the set Thumbnail width carries its concrete 320 — pinning that an unset field is
+	// shown empty (collapse-to-parent) and a set one keeps its value. The regex ties each
+	// field's id to its own value, so an empty value is asserted for that specific input.
+	expect( $html )->toMatch( '/id="kntnt-photo-drop-full-width"[^>]*value=""/' );
+	expect( $html )->toMatch( '/id="kntnt-photo-drop-full-quality"[^>]*value=""/' );
+	expect( $html )->toMatch( '/id="kntnt-photo-drop-thumbnail-width"[^>]*value="320"/' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the list shows Auto for a collection whose full width is unset', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+
+	// A collection with an unset Full width and Full quality must list as "Auto" rather
+	// than a misleading "0 px" or a stale concrete value (#71); the always-concrete
+	// thumbnail still shows its pixel width.
+	$path       = (string) ( new Repository() )->create_collection( 'auto-full' );
+	$descriptor = new Descriptor( 'Auto Full', 1920, 90, null, null, 320, 75, Descriptor::DEFAULT_PATH_COMPONENTS );
+	$descriptor->write( $path );
+
+	// Notice replay touches the per-user transient key before the table renders.
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [ 'page' => Admin_Page::MENU_SLUG ];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	expect( $html )->toContain( 'Auto, quality auto' );
+	expect( $html )->toContain( '320 px' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
 // ---------------------------------------------------------------------------
 // List view — always-visible Edit/Delete buttons in the rightmost column
 // ---------------------------------------------------------------------------
@@ -1043,15 +1104,16 @@ test( 'create writes a valid three-rendition collection.json from the form field
 	admin_remove_tree( $basedir );
 } );
 
-test( 'create maps a blank upload pair to original dimensions and maximum quality', function (): void {
+test( 'create maps a blank upload pair to original size and max quality and unsets the rest', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	$page    = new Admin_Page( new Repository() );
 
-	// A blank upload width means the source's own dimensions (null, "no max"), and a
-	// blank upload quality means maximum (100) — full fidelity reachable without an
-	// as-is mode (#70, ADR-0002). The re-derivable full and thumbnail fields still
-	// fall back to their filter defaults (full 1920/85, thumbnail 640/75).
+	// A blank upload width means the source's own dimensions (null, "no max") and a
+	// blank upload quality means maximum (100) — full fidelity without an as-is mode
+	// (#70, ADR-0002). A blank thumbnail quality still falls back to its filter default
+	// (75), but a blank Full width, Full quality, or Thumbnail width means "unset" —
+	// collapse-to-parent — not the filter default (#71).
 	$page->create_collection( 'defaulted', 'Defaulted', [
 		'upload-width'      => '',
 		'upload-quality'    => '',
@@ -1064,10 +1126,29 @@ test( 'create maps a blank upload pair to original dimensions and maximum qualit
 	$descriptor = Descriptor::read( $root . 'defaulted' );
 	expect( $descriptor->upload_width )->toBeNull();
 	expect( $descriptor->upload_quality )->toBe( 100 );
-	expect( $descriptor->full_width )->toBe( 1920 );
-	expect( $descriptor->full_quality )->toBe( 85 );
-	expect( $descriptor->thumbnail_width )->toBe( 640 );
+	expect( $descriptor->full_width )->toBeNull();
+	expect( $descriptor->full_quality )->toBeNull();
+	expect( $descriptor->thumbnail_width )->toBeNull();
 	expect( $descriptor->thumbnail_quality )->toBe( 75 );
+
+	admin_remove_tree( $basedir );
+} );
+
+test( 'create may save a collection with an empty full width that produces no separate full', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_stubs( $basedir );
+	$page    = new Admin_Page( new Repository() );
+
+	// A blank Full width is saved as unset; the descriptor's effective renditions then
+	// collapse so the main serves the full role and no separate full is ever produced
+	// (#71, ADR-0013). The thumbnail still derives from the main at the set width.
+	$created = $page->create_collection( 'no-full', 'No Full', admin_renditions( [ 'full-width' => '' ] ) );
+
+	expect( $created )->toBeTrue();
+	$descriptor = Descriptor::read( $root . 'no-full' );
+	expect( $descriptor->full_width )->toBeNull();
+	$effective = $descriptor->effective_renditions();
+	expect( $effective['full_width'] )->toBe( PHP_INT_MAX );
 
 	admin_remove_tree( $basedir );
 } );

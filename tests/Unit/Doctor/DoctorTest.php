@@ -295,6 +295,52 @@ test( 'repair creates both the full and the thumbnail for a wide main', function
 	doctor_remove_tree( $root );
 } );
 
+test( 'an unset full width demands no separate full and the doctor and srcset agree', function (): void {
+	$root = doctor_fresh_root();
+
+	// A collection whose Full width is unset (the main serves the full role): a wide
+	// main needs only its thumbnail derived, never a separate full, so report-only
+	// finds the thumbnail missing but no full at any width (#71, ADR-0013).
+	$descriptor = new Descriptor( 'Test', null, 80, null, null, 320, 75, '%year%' );
+	$descriptor->write( $root );
+	write_doctor_main( $root, 'wide.jpg.webp', 4000, 2400 );
+
+	$report  = make_doctor( $root, $descriptor )->run( false, false );
+	$missing = finding_paths( $report, Finding_Kind::Missing_Derived );
+
+	// The thumbnail (derived from the main) is demanded; no full bucket of any width
+	// appears among the findings, so the doctor never asks for a separate full.
+	expect( $missing )->toContain( '.kntnt-thumbnails/320/wide.jpg.webp' );
+	$full_findings = array_filter(
+		$missing,
+		static fn ( string $path ): bool => str_contains( $path, '.kntnt-thumbnails/' )
+			&& ! str_contains( $path, '.kntnt-thumbnails/320/' ),
+	);
+	expect( $full_findings )->toBe( [] );
+
+	doctor_remove_tree( $root );
+} );
+
+test( 'repair derives only the thumbnail for an unset full width', function (): void {
+	$root = doctor_fresh_root();
+
+	// With the Full width unset, --repair writes the thumbnail derived straight from
+	// the main and never a separate full bucket — the main is itself the full
+	// rendition (#71, ADR-0013).
+	$descriptor = new Descriptor( 'Test', null, 80, null, null, 320, 75, '%year%' );
+	$descriptor->write( $root );
+	write_doctor_main( $root, 'wide.jpg.webp', 4000, 2400 );
+
+	make_doctor( $root, $descriptor )->run( true, false );
+
+	$thumb = $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/wide.jpg.webp';
+	expect( doctor_webp_width( $thumb ) )->toBe( 320 );
+	$buckets = glob( $root . '/' . Index::THUMBNAILS_DIRNAME . '/*', GLOB_ONLYDIR );
+	expect( $buckets )->toBe( [ $root . '/' . Index::THUMBNAILS_DIRNAME . '/320' ] );
+
+	doctor_remove_tree( $root );
+} );
+
 test( 'repair removes an orphan derived file', function (): void {
 	$root = doctor_fresh_root();
 	doctor_descriptor()->write( $root );
@@ -703,6 +749,34 @@ test( 'a repair without force never prunes a de-configured width directory', fun
 
 	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/640/photo.jpg.webp' ) )->toBeTrue();
 	expect( $report->pruned )->toBe( 0 );
+
+	doctor_remove_tree( $root );
+} );
+
+test( 'force prunes the separate full bucket when the full width becomes unset', function (): void {
+	$root = doctor_fresh_root();
+
+	// Establish a collection with a concrete 1280 full and a 320 thumbnail, and repair
+	// so both the 1280 full bucket and the 320 thumbnail bucket hold a derived file from
+	// the wide main.
+	$with_full = new Descriptor( 'Test', 1920, 80, 1280, 80, 320, 75, '%year%' );
+	$with_full->write( $root );
+	write_doctor_main( $root, 'photo.jpg.webp', 1600 );
+	make_doctor( $root, $with_full )->run( true, false );
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280/photo.jpg.webp' ) )->toBeTrue();
+
+	// The full width is then cleared to unset: effective_renditions() resolves it to the
+	// unbounded ceiling, so the configured widths list carries no 1280, and a forced
+	// repair retires the now-de-configured 1280 full bucket — the main serves the full
+	// role itself (#71, ADR-0013). The 320 thumbnail stays configured and survives.
+	$unset_full = new Descriptor( 'Test', 1920, 80, null, null, 320, 75, '%year%' );
+	$unset_full->write( $root );
+	$report = make_doctor( $root, $unset_full )->run( true, true );
+
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280/photo.jpg.webp' ) )->toBeFalse();
+	expect( is_dir( $root . '/' . Index::THUMBNAILS_DIRNAME . '/1280' ) )->toBeFalse();
+	expect( is_file( $root . '/' . Index::THUMBNAILS_DIRNAME . '/320/photo.jpg.webp' ) )->toBeTrue();
+	expect( $report->pruned )->toBe( 1 );
 
 	doctor_remove_tree( $root );
 } );

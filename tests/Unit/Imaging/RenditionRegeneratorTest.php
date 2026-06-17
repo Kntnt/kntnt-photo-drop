@@ -271,6 +271,66 @@ test( 'finalise verifies completeness from the index without decoding each main'
 } );
 
 // ---------------------------------------------------------------------------
+// finalise — a raw $flip_to descriptor persists an unset field as null (#71)
+// ---------------------------------------------------------------------------
+
+test( 'finalise writes the raw flip-to descriptor so an unset full width persists as null', function (): void {
+	$root = fresh_regen_root();
+
+	// Seed a live collection on concrete widths, with the wide main complete at the
+	// effective target so verify-then-flip passes: an unset full width collapses to the
+	// unbounded effective ceiling (PHP_INT_MAX), and the thumbnail still derives at 300.
+	$main = write_regen_main( $root, 'wide.webp', 4000, 2400 );
+	regen_gd_thumbnailer()->generate( $main, 'wide.webp', 1200, 85, 600, 75 );
+	regen_gd_thumbnailer()->generate( $main, 'wide.webp', PHP_INT_MAX, 85, 300, 75 );
+	$live        = seed_regen_descriptor( $root, 1200, 600 );
+	$regenerator = new Rendition_Regenerator( $root, $live );
+
+	// The raw target leaves the full width unset (null); finalise is handed the target's
+	// effective widths for the sweep/prune but the *raw* target as $flip_to, mirroring
+	// the CLI and the REST Edit path.
+	$target    = $live->with_renditions( null, 85, 300, 75 );
+	$effective = $target->effective_renditions();
+	$result    = $regenerator->finalise(
+		$effective['full_width'],
+		$effective['full_quality'],
+		$effective['thumbnail_width'],
+		$effective['thumbnail_quality'],
+		$target,
+	);
+
+	// The flip succeeds and the on-disk descriptor records the full width as null — unset
+	// persists distinct from a concrete value, never frozen (#71, ADR-0013).
+	expect( $result )->not->toBeFalse();
+	$on_disk = Descriptor::read( $root );
+	expect( $on_disk->full_width )->toBeNull();
+	expect( $on_disk->thumbnail_width )->toBe( 300 );
+
+	regen_remove_tree( $root );
+} );
+
+test( 'finalise without a flip-to descriptor freezes concrete widths, unchanged by #71', function (): void {
+	$root = fresh_regen_root();
+
+	// The REST batch path (no $flip_to) still flips from the four concrete arguments via
+	// with_renditions(), so the existing concrete-flip behaviour is preserved.
+	$main = write_regen_main( $root, 'wide.webp', 4000, 2400 );
+	regen_gd_thumbnailer()->generate( $main, 'wide.webp', 1200, 85, 600, 75 );
+	regen_gd_thumbnailer()->generate( $main, 'wide.webp', 800, 85, 300, 75 );
+	seed_regen_descriptor( $root, 1200, 600 );
+	$regenerator = new Rendition_Regenerator( $root, Descriptor::read( $root ) );
+
+	$result = $regenerator->finalise( 800, 85, 300, 75 );
+
+	expect( $result )->not->toBeFalse();
+	$on_disk = Descriptor::read( $root );
+	expect( $on_disk->full_width )->toBe( 800 );
+	expect( $on_disk->thumbnail_width )->toBe( 300 );
+
+	regen_remove_tree( $root );
+} );
+
+// ---------------------------------------------------------------------------
 // main_complete — the per-batch failure signal the controller propagates
 // ---------------------------------------------------------------------------
 

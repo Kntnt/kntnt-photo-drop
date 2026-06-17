@@ -314,6 +314,141 @@ test( 'a malformed target width is rejected as a 400 and the descriptor is untou
 } );
 
 // ---------------------------------------------------------------------------
+// Collapse-to-parent — an unset re-derivable field flips to JSON null (#71)
+// ---------------------------------------------------------------------------
+
+test( 'a finalise with an unset full width flips the descriptor to null, not a concrete width', function (): void {
+	$basedir = fresh_regenerate_basedir();
+	$root    = rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
+	wire_regenerate_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path = seed_regenerate_collection( $root, 'unset-full' );
+
+	// An emptied Full width arrives over the wire as JSON null (the Edit page's
+	// collapse-to-parent state, ADR-0013/#71). The empty collection finalises
+	// vacuously; the flip must persist fullWidth as null — "no separate full, the main
+	// serves" — never freeze it to a concrete value.
+	$controller = new Regenerate_Controller( new Repository() );
+	$controller->regenerate( regenerate_request( 'unset-full', [
+		'fullWidth'        => null,
+		'fullQuality'      => 80,
+		'thumbnailWidth'   => 320,
+		'thumbnailQuality' => 60,
+		'finalize'         => true,
+	] ) );
+
+	$descriptor = Descriptor::read( $path );
+	expect( $descriptor->full_width )->toBeNull();
+	expect( $descriptor->full_quality )->toBe( 80 );
+	expect( $descriptor->thumbnail_width )->toBe( 320 );
+
+	regenerate_remove_tree( $basedir );
+} );
+
+test( 'a finalise with an unset full quality flips to null, not the degenerate concrete 0', function (): void {
+	$basedir = fresh_regenerate_basedir();
+	$root    = rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
+	wire_regenerate_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path = seed_regenerate_collection( $root, 'unset-fq' );
+
+	// An emptied Full quality must persist as null (follow the upload quality,
+	// ADR-0013/#71), never as a concrete 0 that would freeze a degenerate quality on
+	// disk — the precise failure the nullable-field reader warns against.
+	$controller = new Regenerate_Controller( new Repository() );
+	$controller->regenerate( regenerate_request( 'unset-fq', [
+		'fullWidth'        => 1280,
+		'fullQuality'      => null,
+		'thumbnailWidth'   => 320,
+		'thumbnailQuality' => 60,
+		'finalize'         => true,
+	] ) );
+
+	$descriptor = Descriptor::read( $path );
+	expect( $descriptor->full_quality )->toBeNull();
+	expect( $descriptor->full_width )->toBe( 1280 );
+
+	regenerate_remove_tree( $basedir );
+} );
+
+test( 'a finalise with an unset thumbnail width flips it to null (follows the full width)', function (): void {
+	$basedir = fresh_regenerate_basedir();
+	$root    = rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
+	wire_regenerate_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path = seed_regenerate_collection( $root, 'unset-tw' );
+
+	// An emptied Thumbnail width must persist as null (follow the effective full width,
+	// ADR-0013/#71), not a concrete value.
+	$controller = new Regenerate_Controller( new Repository() );
+	$controller->regenerate( regenerate_request( 'unset-tw', [
+		'fullWidth'        => 1280,
+		'fullQuality'      => 80,
+		'thumbnailWidth'   => null,
+		'thumbnailQuality' => 60,
+		'finalize'         => true,
+	] ) );
+
+	$descriptor = Descriptor::read( $path );
+	expect( $descriptor->thumbnail_width )->toBeNull();
+	expect( $descriptor->full_width )->toBe( 1280 );
+
+	regenerate_remove_tree( $basedir );
+} );
+
+test( 'all three re-derivable fields unset together flip to null in one finalise', function (): void {
+	$basedir = fresh_regenerate_basedir();
+	$root    = rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
+	wire_regenerate_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path = seed_regenerate_collection( $root, 'all-unset' );
+
+	// Clearing Full width, Full quality, and Thumbnail width together (the maximal
+	// collapse) must persist all three as null while the always-concrete thumbnail
+	// quality and the immutable upload pair carry over.
+	$controller = new Regenerate_Controller( new Repository() );
+	$controller->regenerate( regenerate_request( 'all-unset', [
+		'fullWidth'        => null,
+		'fullQuality'      => null,
+		'thumbnailWidth'   => null,
+		'thumbnailQuality' => 70,
+		'finalize'         => true,
+	] ) );
+
+	$descriptor = Descriptor::read( $path );
+	expect( $descriptor->full_width )->toBeNull();
+	expect( $descriptor->full_quality )->toBeNull();
+	expect( $descriptor->thumbnail_width )->toBeNull();
+	expect( $descriptor->thumbnail_quality )->toBe( 70 );
+	expect( $descriptor->upload_width )->toBe( 4000 );
+	expect( $descriptor->upload_quality )->toBe( 92 );
+
+	regenerate_remove_tree( $basedir );
+} );
+
+test( 'a non-null malformed width is still rejected as a 400, distinct from an unset null', function (): void {
+	$basedir = fresh_regenerate_basedir();
+	$root    = rtrim( $basedir, '/' ) . '/kntnt-photo-drop/';
+	wire_regenerate_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path   = seed_regenerate_collection( $root, 'still-malformed' );
+	$before = file_get_contents( $path . '/' . Descriptor::FILENAME );
+
+	// A present-but-garbage width (a non-numeric string) is malformed, not "unset": it
+	// must still be a 400 with the descriptor byte-identical, so accepting null as unset
+	// does not open the door to a degenerate flip.
+	$controller = new Regenerate_Controller( new Repository() );
+	$response   = $controller->regenerate( regenerate_request( 'still-malformed', [
+		'fullWidth'        => 'wide',
+		'fullQuality'      => 80,
+		'thumbnailWidth'   => 320,
+		'thumbnailQuality' => 60,
+		'finalize'         => true,
+	] ) );
+
+	expect( $response )->toBeInstanceOf( WP_Error::class );
+	expect( $response->get_error_data()['status'] )->toBe( 400 );
+	expect( file_get_contents( $path . '/' . Descriptor::FILENAME ) )->toBe( $before );
+
+	regenerate_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
 // Per-image failure propagation — a shortfall is a 500, never a silent 200
 // ---------------------------------------------------------------------------
 
