@@ -99,3 +99,56 @@ jobs:
 
       - name: End-to-end tests (Playwright against wp-env)
         run: npm run test:e2e
+
+  release:
+    name: Release — build the ZIP and draft the GitHub Release
+    runs-on: ubuntu-latest
+    # Only on a version tag, and only once every gate job is green: a failing
+    # gate (or a failing build) leaves no release behind. Releasing is therefore
+    # tag-triggered on CI, never an upload from a local machine.
+    needs: [php, node, integration-e2e]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          coverage: none
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # Guard against a mismatched tag: the version tag, the plugin header, and
+      # package.json must agree, so a v1.2.3 release can never ship a plugin that
+      # reports a different version.
+      - name: Verify the tag matches the plugin version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          header="$(grep -E '^[[:space:]]*\*[[:space:]]*Version:' kntnt-photo-drop.php | head -n 1 | sed -E 's/.*Version:[[:space:]]*([0-9A-Za-z.+-]+).*/\1/')"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$header" ] || [ "$tag" != "$pkg" ]; then
+            echo "Tag ${GITHUB_REF_NAME} must match the plugin header (${header}) and package.json (${pkg})." >&2
+            exit 1
+          fi
+
+      # build-zip.sh runs the production composer install, npm ci, and npm run
+      # build itself, then writes dist/kntnt-photo-drop.zip — the same artefact a
+      # local run produces.
+      - name: Build the distribution ZIP
+        run: ./build-zip.sh
+
+      - name: Draft the GitHub Release with the ZIP asset
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: dist/kntnt-photo-drop.zip
+          fail_on_unmatched_files: true

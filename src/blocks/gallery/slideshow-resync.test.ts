@@ -25,8 +25,9 @@ function link( name: string ): string {
 	return (
 		`<a class="kntnt-photo-drop-gallery__link" href="https://site.test/${ name }.webp"` +
 		` data-kntnt-photo-drop-full="https://site.test/${ name }.webp"` +
+		` data-kntnt-photo-drop-main="https://site.test/${ name }.webp"` +
 		` data-kntnt-photo-drop-srcset="https://site.test/${ name }-320.webp 320w"` +
-		` data-kntnt-photo-drop-caption="${ name } caption">` +
+		` data-kntnt-photo-drop-breadcrumbs="${ name } crumb">` +
 		`<img src="https://site.test/${ name }-320.webp" alt="${ name }"></a>`
 	);
 }
@@ -109,9 +110,11 @@ describe( 'freshSlides', () => {
 		expect( freshSlides( html, '', 0 ) ).toEqual( [
 			{
 				url: 'https://site.test/alpha.webp',
+				main: 'https://site.test/alpha.webp',
 				srcset: 'https://site.test/alpha-320.webp 320w',
 				label: 'alpha',
-				caption: 'alpha caption',
+				breadcrumbs: 'alpha crumb',
+				path: '',
 			},
 		] );
 	} );
@@ -119,7 +122,14 @@ describe( 'freshSlides', () => {
 
 describe( 'resolveResync', () => {
 	const current: readonly GallerySlide[] = [
-		{ url: 'a.webp', srcset: '', label: '', caption: '' },
+		{
+			url: 'a.webp',
+			main: 'a.webp',
+			srcset: '',
+			label: '',
+			breadcrumbs: '',
+			path: '',
+		},
 	];
 
 	it( 'keeps the stale list when the fetch failed', () => {
@@ -135,8 +145,22 @@ describe( 'resolveResync', () => {
 
 	it( 'replaces the list wholesale on a fresh view', () => {
 		const fresh: readonly GallerySlide[] = [
-			{ url: 'b.webp', srcset: '', label: '', caption: '' },
-			{ url: 'c.webp', srcset: '', label: '', caption: '' },
+			{
+				url: 'b.webp',
+				main: 'b.webp',
+				srcset: '',
+				label: '',
+				breadcrumbs: '',
+				path: '',
+			},
+			{
+				url: 'c.webp',
+				main: 'c.webp',
+				srcset: '',
+				label: '',
+				breadcrumbs: '',
+				path: '',
+			},
 		];
 		expect( resolveResync( fresh, current ) ).toEqual( {
 			slides: fresh,

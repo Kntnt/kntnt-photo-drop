@@ -2,14 +2,14 @@
 /**
  * Unit tests for the Gallery's pure render helpers.
  *
- * The justified-row math, the srcset assembly, the caption assembly, and the URL
- * arithmetic are pure helpers precisely so they can be proven in isolation,
- * without a collection on disk or a WordPress runtime (docs/testing.md). These
- * tests pin each helper's contract directly: the srcset keeps the main as a
- * candidate and drops upscaled thumbnails; captions assemble across every
- * content/humanise/separator combination; the justified math derives basis and
- * grow from the aspect ratio and flags the last row; and URLs encode each path
- * segment and splice the hidden thumbnails directory in correctly.
+ * The justified-row math, the srcset assembly, and the URL arithmetic are pure
+ * helpers precisely so they can be proven in isolation, without a collection on
+ * disk or a WordPress runtime (docs/testing.md). These tests pin each helper's
+ * contract directly: the srcset keeps the main as a candidate and drops upscaled
+ * thumbnails; the justified math derives basis and grow from the aspect ratio and
+ * flags the last row; and URLs encode each path segment and splice the hidden
+ * thumbnails directory in correctly. The breadcrumb overlay assembly is the
+ * unified overlay framework's own pure core and lives in BreadcrumbBuilderTest.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.6.0
@@ -17,53 +17,74 @@
 
 declare( strict_types = 1 );
 
-use Kntnt\Photo_Drop\Rendering\Caption_Builder;
 use Kntnt\Photo_Drop\Rendering\Image_Url;
 use Kntnt\Photo_Drop\Rendering\Justified_Layout;
 use Kntnt\Photo_Drop\Rendering\Srcset_Builder;
 
 // ---------------------------------------------------------------------------
-// Srcset_Builder — the main is always a candidate; upscales are dropped
+// Srcset_Builder — candidates are { thumbnail, full }; the full is the ceiling
 // ---------------------------------------------------------------------------
 
-test( 'srcset candidates list each smaller thumbnail width plus the main, ascending', function (): void {
+test( 'srcset lists the thumbnail and the bounded full, never the wider main', function (): void {
 
+	// A main (4000) wider than the full (1920) is download-only: the candidates are
+	// the thumbnail (640) and the bounded full (1920), both served from the hidden
+	// width directories, and the 4000px main never appears (ADR-0013).
 	$candidates = Srcset_Builder::candidates(
-		1200,
-		[ 320, 640 ],
+		4000,
+		1920,
+		640,
 		'https://x/main.webp',
 		static fn ( int $w ): string => "https://x/t{$w}.webp",
 	);
 
-	// Three candidates ascending: the two thumbnails below the main, then the main.
-	$widths = array_column( $candidates, 'width' );
-	expect( $widths )->toBe( [ 320, 640, 1200 ] );
-	expect( $candidates[2]['url'] )->toBe( 'https://x/main.webp' );
+	expect( $candidates )->toBe( [
+		[
+			'url'   => 'https://x/t640.webp',
+			'width' => 640,
+		],
+		[
+			'url'   => 'https://x/t1920.webp',
+			'width' => 1920,
+		],
+	] );
 
 } );
 
-test( 'a thumbnail width at or above the main width is dropped from the candidates', function (): void {
+test( 'a main no wider than the full is itself the full candidate, served from the main url', function (): void {
 
+	// A main (1500) no wider than the full (1920) is the full rendition itself, so
+	// it stays a candidate at its own width and is served from the main URL — nothing
+	// is upscaled — alongside the smaller thumbnail (ADR-0013).
+	$candidates = Srcset_Builder::candidates(
+		1500,
+		1920,
+		640,
+		'https://x/main.webp',
+		static fn ( int $w ): string => "https://x/t{$w}.webp",
+	);
+
+	expect( $candidates )->toBe( [
+		[
+			'url'   => 'https://x/t640.webp',
+			'width' => 640,
+		],
+		[
+			'url'   => 'https://x/main.webp',
+			'width' => 1500,
+		],
+	] );
+
+} );
+
+test( 'a main no wider than the thumbnail yields just the main candidate', function (): void {
+
+	// A tiny main (500) no wider than either tier serves every role, so the only
+	// candidate is the main itself at its own width, served from the main URL.
 	$candidates = Srcset_Builder::candidates(
 		500,
-		[ 320, 500, 800 ],
-		'https://x/main.webp',
-		static fn ( int $w ): string => "https://x/t{$w}.webp",
-	);
-
-	// 500 equals the main (the main candidate wins that width) and 800 is an
-	// upscale, so only 320 and the 500-wide main remain.
-	$widths = array_column( $candidates, 'width' );
-	expect( $widths )->toBe( [ 320, 500 ] );
-	expect( $candidates[1]['url'] )->toBe( 'https://x/main.webp' );
-
-} );
-
-test( 'a collection with no thumbnail widths yields just the main candidate', function (): void {
-
-	$candidates = Srcset_Builder::candidates(
-		900,
-		[],
+		1920,
+		640,
 		'https://x/main.webp',
 		static fn ( int $w ): string => "https://x/t{$w}.webp",
 	);
@@ -71,7 +92,7 @@ test( 'a collection with no thumbnail widths yields just the main candidate', fu
 	expect( $candidates )->toBe( [
 		[
 			'url'   => 'https://x/main.webp',
-			'width' => 900,
+			'width' => 500,
 		],
 	] );
 
@@ -94,56 +115,6 @@ test( 'the srcset attribute joins candidates as <url> <width>w', function (): vo
 
 	expect( $attribute )->toBe( 'https://x/t320.webp 320w, https://x/main.webp 900w' );
 
-} );
-
-// ---------------------------------------------------------------------------
-// Caption_Builder — content / humanise / breadcrumb assembly
-// ---------------------------------------------------------------------------
-
-test( 'the none content yields an empty caption', function (): void {
-	expect( Caption_Builder::build( 'a/b.jpg.webp', 'none', true, false, '›', 'C' ) )->toBe( '' );
-} );
-
-test( 'a humanised filename caption strips the stored webp and the extension', function (): void {
-
-	// The stored name is the original plus .webp; humanising recovers the original
-	// and drops its own extension and separators.
-	$caption = Caption_Builder::build( 'morning/sun_rise-01.jpg.webp', 'filename', true, false, '›', 'C' );
-	expect( $caption )->toBe( 'sun rise 01' );
-
-} );
-
-test( 'a non-humanised filename caption keeps the original name with its extension', function (): void {
-	$caption = Caption_Builder::build( 'a/IMG_2024.jpg.webp', 'filename', false, false, '›', 'C' );
-	expect( $caption )->toBe( 'IMG_2024.jpg' );
-} );
-
-test( 'an already-webp original is not stripped to an extensionless name', function (): void {
-
-	// sunset.webp was an already-webp original stored verbatim; humanising must not
-	// invent an extensionless "sunset" by stripping a non-existent appended suffix.
-	$caption = Caption_Builder::build( 'sunset.webp', 'filename', false, false, '›', 'C' );
-	expect( $caption )->toBe( 'sunset.webp' );
-
-} );
-
-test( 'a path breadcrumb joins humanised segments with the separator', function (): void {
-	$caption = Caption_Builder::build( '2024_summer/day-one/IMG_5.jpg.webp', 'path', true, false, '›', 'Trip' );
-	expect( $caption )->toBe( '2024 summer › day one › IMG 5' );
-} );
-
-test( 'a path breadcrumb prefixes the collection name when asked', function (): void {
-	$caption = Caption_Builder::build( 'day-one/IMG_5.jpg.webp', 'path', true, true, '›', 'Trip' );
-	expect( $caption )->toBe( 'Trip › day one › IMG 5' );
-} );
-
-test( 'a root-level path breadcrumb is just the filename', function (): void {
-	$caption = Caption_Builder::build( 'lonely.jpg.webp', 'path', true, false, '›', 'Trip' );
-	expect( $caption )->toBe( 'lonely' );
-} );
-
-test( 'an unrecognised content value falls back to no caption', function (): void {
-	expect( Caption_Builder::build( 'a.jpg.webp', 'nonsense', true, false, '›', 'C' ) )->toBe( '' );
 } );
 
 // ---------------------------------------------------------------------------

@@ -20,22 +20,24 @@
  * `actionForKey`, `actionForSwipe`) what to do, and reflects the result back
  * onto the overlay. The overlay markup itself is emitted server-side by
  * `Render_Gallery` and escaped there; the controller only fills in the live
- * `src`/`srcset`, caption, counter, loading/error state, and `aria` state.
+ * `src`/`srcset`, breadcrumb, counter, loading/error state, and `aria` state.
  *
- * When download is on (issue #34), the overlay carries a download-icon anchor —
- * the sole download trigger. The controller points its `href` at the current
- * slide's full image and intercepts a plain click to save the slide
- * programmatically ({@link saveFile} — a blob download no link-rewriting theme
- * or cross-origin host can turn into a new tab); a click on the enlarged image
- * outside the icon does nothing. When the gallery has a caption, the controller
- * mirrors each slide's caption text onto the lightbox's caption figcaption (the
- * same overlay element, anchor, and styling the gallery figures use).
+ * When the download overlay reaches the lightbox (ADR-0015), the overlay carries
+ * a download-icon anchor. The controller points its `href` at the current slide's
+ * main image — the highest-fidelity download target (ADR-0013), distinct from the
+ * full rendition the lightbox displays — and intercepts a plain click to save the
+ * slide programmatically ({@link saveFile} — a blob download no link-rewriting
+ * theme or cross-origin host can turn into a new tab); a click on the enlarged
+ * image outside the icon does nothing. When the breadcrumb overlay reaches the
+ * lightbox, the controller mirrors each slide's breadcrumb text onto the
+ * lightbox's breadcrumb figcaption (the same overlay element, anchor, and styling
+ * the gallery figures use).
  *
  * @since 0.7.0
  */
 
 import { trapFocus } from './focus-trap';
-import { saveFile } from './save-file';
+import { saveFile, shouldInterceptClick } from './save-file';
 import { readSlides, type GallerySlide } from './slides';
 import { actionForKey, type LightboxKeyAction } from './lightbox-keys';
 import {
@@ -47,6 +49,7 @@ import {
 	next,
 	open,
 	prev,
+	removeImageAt,
 	type LightboxState,
 } from './lightbox-index';
 import { actionForSwipe } from './lightbox-swipe';
@@ -81,9 +84,9 @@ const ERROR_CLASS = 'kntnt-photo-drop-lightbox--error';
 /**
  * The overlay elements the controller drives, resolved once on construction.
  *
- * The download anchor and the caption figcaption are optional: the server emits
- * them only when download / a caption is on, so they are `null` otherwise and the
- * controller simply skips updating them.
+ * The download anchor and the breadcrumb figcaption are optional: the server
+ * emits them only when the download / breadcrumb overlay reaches the lightbox, so
+ * they are `null` otherwise and the controller simply skips updating them.
  *
  * @since 0.7.0
  */
@@ -95,10 +98,14 @@ interface OverlayRefs {
 	readonly forward: HTMLButtonElement;
 	readonly dismiss: HTMLButtonElement;
 	readonly failure: HTMLElement;
-	/** The download-icon anchor, or `null` when download is off. */
+	/** The download-icon anchor, or `null` when the download overlay is off the lightbox. */
 	readonly download: HTMLAnchorElement | null;
-	/** The mirrored caption figcaption, or `null` when the gallery has no caption. */
-	readonly caption: HTMLElement | null;
+	/** The mirrored breadcrumb figcaption, or `null` when breadcrumbs are off the lightbox. */
+	readonly breadcrumbs: HTMLElement | null;
+	/** The add-to-media icon button, or `null` when add-to-media is off the lightbox. */
+	readonly addToMedia: HTMLButtonElement | null;
+	/** The trash icon button, or `null` when the trash overlay is off the lightbox. */
+	readonly trash: HTMLButtonElement | null;
 }
 
 /**
@@ -140,13 +147,19 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		return null;
 	}
 
-	// The download anchor and the caption figcaption are optional chrome; resolve
-	// them when present and leave them null otherwise.
+	// The download anchor, the breadcrumb figcaption, and the add-to-media and trash
+	// buttons are optional chrome; resolve them when present and leave them null otherwise.
 	const download = overlay.querySelector< HTMLAnchorElement >(
 		'.kntnt-photo-drop-lightbox__download'
 	);
-	const caption = overlay.querySelector< HTMLElement >(
-		'.kntnt-photo-drop-lightbox__caption'
+	const breadcrumbs = overlay.querySelector< HTMLElement >(
+		'.kntnt-photo-drop-lightbox__breadcrumbs'
+	);
+	const addToMedia = overlay.querySelector< HTMLButtonElement >(
+		'.kntnt-photo-drop-lightbox__add-to-media'
+	);
+	const trash = overlay.querySelector< HTMLButtonElement >(
+		'.kntnt-photo-drop-lightbox__trash'
 	);
 	return {
 		overlay,
@@ -157,7 +170,9 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		dismiss,
 		failure,
 		download,
-		caption,
+		breadcrumbs,
+		addToMedia,
+		trash,
 	};
 }
 
@@ -168,11 +183,17 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
  * @since 0.7.0
  */
 export class GalleryLightbox {
-	/** The thumbnail anchors, in gallery order — the triggers and the slides. */
-	readonly #links: readonly HTMLAnchorElement[];
+	/**
+	 * The thumbnail anchors, in gallery order — the triggers and the slides.
+	 *
+	 * Mutable so a live deletion (the trash overlay, ADR-0015) can drop the removed
+	 * image's anchor in lock-step with its slide, keeping the index navigable over a
+	 * set that shrinks under the visitor.
+	 */
+	#links: HTMLAnchorElement[];
 
-	/** The per-image data read off the anchors once on construction. */
-	readonly #slides: readonly GallerySlide[];
+	/** The per-image data read off the anchors once on construction (and re-derived on a live deletion). */
+	#slides: GallerySlide[];
 
 	/** The resolved overlay elements. */
 	readonly #refs: OverlayRefs;
@@ -251,12 +272,78 @@ export class GalleryLightbox {
 		refs: OverlayRefs,
 		counterTemplate: string
 	) {
-		this.#links = links;
+		this.#links = [ ...links ];
 		this.#refs = refs;
 		this.#counterTemplate = counterTemplate;
 		this.#slides = readSlides( links );
 		this.#state = createLightboxState( links.length );
 		this.#bind();
+	}
+
+	/**
+	 * Whether the lightbox is currently open.
+	 *
+	 * The trash overlay (ADR-0015) reads this to decide its post-delete behaviour: a
+	 * delete fired from the lightbox surface must advance or close the open viewer,
+	 * while one fired from a grid thumbnail (lightbox shut) only removes the tile.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @return True when the lightbox overlay is open.
+	 */
+	isOpen(): boolean {
+		return this.#state.open;
+	}
+
+	/**
+	 * Drops a live-deleted image from the lightbox, advancing or closing as needed.
+	 *
+	 * Called by the trash overlay after a confirmed delete removes the image's tile
+	 * (ADR-0015): the lightbox's slide set must shrink in lock-step so paging never
+	 * lands on a gone image. The removed anchor is found by identity and dropped from
+	 * both the anchor list and the slide list; the navigable count shrinks to match.
+	 * When the set empties, the lightbox closes. When the *currently shown* image was
+	 * the one removed, the viewer advances to the image that slid into its slot (the
+	 * next image, or the new last when the removed one was last), re-rendering it;
+	 * removing any other image leaves the shown slide untouched but re-renders so the
+	 * counter total updates. A removal of an anchor the lightbox does not own is a
+	 * no-op.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @param link - The thumbnail anchor of the deleted image.
+	 */
+	removeImage( link: HTMLAnchorElement ): void {
+		// Find the removed anchor by identity; an anchor this lightbox never owned is
+		// nothing to do.
+		const removed = this.#links.indexOf( link );
+		if ( removed === -1 ) {
+			return;
+		}
+
+		// Drop the image from both DOM-bound lists so they stay in step with the
+		// reducer state that shrinks alongside them.
+		this.#links.splice( removed, 1 );
+		this.#slides.splice( removed, 1 );
+
+		// Realign the navigable state through the pure reducer: the count drops, the
+		// shown index follows the image that slid into the slot, and an emptied set
+		// is reported closed.
+		const wasOpen = this.#state.open;
+		this.#state = removeImageAt( this.#state, removed );
+
+		// An emptied gallery has nothing left to show: tear an open overlay down
+		// (scroll lock, keyboard listener, focus return) and stop.
+		if ( this.#state.count === 0 ) {
+			if ( wasOpen ) {
+				this.#close();
+			}
+			return;
+		}
+
+		// Re-render so the shown image, the counter total, and the paging controls
+		// reflect the shrunk set; harmless when the lightbox is shut (it stays hidden).
+		this.#render();
 	}
 
 	/**
@@ -314,17 +401,12 @@ export class GalleryLightbox {
 		// slide programmatically — a blob download no link-rewriting theme or
 		// cross-origin host can turn into a new tab, unlike the anchor's own
 		// `download` navigation, which stays as the no-JS fallback. Modified
-		// clicks are left to the browser.
+		// clicks are left to the browser. The href is the current slide's main
+		// image, set per transition in `#render`.
 		const download = this.#refs.download;
 		if ( download ) {
 			download.addEventListener( 'click', ( event ) => {
-				if (
-					event.metaKey ||
-					event.ctrlKey ||
-					event.shiftKey ||
-					event.altKey ||
-					event.button !== 0
-				) {
+				if ( ! shouldInterceptClick( event ) ) {
 					return;
 				}
 				event.preventDefault();
@@ -537,18 +619,37 @@ export class GalleryLightbox {
 		// The alt is the image's accessible label.
 		this.#refs.image.alt = slide.label;
 
-		// Point the download-icon anchor at the current slide's full image, so an
-		// icon click saves it; the anchor is null (so this is skipped) when download
-		// is off, since the server then emits no icon.
+		// Point the download-icon anchor at the current slide's main image — the
+		// highest-fidelity download target (ADR-0013), distinct from the full
+		// rendition the lightbox displays — so an icon click saves the main; the
+		// anchor is null (so this is skipped) when download is off, since the server
+		// then emits no icon.
 		if ( this.#refs.download ) {
-			this.#refs.download.href = slide.url;
+			this.#refs.download.href = slide.main;
 		}
 
-		// Mirror the gallery caption onto the lightbox figure when a caption element
-		// exists; the text comes from the slide's mirrored caption data.
-		if ( this.#refs.caption ) {
-			this.#refs.caption.textContent = slide.caption;
-			this.#refs.caption.hidden = slide.caption === '';
+		// Point the add-to-media icon at the current slide's collection-relative path
+		// (ADR-0015), so a confirmed copy in the lightbox targets the open image; the
+		// button is null (so this is skipped) when add-to-media is off the lightbox.
+		// The delegated add-to-media listener reads this attribute on click.
+		if ( this.#refs.addToMedia ) {
+			this.#refs.addToMedia.dataset.kntntPhotoDropPath = slide.path;
+		}
+
+		// Point the trash icon at the current slide's collection-relative path
+		// (ADR-0015), so a confirmed delete in the lightbox targets the open image; the
+		// button is null (so this is skipped) when trash is off the lightbox. The
+		// delegated trash listener reads this attribute on click and, on success,
+		// removes the matching tile and advances or closes this lightbox.
+		if ( this.#refs.trash ) {
+			this.#refs.trash.dataset.kntntPhotoDropPath = slide.path;
+		}
+
+		// Mirror the gallery breadcrumb onto the lightbox figure when a breadcrumb
+		// element exists; the text comes from the slide's mirrored breadcrumb data.
+		if ( this.#refs.breadcrumbs ) {
+			this.#refs.breadcrumbs.textContent = slide.breadcrumbs;
+			this.#refs.breadcrumbs.hidden = slide.breadcrumbs === '';
 		}
 
 		// Announce the position via the live-region counter (1-based for humans).

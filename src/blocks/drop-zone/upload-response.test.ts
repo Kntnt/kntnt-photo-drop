@@ -1,33 +1,14 @@
 /**
  * Jest tests for the upload-response interpretation rules.
  *
- * Exercises the three decisions over plain payloads: outcome extraction (a
- * success may never be reported without a parsed outcome), nonce-rejection
- * detection (401/403 plus a known code, nothing else), and failure labelling
- * (server message over outcome label over the generic fallback).
+ * Exercises the two decisions over plain payloads: outcome extraction (a
+ * success may never be recorded without a parsed outcome) and nonce-rejection
+ * detection (401/403 plus a known code, nothing else).
  *
  * @since 0.2.0
  */
 
-import {
-	errorLabelFor,
-	isNonceRejection,
-	labelForOutcome,
-	readErrorMessage,
-	readOutcome,
-	type OutcomeStrings,
-} from './upload-response';
-
-/**
- * The label fixture the tests resolve against.
- */
-const strings: OutcomeStrings = {
-	outcomeStored: 'Uploaded',
-	outcomeReencoded: 'Uploaded (re-encoded)',
-	outcomeSkipped: 'Skipped — already present',
-	outcomeRejected: 'Rejected',
-	uploadFailed: 'Upload failed',
-};
+import { isNonceRejection, readOutcome } from './upload-response';
 
 describe( 'readOutcome', () => {
 	it( 'extracts a valid outcome with its display name', () => {
@@ -56,20 +37,6 @@ describe( 'readOutcome', () => {
 	it( 'returns null for an unparseable body', () => {
 		expect( readOutcome( null ) ).toBeNull();
 		expect( readOutcome( 'OK' ) ).toBeNull();
-	} );
-} );
-
-describe( 'readErrorMessage', () => {
-	it( 'returns the server message when present', () => {
-		expect(
-			readErrorMessage( { code: 'x', message: 'Reload and try again.' } )
-		).toBe( 'Reload and try again.' );
-	} );
-
-	it( 'returns null for an empty or missing message', () => {
-		expect( readErrorMessage( { message: '' } ) ).toBeNull();
-		expect( readErrorMessage( { code: 'x' } ) ).toBeNull();
-		expect( readErrorMessage( null ) ).toBeNull();
 	} );
 } );
 
@@ -107,40 +74,5 @@ describe( 'isNonceRejection', () => {
 		expect( isNonceRejection( 401, { outcome: 'rejected' } ) ).toBe(
 			false
 		);
-	} );
-} );
-
-describe( 'labelForOutcome', () => {
-	it.each( [
-		[ 'stored', 'Uploaded' ],
-		[ 'reencoded', 'Uploaded (re-encoded)' ],
-		[ 'skipped', 'Skipped — already present' ],
-		[ 'rejected', 'Rejected' ],
-	] as const )( 'labels %s as "%s"', ( outcome, label ) => {
-		expect( labelForOutcome( outcome, strings ) ).toBe( label );
-	} );
-} );
-
-describe( 'errorLabelFor', () => {
-	it( 'prefers the server message over everything else', () => {
-		expect(
-			errorLabelFor(
-				{
-					code: 'kntnt_photo_drop_invalid_nonce',
-					message: 'Your session could not be verified.',
-				},
-				strings
-			)
-		).toBe( 'Your session could not be verified.' );
-	} );
-
-	it( 'falls back to the outcome label for a 422 rejection body', () => {
-		expect(
-			errorLabelFor( { outcome: 'rejected', name: null }, strings )
-		).toBe( 'Rejected' );
-	} );
-
-	it( 'falls back to the generic label for an unparseable body', () => {
-		expect( errorLabelFor( null, strings ) ).toBe( 'Upload failed' );
 	} );
 } );

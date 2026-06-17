@@ -2,15 +2,16 @@
 /**
  * The collection descriptor — `collection.json`, the one irreplaceable file.
  *
- * A descriptor is the stored record of a collection's immutable output contract
- * (`maxWidth`, `quality`), its human display `name`, the `thumbnailWidths`
- * currently in use, and whether the collection namespaces Drop Zone uploads under
- * per-uploader folders (`uploaderFolders`). It is the visible, authoritative file
- * at a collection root;
- * unlike thumbnails and the per-folder index it is never regenerable, so it is
- * the file the rest of the system treats as ground truth for a collection's
- * shape. This class is both the typed value object and its on-disk codec: it
- * reads and writes `collection.json` as stable, pretty JSON.
+ * A descriptor is the stored record of a collection's three-rendition settings
+ * and its human display name (ADR-0013). The **upload width + quality** are the
+ * immutable output contract (the source bytes are discarded once the main image
+ * is encoded); the **full** and **thumbnail** width+quality pairs are
+ * re-derivable settings; and `pathComponents` is the mutable placement template
+ * for Drop Zone uploads (ADR-0014). It is the visible, authoritative file at a
+ * collection root; unlike the derived renditions and the per-folder index it is
+ * never regenerable, so the rest of the system treats it as ground truth for a
+ * collection's shape. This class is both the typed value object and its on-disk
+ * codec: it reads and writes `collection.json` as stable, pretty JSON.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.1.0
@@ -20,21 +21,20 @@ declare( strict_types = 1 );
 
 namespace Kntnt\Photo_Drop\Storage;
 
+use Kntnt\Photo_Drop\Collection\Path_Guard;
+use Kntnt\Photo_Drop\Collection\Path_Template;
 use Kntnt\Photo_Drop\Plugin;
 
 /**
  * An immutable, typed view of a collection's `collection.json`.
  *
- * The six descriptor fields are exposed as `readonly` promoted properties, so
+ * The nine descriptor fields are exposed as `readonly` promoted properties, so
  * an instance is a faithful in-memory image of the file with no setters and no
- * drift. The external interface is deliberately small: construct one from the
- * filter (`from_filter()`) when establishing a collection, `read()` one back
- * from disk, and `write()` it out again. `thumbnailWidths` is always normalised
- * to a sorted, de-duplicated, positive-int list — `[]` meaning "no thumbnail" —
- * so every consumer (the gallery's `srcset`, the doctor's reconciliation) sees
- * one canonical shape regardless of what the filter returned. `uploaderFolders`
- * is fixed at establishment and has no update path anywhere; `read()` treats it
- * as a required boolean — a descriptor lacking it is malformed (ADR-0008).
+ * drift. The external interface is deliberately small: construct one when
+ * establishing or rewriting a collection, `read()` one back from disk, and
+ * `write()` it out again. The six-rendition defaults that pre-fill a create
+ * form live in `Rendition_Defaults`, not here — this class only stores what it
+ * is handed — keeping the descriptor a pure value object plus codec.
  *
  * @since 0.1.0
  */
@@ -64,97 +64,145 @@ final readonly class Descriptor {
 	public const SCHEMA = 1;
 
 	/**
-	 * The filter that supplies the thumbnail width(s) for a new collection.
+	 * The default Drop Zone placement template (ADR-0014).
 	 *
-	 * @since 0.1.0
+	 * Nests every Drop Zone upload under year/month/day/uploader. Used when a
+	 * descriptor omits `pathComponents` (an empty field means the default) and as
+	 * the create-form pre-fill. The template is expanded server-side at upload time
+	 * by `Path_Template`; the lifecycle surfaces validate it at save through
+	 * `normalize_path_components()`.
+	 *
+	 * @since 0.7.0
 	 * @var string
 	 */
-	private const THUMBNAIL_WIDTH_FILTER = 'kntnt_photo_drop_thumbnail_width';
+	public const DEFAULT_PATH_COMPONENTS = '%year%/%month%/%day%/%uploader%';
 
 	/**
-	 * The default thumbnail width when the filter is unset (see ADR-0002).
+	 * Normalises and validates a raw placement template for storage.
 	 *
-	 * @since 0.1.0
-	 * @var int
+	 * The save-time gate the admin page and the CLI both call before writing a
+	 * descriptor (ADR-0014, "one validator, invoked at two times"). It normalises
+	 * the separator structure (an empty result becoming the default template),
+	 * enforces the `%`-reservation (any `%` left after the four known placeholders
+	 * is rejected, so a mistyped `%moth%` cannot become a literal folder), and runs
+	 * the normalised template — expanded with `Path_Template`'s sample values —
+	 * through the `Path_Guard` *lexical* checks, so an unsafe template such as
+	 * `%year%/../../x` is rejected on submit rather than silently breaking every
+	 * later upload. Only the lexical half of the guard is reused (it needs no
+	 * existing collection directory); the realpath confinement runs at upload time.
+	 * Returns the canonical template to store, or `false` when the template must be
+	 * rejected.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $raw The raw template value from a lifecycle surface.
+	 * @return string|false The canonical template to store, or false when rejected.
 	 */
-	private const DEFAULT_THUMBNAIL_WIDTH = 640;
+	public static function normalize_path_components( string $raw ): string|false {
+
+		// Canonicalise the separator structure first; an empty field becomes the
+		// default template, since an empty field means the default (ADR-0014).
+		$normalised = Path_Template::normalise( $raw );
+
+		// Enforce the `%`-reservation: a stray `%` after the four known placeholders
+		// is a typo or unknown token and is rejected rather than stored as a literal.
+		if ( Path_Template::has_stray_placeholder( $normalised ) ) {
+			return false;
+		}
+
+		// Run the sample-expanded template through the guard's lexical checks, so a
+		// traversal, absolute path, backslash, or NUL in a literal segment is caught
+		// at save — the same validator the upload path reuses, never re-implemented.
+		if ( ! Path_Guard::is_lexically_safe( Path_Template::sample_expansion( $normalised ) ) ) {
+			return false;
+		}
+
+		return $normalised;
+
+	}
 
 	/**
-	 * Constructs a descriptor from already-validated field values.
+	 * Constructs a descriptor from already-resolved field values.
 	 *
-	 * Callers normally do not invoke this directly: they go through
-	 * `from_filter()` (establishing a collection) or `read()` (loading one),
-	 * both of which normalise their inputs first. The constructor itself
-	 * assumes `thumbnail_widths` is already canonical (sorted, unique, positive).
-	 * `uploader_folders` is fixed at establishment and defaults to `true`; once a
-	 * collection exists the value is carried over verbatim on any rewrite, as it
-	 * has no update path anywhere (ADR-0008).
+	 * Callers resolve each value first — the lifecycle surfaces (the admin page
+	 * and the CLI) default any omitted rendition field through `Rendition_Defaults`
+	 * and normalise the path-components template — then hand the concrete nine
+	 * fields here. `upload_width` is nullable (`null` = the source's own
+	 * dimensions); every other width and quality is a concrete integer.
 	 *
 	 * @since 0.1.0
 	 *
-	 * @param string         $name             The human display name.
-	 * @param int|null       $max_width        The contract ceiling in pixels, or null for no limit.
-	 * @param int            $quality          The WebP compression quality (0–100).
-	 * @param array<int,int> $thumbnail_widths Canonical thumbnail widths; `[]` means no thumbnail.
-	 * @param bool           $uploader_folders Whether Drop Zone uploads are namespaced per uploader.
+	 * @param string   $name              The human display name.
+	 * @param int|null $upload_width      The immutable upload-width ceiling, or null for the source's own dimensions.
+	 * @param int      $upload_quality    The immutable upload (main) WebP quality (0–100).
+	 * @param int      $full_width        The re-derivable full-image width.
+	 * @param int      $full_quality      The re-derivable full-image WebP quality (0–100).
+	 * @param int      $thumbnail_width   The re-derivable thumbnail width.
+	 * @param int      $thumbnail_quality The re-derivable thumbnail WebP quality (0–100).
+	 * @param string   $path_components   The mutable Drop Zone placement template.
 	 */
 	public function __construct(
 		public string $name,
-		public ?int $max_width,
-		public int $quality,
-		public array $thumbnail_widths,
-		public bool $uploader_folders = true,
+		public ?int $upload_width,
+		public int $upload_quality,
+		public int $full_width,
+		public int $full_quality,
+		public int $thumbnail_width,
+		public int $thumbnail_quality,
+		public string $path_components,
 	) {}
 
 	/**
-	 * Builds a descriptor for a freshly established collection.
+	 * Returns a copy with the re-derivable rendition pairs replaced — the flip.
 	 *
-	 * The display name, the two immutable contract values, and the create-time
-	 * uploader-folders choice come from the caller (the admin page or the CLI's
-	 * `collection create`); the thumbnail widths are resolved here from the
-	 * `kntnt_photo_drop_thumbnail_width` filter and normalised, because thumbnail
-	 * width is a setting derived outside the contract (ADR-0002), not something
-	 * the caller fixes by hand. The uploader-folders namespace is fixed at this
-	 * moment and never changes afterwards (ADR-0008); it defaults to on so a
-	 * caller that does not surface the choice still namespaces per uploader.
+	 * The "flip" half of regenerate-then-flip (ADR-0013): once a browser-driven
+	 * batch has written every main's full and thumbnail at the new widths, the
+	 * descriptor's active widths are switched to those targets so the gallery starts
+	 * serving them. Only the four re-derivable values change; the immutable upload
+	 * contract (`upload_width` + `upload_quality`), the display name, and the mutable
+	 * placement template carry over untouched, because the flip never touches the
+	 * irreversible pair. Being a fresh value object rather than an in-place mutation
+	 * is what makes an interrupted run safe: the live descriptor on disk is never
+	 * altered until the caller chooses to `write()` this copy, so a crash before the
+	 * write leaves the old renditions serving and a re-run reconciles.
 	 *
-	 * @since 0.1.0
+	 * @since 0.11.0
 	 *
-	 * @param string   $name             The human display name.
-	 * @param int|null $max_width        The contract ceiling in pixels, or null for no limit.
-	 * @param int      $quality          The WebP compression quality (0–100).
-	 * @param bool     $uploader_folders Whether Drop Zone uploads are namespaced per uploader.
-	 * @return self
+	 * @param int $full_width        The new full-image width.
+	 * @param int $full_quality      The new full-image WebP quality (0–100).
+	 * @param int $thumbnail_width   The new thumbnail width.
+	 * @param int $thumbnail_quality The new thumbnail WebP quality (0–100).
+	 * @return self A new descriptor carrying the new re-derivable settings.
 	 */
-	public static function from_filter(
-		string $name,
-		?int $max_width,
-		int $quality,
-		bool $uploader_folders = true,
+	public function with_renditions(
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
 	): self {
-
-		// Resolve the thumbnail width(s) from the filter and canonicalise. The
-		// filter may return a single int, a list of ints, or `[]`/`0` for "no
-		// thumbnail"; normalisation collapses all of those to one sorted list.
-		$filtered = apply_filters( self::THUMBNAIL_WIDTH_FILTER, self::DEFAULT_THUMBNAIL_WIDTH );
-		$widths   = self::normalise_widths( $filtered );
-
-		return new self( $name, $max_width, $quality, $widths, $uploader_folders );
-
+		return new self(
+			$this->name,
+			$this->upload_width,
+			$this->upload_quality,
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			$thumbnail_quality,
+			$this->path_components,
+		);
 	}
 
 	/**
 	 * Reads and decodes a `collection.json` from a collection root.
 	 *
 	 * Returns a typed descriptor, or `null` when the file is missing, unreadable,
-	 * or not valid JSON of the expected shape — a degraded state the caller
-	 * surfaces rather than crashing on. Most fields are coerced defensively:
-	 * `maxWidth` accepts an int or `null`; `thumbnailWidths` is re-normalised on
-	 * read so an externally hand-edited file still yields the canonical shape.
-	 * `uploaderFolders` is the exception — it is a *required* boolean (ADR-0008,
-	 * pre-1.0 policy): a descriptor that omits it, or carries a non-boolean for
-	 * it, is malformed and read as `null` rather than silently defaulted, since a
-	 * wrong placement rule would mis-file every future upload.
+	 * or not a JSON object — a degraded state the caller surfaces rather than
+	 * crashing on. Fields are coerced defensively so an externally hand-edited
+	 * file still yields a sane shape: `uploadWidth` accepts an int or `null` (no
+	 * limit); the five remaining width/quality fields coerce to int (a missing or
+	 * non-int value reads as `0`, which the doctor and optimiser then surface);
+	 * and `pathComponents` falls back to the default template when absent or
+	 * non-string, since an empty field means the default (ADR-0014).
 	 *
 	 * @since 0.1.0
 	 *
@@ -163,9 +211,9 @@ final readonly class Descriptor {
 	 */
 	public static function read( string $collection_path ): ?self {
 
-		// Read the raw bytes; a missing or unreadable file is a soft failure.
-		// The plugin owns this directory tree on disk directly (ADR-0001), so it
-		// reads the file rather than routing through the Media Library.
+		// Read the raw bytes; a missing or unreadable file is a soft failure. The
+		// plugin owns this directory tree on disk directly (ADR-0001), so it reads
+		// the file rather than routing through the Media Library.
 		$file = self::path_for( $collection_path );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 		$raw = is_file( $file ) ? file_get_contents( $file ) : false;
@@ -174,44 +222,52 @@ final readonly class Descriptor {
 			return null;
 		}
 
-		// Decode to an associative array; anything that is not a JSON object is
-		// a corrupt descriptor we refuse to interpret.
+		// Decode to an associative array; anything that is not a JSON object is a
+		// corrupt descriptor we refuse to interpret.
 		$data = json_decode( $raw, true );
 		if ( ! is_array( $data ) ) {
 			Plugin::warning( "The collection descriptor at {$file} is not valid JSON." );
 			return null;
 		}
 
-		// Reject a descriptor whose required uploader-folders flag is missing or
-		// not a boolean: the placement rule is fixed at establishment and has no
-		// default-on-read fallback (pre-1.0, ADR-0008), so an absent or malformed
-		// value means a corrupt record we refuse to interpret.
-		if ( ! isset( $data['uploaderFolders'] ) || ! is_bool( $data['uploaderFolders'] ) ) {
-			Plugin::warning( "The collection descriptor at {$file} is missing the uploaderFolders flag." );
-			return null;
-		}
+		// Coerce each field to its declared type. The upload width is the nullable
+		// half of the contract; every other width/quality coerces to int, and the
+		// path-components template falls back to the default when absent (ADR-0014).
+		$name           = isset( $data['name'] ) && is_string( $data['name'] ) ? $data['name'] : '';
+		$upload_width   = isset( $data['uploadWidth'] ) && is_int( $data['uploadWidth'] ) ? $data['uploadWidth'] : null;
+		$upload_quality = self::int_field( $data, 'uploadQuality' );
+		$full_width     = self::int_field( $data, 'fullWidth' );
+		$full_quality   = self::int_field( $data, 'fullQuality' );
+		$thumb_width    = self::int_field( $data, 'thumbnailWidth' );
+		$thumb_quality  = self::int_field( $data, 'thumbnailQuality' );
+		$stored_path    = $data['pathComponents'] ?? null;
+		$path           = is_string( $stored_path ) && $stored_path !== ''
+			? $stored_path
+			: self::DEFAULT_PATH_COMPONENTS;
 
-		// Coerce each field to its declared type, re-normalising the thumbnail
-		// widths so a hand-edited file still lands in the canonical shape.
-		$name      = isset( $data['name'] ) && is_string( $data['name'] ) ? $data['name'] : '';
-		$max_width = isset( $data['maxWidth'] ) && is_int( $data['maxWidth'] ) ? $data['maxWidth'] : null;
-		$quality   = isset( $data['quality'] ) && is_int( $data['quality'] ) ? $data['quality'] : 0;
-		$widths    = self::normalise_widths( $data['thumbnailWidths'] ?? [] );
-
-		return new self( $name, $max_width, $quality, $widths, $data['uploaderFolders'] );
+		return new self(
+			$name,
+			$upload_width,
+			$upload_quality,
+			$full_width,
+			$full_quality,
+			$thumb_width,
+			$thumb_quality,
+			$path,
+		);
 
 	}
 
 	/**
 	 * Writes this descriptor to a collection root as stable, pretty JSON.
 	 *
-	 * The key order is fixed (`schema`, `name`, `maxWidth`, `quality`,
-	 * `thumbnailWidths`, `uploaderFolders`) and the output is pretty-printed with unescaped slashes
-	 * and unicode, so the file is human-readable and a re-write with unchanged
-	 * data produces byte-identical output — keeping diffs and any content-hash
-	 * comparison stable. The file is published through `Atomic_Writer`, so a
-	 * reader (or a crash) only ever observes the old descriptor or the complete
-	 * new one, never a torn or truncated file. Returns whether the write
+	 * The key order is fixed (`schema`, `name`, the upload/full/thumbnail
+	 * width+quality pairs, `pathComponents`) and the output is pretty-printed with
+	 * unescaped slashes and unicode, so the file is human-readable and a re-write
+	 * with unchanged data produces byte-identical output — keeping diffs and any
+	 * content-hash comparison stable. The file is published through `Atomic_Writer`,
+	 * so a reader (or a crash) only ever observes the old descriptor or the
+	 * complete new one, never a torn or truncated file. Returns whether the write
 	 * succeeded.
 	 *
 	 * @since 0.1.0
@@ -254,17 +310,38 @@ final readonly class Descriptor {
 	 *
 	 * @since 0.1.0
 	 *
-	 * @return array{schema:int,name:string,maxWidth:int|null,quality:int,thumbnailWidths:array<int,int>,uploaderFolders:bool}
+	 * @return array{schema:int,name:string,uploadWidth:int|null,uploadQuality:int,fullWidth:int,fullQuality:int,thumbnailWidth:int,thumbnailQuality:int,pathComponents:string}
 	 */
 	public function to_array(): array {
 		return [
-			'schema'          => self::SCHEMA,
-			'name'            => $this->name,
-			'maxWidth'        => $this->max_width,
-			'quality'         => $this->quality,
-			'thumbnailWidths' => $this->thumbnail_widths,
-			'uploaderFolders' => $this->uploader_folders,
+			'schema'           => self::SCHEMA,
+			'name'             => $this->name,
+			'uploadWidth'      => $this->upload_width,
+			'uploadQuality'    => $this->upload_quality,
+			'fullWidth'        => $this->full_width,
+			'fullQuality'      => $this->full_quality,
+			'thumbnailWidth'   => $this->thumbnail_width,
+			'thumbnailQuality' => $this->thumbnail_quality,
+			'pathComponents'   => $this->path_components,
 		];
+	}
+
+	/**
+	 * Reads an integer field from a decoded descriptor, defaulting to zero.
+	 *
+	 * A missing or non-integer value reads as `0` rather than aborting the read —
+	 * a degenerate width or quality surfaces downstream (the doctor flags it, the
+	 * optimiser refuses it) rather than blanking the whole collection on a
+	 * hand-edit.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param array<array-key,mixed> $data The decoded descriptor.
+	 * @param string                 $key  The integer field name.
+	 * @return int The coerced integer value, or 0 when absent or non-integer.
+	 */
+	private static function int_field( array $data, string $key ): int {
+		return isset( $data[ $key ] ) && is_int( $data[ $key ] ) ? $data[ $key ] : 0;
 	}
 
 	/**
@@ -277,43 +354,6 @@ final readonly class Descriptor {
 	 */
 	private static function path_for( string $collection_path ): string {
 		return rtrim( $collection_path, '/' ) . '/' . self::FILENAME;
-	}
-
-	/**
-	 * Canonicalises a filter- or file-supplied thumbnail-width value.
-	 *
-	 * Accepts a single int, a list of ints, or an empty value, and returns a
-	 * sorted, de-duplicated list of positive ints. A `0`, a negative number, or
-	 * a non-numeric entry is dropped; `[]`/`0`/`null` therefore collapse to the
-	 * empty list, which is the canonical "no thumbnail" marker. Reducing every
-	 * input to one shape means downstream code never branches on int-vs-array.
-	 *
-	 * @since 0.1.0
-	 *
-	 * @param mixed $value The raw thumbnail-width value from the filter or file.
-	 * @return array<int,int> The sorted, unique, positive widths; `[]` means no thumbnail.
-	 */
-	private static function normalise_widths( mixed $value ): array {
-
-		// Treat a scalar as a one-element list so the same loop handles both the
-		// single-width and the multi-width filter return.
-		$candidates = is_array( $value ) ? $value : [ $value ];
-
-		// Keep only strictly-positive integer widths; anything else (0, negative,
-		// non-numeric) is not a usable thumbnail width and is discarded.
-		$widths = [];
-		foreach ( $candidates as $candidate ) {
-			if ( is_int( $candidate ) && $candidate > 0 ) {
-				$widths[ $candidate ] = $candidate;
-			}
-		}
-
-		// Sort ascending, which re-indexes to a clean zero-based array, so the
-		// stored order is deterministic.
-		sort( $widths );
-
-		return $widths;
-
 	}
 
 }

@@ -1,14 +1,18 @@
 /**
- * Gallery download end-to-end spec — the icon-only download trigger.
+ * Gallery download end-to-end spec — the download overlay (ADR-0015).
  *
- * A logged-out visitor exercises both download-on cells of the click matrix:
- * with the lightbox off, a click on the thumbnail image does nothing while a
- * click on the overlay icon saves the image — without navigating and without
- * opening a new tab (the regression this spec pins); with the lightbox on,
- * the icon lives inside the lightbox, a click on the enlarged image does
- * nothing, and only the icon click saves the current slide.
+ * A logged-out visitor exercises the download overlay on both surfaces: a
+ * thumbnail-visibility download icon with the lightbox off — a click on the
+ * thumbnail image does nothing while a click on the overlay icon saves the image
+ * without navigating and without opening a new tab (the regression this spec
+ * pins); and a full-visibility download icon with the lightbox on — the icon
+ * lives inside the lightbox, a click on the enlarged image does nothing, and
+ * only the icon click saves the current slide. On both surfaces the saved file
+ * is the main image (ADR-0013), never a `.kntnt-thumbnails/` derivative, so the
+ * download is always the highest-fidelity rendition.
  *
  * @since 0.5.0
+ * @since 0.11.0 Overlay model (ADR-0015); asserts the main-image download target.
  */
 
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
@@ -39,17 +43,17 @@ test.describe( 'Gallery download', () => {
 		importFixture( slug, FIXTURE_ALPHA );
 		importFixture( slug, FIXTURE_BETA );
 
-		// One page per matrix cell with download on: lightbox off puts the icon
-		// on each thumbnail, lightbox on (the default) moves it into the lightbox.
+		// One page per surface: the download overlay on the thumbnail with the
+		// lightbox off, and on the lightbox ("full") with the lightbox on (default).
 		const thumbnailPage = await requestUtils.createPage( {
 			title: `E2E Download thumbnail ${ slug }`,
-			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","lightbox":false,"download":true} /-->`,
+			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","lightbox":false,"downloadVisibility":"thumbnail"} /-->`,
 			status: 'publish',
 		} );
 		thumbnailPageId = thumbnailPage.id;
 		const lightboxPage = await requestUtils.createPage( {
 			title: `E2E Download lightbox ${ slug }`,
-			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","download":true} /-->`,
+			content: `<!-- wp:kntnt-photo-drop/gallery {"collection":"${ slug }","downloadVisibility":"full"} /-->`,
 			status: 'publish',
 		} );
 		lightboxPageId = lightboxPage.id;
@@ -93,13 +97,23 @@ test.describe( 'Gallery download', () => {
 		await expect( page ).toHaveURL( url );
 		expect( page.context().pages() ).toHaveLength( 1 );
 
+		// The icon targets the main image (ADR-0013): its href is the image at the
+		// collection root, never a `.kntnt-thumbnails/` derivative.
+		const icon = page
+			.locator( '.kntnt-photo-drop-gallery__icon--download' )
+			.first();
+		await expect( icon ).toHaveAttribute(
+			'href',
+			/\/kntnt-photo-drop\/[^?#]*\.webp$/
+		);
+		expect( await icon.getAttribute( 'href' ) ).not.toContain(
+			'.kntnt-thumbnails/'
+		);
+
 		// A click on the overlay icon saves the image — and only saves it: the
 		// page neither navigates nor opens a tab while the file downloads.
 		const downloadPromise = page.waitForEvent( 'download' );
-		await page
-			.locator( '.kntnt-photo-drop-gallery__download' )
-			.first()
-			.click();
+		await icon.click();
 		const download = await downloadPromise;
 		expect( download.suggestedFilename() ).toContain( '.webp' );
 		await expect( page ).toHaveURL( url );
@@ -131,10 +145,22 @@ test.describe( 'Gallery download', () => {
 		expect( downloads ).toBe( 0 );
 		await expect( page ).toHaveURL( url );
 
+		// The in-lightbox icon points at the current slide's main image (ADR-0013):
+		// the view module set its href to the main on open, never a
+		// `.kntnt-thumbnails/` derivative.
+		const icon = page.locator( '.kntnt-photo-drop-lightbox__download' );
+		await expect( icon ).toHaveAttribute(
+			'href',
+			/\/kntnt-photo-drop\/[^?#]*\.webp$/
+		);
+		expect( await icon.getAttribute( 'href' ) ).not.toContain(
+			'.kntnt-thumbnails/'
+		);
+
 		// A click on the icon saves the current slide; the dialog stays open and
 		// no tab opens.
 		const downloadPromise = page.waitForEvent( 'download' );
-		await page.locator( '.kntnt-photo-drop-lightbox__download' ).click();
+		await icon.click();
 		const download = await downloadPromise;
 		expect( download.suggestedFilename() ).toContain( '.webp' );
 		await expect( dialog ).toBeVisible();

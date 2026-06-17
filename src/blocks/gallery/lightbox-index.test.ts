@@ -19,6 +19,7 @@ import {
 	next,
 	open,
 	prev,
+	removeImageAt,
 } from './lightbox-index';
 
 describe( 'createLightboxState', () => {
@@ -92,6 +93,48 @@ describe( 'first / last clamp to the ends', () => {
 
 	it( 'jumps to the last image', () => {
 		expect( last( open( createLightboxState( 5 ), 1 ) ).index ).toBe( 4 );
+	} );
+} );
+
+describe( 'removeImageAt', () => {
+	it( 'steps the shown index back when an earlier image is removed', () => {
+		// Shown image sits at index 3; removing index 1 shifts it left to 2.
+		const result = removeImageAt( open( createLightboxState( 5 ), 3 ), 1 );
+		expect( result.count ).toBe( 4 );
+		expect( result.index ).toBe( 2 );
+		expect( result.open ).toBe( true );
+	} );
+
+	it( 'keeps the shown index when a later image is removed, shrinking only the total', () => {
+		const result = removeImageAt( open( createLightboxState( 5 ), 1 ), 3 );
+		expect( result.count ).toBe( 4 );
+		expect( result.index ).toBe( 1 );
+	} );
+
+	it( 'lands on the image that slid into the slot when the shown middle image is removed', () => {
+		const result = removeImageAt( open( createLightboxState( 5 ), 2 ), 2 );
+		expect( result.count ).toBe( 4 );
+		expect( result.index ).toBe( 2 );
+	} );
+
+	it( 'clamps to the new last image when the current and last image is removed', () => {
+		const result = removeImageAt( open( createLightboxState( 5 ), 4 ), 4 );
+		expect( result.count ).toBe( 4 );
+		expect( result.index ).toBe( 3 );
+		expect( result.open ).toBe( true );
+	} );
+
+	it( 'closes when the only image is removed', () => {
+		const result = removeImageAt( open( createLightboxState( 1 ), 0 ), 0 );
+		expect( result.count ).toBe( 0 );
+		expect( result.index ).toBe( 0 );
+		expect( result.open ).toBe( false );
+	} );
+
+	it( 'is a no-op for an index outside the current set', () => {
+		const state = open( createLightboxState( 3 ), 1 );
+		expect( removeImageAt( state, 9 ) ).toEqual( state );
+		expect( removeImageAt( state, -1 ) ).toEqual( state );
 	} );
 } );
 

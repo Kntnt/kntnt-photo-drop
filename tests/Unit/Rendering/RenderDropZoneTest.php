@@ -106,6 +106,32 @@ function seed_render_collection( string $basedir, string $slug, Descriptor $desc
 }
 
 /**
+ * Builds a three-rendition descriptor with sensible defaults for the render tests.
+ *
+ * Only the name and the upload pair vary across these tests (the render context
+ * carries only the upload width/quality now); the full and thumbnail renditions
+ * and the path-components template take fixed defaults, so a test states only what
+ * it asserts on.
+ *
+ * @param string   $name           The display name.
+ * @param int|null $upload_width   The upload ceiling, or null for the source's own dimensions.
+ * @param int      $upload_quality The upload WebP quality.
+ * @return Descriptor The built descriptor.
+ */
+function render_descriptor( string $name = 'Photos', ?int $upload_width = 1920, int $upload_quality = 80 ): Descriptor {
+	return new Descriptor(
+		$name,
+		$upload_width,
+		$upload_quality,
+		1920,
+		85,
+		640,
+		75,
+		Descriptor::DEFAULT_PATH_COMPONENTS,
+	);
+}
+
+/**
  * Allocates a fresh temp directory standing in for the uploads basedir.
  *
  * @return string The absolute path of the new directory.
@@ -160,7 +186,7 @@ test( 'an un-capable user gets an empty render and no nonce', function (): void 
 	// string and, the load-bearing invariant, never emit a nonce.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: false );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
 
@@ -182,7 +208,7 @@ test( 'a capable user gets the drop-surface markup and a nonce', function (): vo
 	// directive, and the nonce.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
 
@@ -204,7 +230,7 @@ test( 'the wrapper carries no role or tabindex and emits no built-in upload butt
 	// (ADR-0010), so this handler emits no <button> chrome of its own.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
 
@@ -224,7 +250,7 @@ test( 'the two hidden file inputs are emitted; the old folder-picker chrome is g
 	// now a builder-authored tokened link in the inner blocks.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '<p>inner</p>', render_block_stub() );
 
@@ -245,7 +271,7 @@ test( 'a tokened upload-control link in the inner markup passes through unchange
 	// placeholder is substituted), so the view module can find them by href.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$content = '<div class="wp-block-button">'
 		. '<a class="wp-block-button__link" href="#kntnt-drop-zone-files">Add photos</a></div>';
@@ -266,7 +292,7 @@ test( 'the collection placeholder is replaced with the display name', function (
 	// must substitute the collection's display name and emit no placeholder.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Field Trip', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor( 'Field Trip' ) );
 
 	$content = '<p>Uploads go into the “{kntnt-drop-zone-collection}” collection.</p>';
 	$html    = Render_Drop_Zone::render( [ 'collection' => 'photos' ], $content, render_block_stub() );
@@ -283,7 +309,7 @@ test( 'inner markup without the placeholder passes through unchanged', function 
 	// replace; the inner markup must reach the surface verbatim.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$content = '<h4>Drop your shots here</h4>';
 	$html    = Render_Drop_Zone::render( [ 'collection' => 'photos' ], $content, render_block_stub() );
@@ -293,19 +319,20 @@ test( 'inner markup without the placeholder passes through unchanged', function 
 	render_remove_tree( $basedir );
 } );
 
-test( 'the emitted context carries the contract and upload URL for the slug', function (): void {
+test( 'the emitted context carries the upload contract and upload URL for the slug', function (): void {
 
-	// The data-wp-context island must carry the slug, the contract values that
-	// configure the client downscale and WebP encode, and the per-slug REST URL.
+	// The data-wp-context island must carry the slug, the upload width/quality that
+	// configure the client downscale and WebP encode (the client now produces only
+	// the main image), and the per-slug REST URL.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1600, 75, [ 320, 640 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor( 'Photos', 1600, 75 ) );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
 
 	expect( $html )->toContain( '"slug":"photos"' );
-	expect( $html )->toContain( '"maxWidth":1600' );
-	expect( $html )->toContain( '"quality":75' );
+	expect( $html )->toContain( '"uploadWidth":1600' );
+	expect( $html )->toContain( '"uploadQuality":75' );
 	// The URL rides inside the JSON context, where wp_json_encode escapes slashes
 	// by default — so the route segments are split by escaped slashes in markup.
 	expect( $html )->toContain( 'collections' );
@@ -321,7 +348,7 @@ test( 'the emitted context carries the ajax URL for nonce refresh', function ():
 	// admin-ajax action, so the context must carry the admin-ajax URL.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
 
@@ -331,20 +358,33 @@ test( 'the emitted context carries the ajax URL for nonce refresh', function ():
 	render_remove_tree( $basedir );
 } );
 
-test( 'the markup carries the summary line and the translated status strings', function (): void {
+test( 'the markup carries the three feedback regions and the aggregate i18n strings', function (): void {
 
-	// The keyed status report needs the summary element, and the i18n map must
-	// carry the runtime status strings so the visible uploader UI is
-	// translatable; FilePond's own labels are gone with the native surface.
+	// The aggregate progress UI (issue #44) needs three regions — the __summary
+	// live announcer, the __progress bar, and the __status result list — and the
+	// i18n map must carry the strings the progress bar, the live announcer, and
+	// the three-bucket summary render so the visible uploader UI is translatable.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'photos', new Descriptor( 'Photos', 1920, 80, [ 320 ] ) );
+	seed_render_collection( $basedir, 'photos', render_descriptor() );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'photos' ], '', render_block_stub() );
 
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__summary' );
-	expect( $html )->toContain( '"statusUploading"' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__progress' );
+	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__status' );
+	expect( $html )->toContain( '"countTemplate"' );
+	expect( $html )->toContain( '"cancel"' );
+	expect( $html )->toContain( '"retryFailed"' );
 	expect( $html )->toContain( '"summaryTemplate"' );
+	expect( $html )->toContain( '"bucketUploaded"' );
+	expect( $html )->toContain( '"bucketSkipped"' );
+	expect( $html )->toContain( '"bucketFailed"' );
+
+	// The per-file status/outcome labels gave way to the aggregate model, so the
+	// old runtime status strings must no longer be emitted.
+	expect( $html )->not->toContain( '"statusUploading"' );
+	expect( $html )->not->toContain( '"outcomeStored"' );
 
 	// The folder warning/consent flow is gone (ADR-0008): a drop now walks the
 	// tree recursively like the picker, so its i18n string must not be emitted.
@@ -353,17 +393,17 @@ test( 'the markup carries the summary line and the translated status strings', f
 	render_remove_tree( $basedir );
 } );
 
-test( 'a null max-width contract is emitted as JSON null', function (): void {
+test( 'a null upload-width contract is emitted as JSON null', function (): void {
 
-	// A "no limit" collection (maxWidth null) must serialise as JSON null so the
-	// view module's downscale leaves the source width untouched.
+	// An "original dimensions" collection (uploadWidth null) must serialise as JSON
+	// null so the view module's downscale leaves the source width untouched.
 	$basedir = fresh_render_basedir();
 	wire_render_stubs( $basedir, cap_ok: true );
-	seed_render_collection( $basedir, 'unbounded', new Descriptor( 'Unbounded', null, 80, [] ) );
+	seed_render_collection( $basedir, 'unbounded', render_descriptor( 'Unbounded', null, 80 ) );
 
 	$html = Render_Drop_Zone::render( [ 'collection' => 'unbounded' ], '', render_block_stub() );
 
-	expect( $html )->toContain( '"maxWidth":null' );
+	expect( $html )->toContain( '"uploadWidth":null' );
 
 	render_remove_tree( $basedir );
 } );

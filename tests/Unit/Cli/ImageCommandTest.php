@@ -121,18 +121,22 @@ function image_remove_tree( string $dir ): void {
 /**
  * Establishes a collection through the real lifecycle command.
  *
- * @param string   $slug      The collection slug.
- * @param int|null $max_width The contract ceiling, or null for no limit.
- * @param int      $quality   The WebP quality.
+ * Passes only the immutable upload contract; the full and thumbnail renditions
+ * fall back to their documented defaults (full 1920/85, thumbnail 640/75), so a
+ * wide import produces a thumbnail at the default 640 width.
+ *
+ * @param string   $slug         The collection slug.
+ * @param int|null $upload_width The upload ceiling, or null for the source's own dimensions.
+ * @param int      $quality      The upload WebP quality.
  */
-function establish_collection( string $slug, ?int $max_width, int $quality ): void {
+function establish_collection( string $slug, ?int $upload_width, int $quality ): void {
 	WP_CLI::reset();
-	$max = $max_width === null ? 'none' : (string) $max_width;
+	$width = $upload_width === null ? 'none' : (string) $upload_width;
 	( new Collection_Command( new Repository() ) )->create(
 		[ $slug ],
 		[
-			'max-width' => $max,
-			'quality'   => (string) $quality,
+			'upload-width'   => $width,
+			'upload-quality' => (string) $quality,
 		],
 	);
 }

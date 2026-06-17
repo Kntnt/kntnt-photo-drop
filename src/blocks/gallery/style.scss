@@ -2,21 +2,21 @@
 // The layout knobs (gap, minimum column width, fit) arrive as CSS custom
 // properties on the wrapper / item, so the server emits minimal inline style
 // and the cascade does the rest. Two layout containers are provided: a uniform
-// CSS grid (mode A) and justified flex rows (mode B). The caption is always a
-// nine-point anchored overlay inside the image; its colour, typography, and
-// the per-image border / shadow are projected from the block-support panels
-// onto the figcaption and the image respectively (issue #33). The item is the
-// sizing box: the grid item fixes its aspect ratio inline, the justified item
-// its height inline, and the link plus image fill that box absolutely so
-// nothing inside it can collapse to zero height — the bug that left
-// under-captions blank and justified rows showing only alt-text.
+// CSS grid (mode A) and justified flex rows (mode B). The unified overlays
+// (ADR-0015) are nine-point anchored elements inside the image: the breadcrumb
+// figcaption and the action-icon clusters. Their shared foreground/background
+// come from the Color block-support panel (one pair across every overlay), the
+// breadcrumb font from Typography, the icon size from `iconSize`, and the
+// per-image border / shadow from the Border / Shadow panels — all projected
+// onto the sub-elements server-side, never the wrapper. The item is the sizing
+// box: the grid item fixes its aspect ratio inline, the justified item its
+// height inline, and the link plus image fill that box absolutely so nothing
+// inside it can collapse to zero height.
 
-// The nine-point anchor placement, shared by the download badge and the
-// caption. Both overlays use the identical nine anchors; only the edge inset
-// differs (the badge sits a little clear of the corner, the caption flush
-// against it), so one mixin emits both sets parameterised by `$inset`. The
-// emitted selectors and declarations are identical to the former hand-written
-// sets.
+// The nine-point anchor placement, shared by the breadcrumb and the icon
+// clusters. Both overlays use the identical nine anchors; only the edge inset
+// differs (the icons sit a little clear of the corner, the breadcrumb flush
+// against it), so one mixin emits both sets parameterised by `$inset`.
 @mixin nine-point-anchors($element, $inset) {
 	&__#{$element}--anchor-top-left {
 		top: $inset;
@@ -69,6 +69,30 @@
 	}
 }
 
+// The text-alignment a breadcrumb takes from its anchor's horizontal half. A
+// left/centre/right anchor aligns the (potentially clipped) text the same way,
+// so the leading-ellipsis tail always sits where the anchor implies.
+@mixin breadcrumb-alignment {
+
+	&--anchor-top-left,
+	&--anchor-middle-left,
+	&--anchor-bottom-left {
+		text-align: left;
+	}
+
+	&--anchor-top-center,
+	&--anchor-middle-center,
+	&--anchor-bottom-center {
+		text-align: center;
+	}
+
+	&--anchor-top-right,
+	&--anchor-middle-right,
+	&--anchor-bottom-right {
+		text-align: right;
+	}
+}
+
 .kntnt-photo-drop-gallery {
 
 	&__layout {
@@ -97,14 +121,14 @@
 	}
 
 	&__item {
-		// The sizing box and the positioning context for the overlay caption and
-		// the download badge. It deliberately does NOT clip its content: object-fit
-		// already crops the cover image to the box and a rounded image clips its
-		// own corners, so the only thing an `overflow: hidden` here would add is
-		// clipping the image's own box-shadow — the per-image Shadow block support
-		// (issue #33) — which a builder who turns the shadow on expects to see
-		// around the tile. `min-width: 0` lets a justified flex item shrink below
-		// its image's intrinsic width instead of forcing the row too wide.
+		// The sizing box and the positioning context for the overlays. It
+		// deliberately does NOT clip its content: object-fit already crops the cover
+		// image to the box and a rounded image clips its own corners, so the only
+		// thing an `overflow: hidden` here would add is clipping the image's own
+		// box-shadow — the per-image Shadow block support — which a builder who turns
+		// the shadow on expects to see around the tile. `min-width: 0` lets a
+		// justified flex item shrink below its image's intrinsic width instead of
+		// forcing the row too wide.
 		position: relative;
 		min-width: 0;
 		margin: 0;
@@ -146,38 +170,67 @@
 		object-fit: var(--kntnt-photo-drop-fit, cover);
 	}
 
-	&__caption {
-		// The caption is always an absolutely-placed overlay inside the image. Only
-		// the structural rules live at this specificity; the colour and typography
-		// come from the Color / Typography block-support panels, projected onto the
-		// figcaption as inline declarations or preset classnames. Like the download
-		// badge, it never intercepts the pointer, so the click target stays the
-		// enclosing anchor (the lightbox trigger or the no-JS link) — this fixes the
-		// dead click zone over both gallery figures and the lightbox caption.
+	&__breadcrumbs {
+		// The breadcrumb is an absolutely-placed overlay inside the image, on its own
+		// single line. Only the structural rules live at this specificity; the colour
+		// and typography come from the Color / Typography block-support panels,
+		// projected onto the figcaption as inline declarations or preset classnames.
+		// Like the icons it never intercepts the pointer, so the click target stays
+		// the enclosing anchor (the lightbox trigger or the no-JS link). Overflow
+		// keeps the *tail* (the image name) and clips the *head* with a leading
+		// ellipsis — on thumbnails an overflowing path is the common case, so a
+		// pure-CSS single-line clip is used rather than a JS fitter. `direction: rtl`
+		// makes the ellipsis fall at the start of the visual line, while the
+		// plaintext bidi isolation keeps the crumb text reading in its own natural
+		// direction; an RTL site flips the whole thing via its own `direction`.
 		position: absolute;
 		z-index: 1;
 		max-width: 100%;
 		margin: 0;
 		padding: 0.3em 0.5em;
+		overflow: hidden;
 		font-size: 0.85em;
 		line-height: 1.3;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		pointer-events: none;
+		direction: rtl;
+		unicode-bidi: plaintext;
+
+		@include breadcrumb-alignment;
 	}
 
-	&__download {
-		// The overlay download icon: a circular, absolutely-placed badge inside the
-		// image, drawn purely from the three inline custom properties the server
-		// emits (size, background, foreground). The badge is itself the download
-		// anchor — the sole download trigger — so it owns the pointer, and a
-		// keyboard user gets a visible ring on the otherwise text-free control.
+	@include nine-point-anchors("breadcrumbs", 0);
+
+	&__icons {
+		// One anchored cluster per occupied position, laid out as a horizontal row so
+		// icons sharing a position sit side by side in their fixed order. The cluster
+		// carries the shared foreground/background and the icon size as custom
+		// properties the icons below read.
 		position: absolute;
 		z-index: 2;
+		display: flex;
+		gap: 0.3em;
+		align-items: center;
+	}
+
+	@include nine-point-anchors("icons", 0.4em);
+
+	&__icon {
+		// One action icon: a circular badge drawn purely from the shared custom
+		// properties. The badge owns the pointer (it is the action trigger), and a
+		// keyboard user gets a visible ring on the otherwise text-free control. A
+		// button-flavoured icon resets the native button chrome to match the anchor.
+		// It anchors the trash icon's confirm popover, an absolutely-positioned
+		// child (the circular badge does not clip it — no overflow is hidden).
+		position: relative;
 		box-sizing: border-box;
-		width: var(--kntnt-photo-drop-download-size, 2rem);
-		height: var(--kntnt-photo-drop-download-size, 2rem);
+		width: var(--kntnt-photo-drop-icon-size, 2rem);
+		height: var(--kntnt-photo-drop-icon-size, 2rem);
 		padding: 0.25em;
-		color: var(--kntnt-photo-drop-download-fg, #fff);
-		background: var(--kntnt-photo-drop-download-bg, #00000080);
+		color: var(--kntnt-photo-drop-overlay-fg, #fff);
+		background: var(--kntnt-photo-drop-overlay-bg, rgba(0, 0, 0, 0.5));
+		border: 0;
 		border-radius: 50%;
 		cursor: pointer;
 
@@ -186,25 +239,121 @@
 			outline-offset: 2px;
 		}
 
-		// The download glyph is a masked SVG so the foreground colour paints it; no
-		// SVG element, icon font, or extra request is needed. The arrow-into-tray
-		// glyph is an inline SVG data URI; both the standard and the -webkit- mask
-		// are set for Safari.
+		// The glyph is a masked SVG so the shared foreground colour paints it;
+		// no SVG element, icon font, or extra request is needed. Each icon sets
+		// its own glyph data URI below; the mask plumbing (standard and -webkit-
+		// for Safari) lives here.
 		&::before {
-			--kntnt-photo-drop-download-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3v10m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-
 			content: "";
 			display: block;
 			width: 100%;
 			height: 100%;
 			background: currentcolor;
-			mask: var(--kntnt-photo-drop-download-glyph) center / contain no-repeat;
-			-webkit-mask: var(--kntnt-photo-drop-download-glyph) center / contain no-repeat;
+			mask: var(--kntnt-photo-drop-icon-glyph) center / contain no-repeat;
+			-webkit-mask: var(--kntnt-photo-drop-icon-glyph) center / contain no-repeat;
 		}
 	}
 
-	// The nine anchors place the download badge a small inset clear of the corner.
-	@include nine-point-anchors("download", 0.4em);
+	&__icon--download::before {
+		// An arrow into a tray.
+		--kntnt-photo-drop-icon-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3v10m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	}
+
+	&__icon--add-to-media::before {
+		// A framed plus — add to the library.
+		--kntnt-photo-drop-icon-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5h16v14H4zM12 9v6m-3-3h6' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	}
+
+	&__icon--trash::before {
+		// A waste bin.
+		--kntnt-photo-drop-icon-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 7h14M9 7V5h6v2m-7 0v12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	}
+
+	// The add-to-media button's interaction states the view module toggles
+	// (ADR-0015). Armed is the confirm gate's first click — a high-contrast ring
+	// invites the deliberate second click; busy dims while the copy POSTs; done
+	// swaps the plus glyph for a checkmark as the success feedback. None of these
+	// states exists server-side, so a no-JS render simply shows the plain icon.
+	&__icon--armed {
+		outline: 2px solid currentcolor;
+		outline-offset: 2px;
+	}
+
+	&__icon--busy {
+		cursor: progress;
+		opacity: 0.5;
+	}
+
+	&__icon--done::before {
+		// A checkmark — the copy landed.
+		--kntnt-photo-drop-icon-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 13l4 4L19 7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	}
+
+	&__confirm {
+		// The trash overlay's inline confirm popover (ADR-0015): a small panel
+		// anchored to the trash icon, holding a permanence-stating prompt and an
+		// explicit Delete / Cancel pair (a deliberate second click on a destructive
+		// button, never a one-click delete). It pops above the icon on its own dark
+		// chrome so it reads over any image, kept narrow but wide enough that the
+		// prompt is not a column of single words; on a small thumbnail it may
+		// overhang the tile, fine for a transient outside-click-dismissed confirm.
+		position: absolute;
+		bottom: calc(100% + 0.4em);
+		left: 50%;
+		z-index: 3;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4em;
+		justify-content: flex-end;
+		width: max-content;
+		max-width: 16rem;
+		padding: 0.6em;
+		cursor: auto;
+		background: #1e1e1e;
+		border-radius: 0.25rem;
+		box-shadow: 0 2px 8px rgb(0 0 0 / 40%);
+		transform: translateX(-50%);
+
+		&__message {
+			// The prompt spans the full panel width above the buttons; its copy states
+			// the deletion is permanent.
+			flex-basis: 100%;
+			margin: 0;
+			font-size: 0.8125rem;
+			line-height: 1.4;
+			color: #fff;
+		}
+
+		&__button {
+			// Compact text buttons resetting the native chrome; both read on the dark
+			// panel and show a clear keyboard ring.
+			padding: 0.25em 0.7em;
+			font: inherit;
+			font-size: 0.8125rem;
+			line-height: 1.6;
+			cursor: pointer;
+			border: 0;
+			border-radius: 0.2rem;
+
+			&:focus-visible {
+				outline: 2px solid #fff;
+				outline-offset: 1px;
+			}
+		}
+
+		&__button--delete {
+			// The destructive choice carries a warning colour so it never reads as the
+			// safe default.
+			color: #fff;
+			background: #d63638;
+		}
+
+		&__button--cancel {
+			// The safe choice is the quiet, light button (and the one focused on open).
+			color: #1e1e1e;
+			background: #f0f0f0;
+		}
+	}
 
 	&__slideshow-button {
 		// The quiet slideshow affordance above the gallery (ADR-0009): a
@@ -244,16 +393,12 @@
 
 	// The legible default overlay colours live at zero specificity (`:where`), so
 	// both a panel's preset classname and a panel's inline declaration win over
-	// them — the caption reads on an unstyled image yet defers the moment the
+	// them — the breadcrumb reads on an unstyled image yet defers the moment the
 	// editor picks a colour.
-	:where(&__caption) {
+	:where(&__breadcrumbs) {
 		background: rgba(0, 0, 0, 0.5);
 		color: #fff;
 	}
-
-	// The nine anchors map to edge insets flush against the corner; centre
-	// variants translate to the midpoint on the relevant axis.
-	@include nine-point-anchors("caption", 0);
 }
 
 // The editor-only "no collection / broken reference" notice reuses the wrapper,
@@ -297,11 +442,23 @@
 	}
 
 	&__hint {
-		// A quiet inspector note pointing at the block-support panels that now own
-		// the gap; it only appears in the Layout panel, never on the frontend.
+		// A quiet inspector note; it appears only in its panel, never on the
+		// frontend.
 		margin: 0;
 		font-size: 0.85em;
 		font-style: italic;
 		opacity: 0.7;
+	}
+
+	&__overlay {
+		// One overlay's control group in the Overlays panel, set off from the next.
+		margin-bottom: 1.5em;
+	}
+
+	&__overlay-label {
+		// The control group's heading — the overlay's name above its visibility and
+		// position selects.
+		margin: 0 0 0.5em;
+		font-weight: 600;
 	}
 }

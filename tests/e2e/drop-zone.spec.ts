@@ -6,13 +6,20 @@
  * container and drop surface — no inner surface div, no role/tabindex, the
  * builder's tokened "Add photos" link), clicks that link to open the native file
  * chooser, and the browser pipeline (createImageBitmap → canvas → WebP) uploads it
- * to the
- * REST endpoint. The spec asserts the client-visible truth (the per-file status
- * row and the live summary) and the server truth (the stored
- * `<name>.jpg.webp` is served from the collection directory as
- * `image/webp`). A second pass re-uploads the same file and must be skipped
- * by name dedup. The tests are serial: the skip test depends on the first
- * upload having stored the file.
+ * to the REST endpoint. The spec asserts the client-visible truth (the aggregate
+ * three-bucket summary the view renders on completion) and the server truth (the
+ * stored `<name>.jpg.webp` is served from the collection directory as
+ * `image/webp`). A second pass re-uploads the same file and must land in the
+ * skipped bucket by name dedup. The tests are serial: the skip test depends on
+ * the first upload having stored the file.
+ *
+ * A separate describe closes the one automation gap the unit layer cannot reach
+ * (#44): a Playwright route-intercept forces the first POST to the images
+ * endpoint to fail so the file lands in the Failed bucket, then Retry-failed is
+ * clicked and the previously-failed file is asserted to be re-uploaded with its
+ * real bytes — a genuine `<name>.jpg.webp` appears server-side and the bucket
+ * moves to Uploaded. This guards the regression the two real #44 bugs caused
+ * (Retry re-queuing without re-sending the actual file).
  *
  * @since 0.2.0
  */
@@ -36,8 +43,10 @@ test.describe( 'Drop Zone upload', () => {
 
 	test.beforeAll( async ( { requestUtils } ) => {
 		// Seed an empty collection and publish a page with the drop-zone
-		// block bound to it.
-		createCollection( slug );
+		// block bound to it. A deterministic `%uploader%`-only template keeps the
+		// uploaded file's placement fixed (no date folder), so the stored URL is
+		// assertable: the admin's uploads land under `<slug>/admin/` (ADR-0014).
+		createCollection( slug, '%uploader%' );
 		const created = await requestUtils.createPage( {
 			title: `E2E Drop Zone ${ slug }`,
 			content:
@@ -113,32 +122,28 @@ test.describe( 'Drop Zone upload', () => {
 		const fileChooser = await fileChooserPromise;
 		await fileChooser.setFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
 
-		// The file's status row settles on the uploaded state, and the
-		// summary counts exactly this one upload.
-		const row = page.locator( '.kntnt-photo-drop-drop-zone__status-item' );
-		await expect( row ).toHaveCount( 1 );
-		await expect( row ).toHaveText( `${ FIXTURE_ALPHA }: Uploaded`, {
-			timeout: 30_000,
-		} );
-		await expect( row ).toHaveClass(
-			/kntnt-photo-drop-drop-zone__status-item--uploaded/
-		);
+		// On completion the view swaps the live bar for the three-bucket summary;
+		// this one upload settles into the uploaded count, with no skipped or
+		// failed buckets and no Retry-failed button.
+		const status = page.locator( '.kntnt-photo-drop-drop-zone__status' );
 		await expect(
-			page.locator( '.kntnt-photo-drop-drop-zone__summary' )
-		).toHaveText( '1 uploaded · 0 skipped · 0 failed' );
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--uploaded' )
+		).toHaveText( '1 uploaded', { timeout: 30_000 } );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--failed' )
+		).toHaveCount( 0 );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__retry' )
+		).toHaveCount( 0 );
 
-		// Server truth: the collection namespaces per uploader by default
-		// (ADR-0008), so the admin's upload is served from under the admin
-		// nicename folder, as WebP — never from the bare collection root.
+		// Server truth: the pathComponents template is expanded server-side
+		// (ADR-0014), so with the `%uploader%` template the upload lands under
+		// `<slug>/admin/` and is served from there, as WebP.
 		const stored = await page.request.get(
 			storedImageUrl( slug, FIXTURE_ALPHA, 'admin' )
 		);
 		expect( stored.ok() ).toBeTruthy();
 		expect( stored.headers()[ 'content-type' ] ).toContain( 'image/webp' );
-		const bare = await page.request.get(
-			storedImageUrl( slug, FIXTURE_ALPHA )
-		);
-		expect( bare.ok() ).toBeFalsy();
 	} );
 
 	test( 're-uploading the same file is skipped by name dedup', async ( {
@@ -151,18 +156,136 @@ test.describe( 'Drop Zone upload', () => {
 			.locator( '.kntnt-photo-drop-drop-zone__file-input' )
 			.setInputFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
 
-		// The row settles on the skipped state and the summary agrees.
-		const row = page.locator( '.kntnt-photo-drop-drop-zone__status-item' );
-		await expect( row ).toHaveCount( 1 );
-		await expect( row ).toHaveText(
-			`${ FIXTURE_ALPHA }: Skipped — already present`,
-			{ timeout: 30_000 }
+		// The file lands in the skipped bucket — listed by name — with nothing
+		// uploaded and no Retry-failed button.
+		const status = page.locator( '.kntnt-photo-drop-drop-zone__status' );
+		const skipped = status.locator(
+			'.kntnt-photo-drop-drop-zone__bucket--skipped'
 		);
-		await expect( row ).toHaveClass(
-			/kntnt-photo-drop-drop-zone__status-item--skipped/
-		);
+		await expect( skipped ).toContainText( FIXTURE_ALPHA, {
+			timeout: 30_000,
+		} );
 		await expect(
-			page.locator( '.kntnt-photo-drop-drop-zone__summary' )
-		).toHaveText( '0 uploaded · 1 skipped · 0 failed' );
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--uploaded' )
+		).toHaveText( '0 uploaded' );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__retry' )
+		).toHaveCount( 0 );
+	} );
+} );
+
+test.describe( 'Drop Zone Retry-failed', () => {
+	const retrySlug = uniqueSlug( 'retry' );
+	let retryPageId = 0;
+
+	test.beforeAll( async ( { requestUtils } ) => {
+		// A dedicated empty collection and page, so the forced failure here never
+		// touches the upload/skip pair above. The `%uploader%`-only template fixes
+		// the stored path under `<slug>/admin/`, making the server-truth URL
+		// assertable (ADR-0014).
+		createCollection( retrySlug, '%uploader%' );
+		const created = await requestUtils.createPage( {
+			title: `E2E Drop Zone Retry ${ retrySlug }`,
+			content:
+				`<!-- wp:kntnt-photo-drop/drop-zone {"collection":"${ retrySlug }"} -->\n` +
+				`<!-- wp:buttons -->\n` +
+				`<div class="wp-block-buttons"><!-- wp:button -->\n` +
+				`<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="#kntnt-drop-zone-files">Add photos</a></div>\n` +
+				`<!-- /wp:button --></div>\n` +
+				`<!-- /wp:buttons -->\n` +
+				`<!-- /wp:kntnt-photo-drop/drop-zone -->`,
+			status: 'publish',
+		} );
+		retryPageId = created.id;
+	} );
+
+	test.afterAll( async ( { requestUtils } ) => {
+		if ( retryPageId !== 0 ) {
+			await requestUtils.rest( {
+				method: 'DELETE',
+				path: `/wp/v2/pages/${ retryPageId }`,
+				params: { force: true },
+			} );
+		}
+		deleteCollection( retrySlug );
+	} );
+
+	test( 'a forced upload failure lands in Failed, then Retry re-uploads the real bytes', async ( {
+		page,
+	} ) => {
+		// Force exactly the first POST to the collection's images endpoint to fail with
+		// a 500 — a real server-error response the view classifies as a failure — then
+		// let every later request (the Retry's POST) through untouched. The route only
+		// matches this endpoint, so the server-truth GET to the uploads directory is
+		// never intercepted.
+		let failedOnce = false;
+		await page.route(
+			new RegExp( `collections/${ retrySlug }/images` ),
+			async ( route ) => {
+				if ( route.request().method() === 'POST' && ! failedOnce ) {
+					failedOnce = true;
+					await route.fulfill( {
+						status: 500,
+						contentType: 'application/json',
+						body: JSON.stringify( {
+							code: 'forced_failure',
+							message: 'forced failure',
+						} ),
+					} );
+					return;
+				}
+				await route.continue();
+			}
+		);
+
+		await page.goto( `/?page_id=${ retryPageId }` );
+
+		// Upload one file; its first (and only) POST is forced to fail, so it settles
+		// into the Failed bucket, listed by name, with nothing uploaded.
+		await page
+			.locator( '.kntnt-photo-drop-drop-zone__file-input' )
+			.setInputFiles( path.join( FIXTURES_DIR, FIXTURE_ALPHA ) );
+
+		const status = page.locator( '.kntnt-photo-drop-drop-zone__status' );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--failed' )
+		).toContainText( FIXTURE_ALPHA, { timeout: 30_000 } );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--uploaded' )
+		).toHaveText( '0 uploaded' );
+
+		// Server truth before the retry: the forced failure stored nothing, so the
+		// would-be stored WebP is genuinely absent.
+		const before = await page.request.get(
+			storedImageUrl( retrySlug, FIXTURE_ALPHA, 'admin' )
+		);
+		expect( before.ok() ).toBeFalsy();
+
+		// Click Retry-failed: the queue re-runs exactly the failed file, and with the
+		// first failure spent the route now lets the real POST through.
+		const retry = status.locator( '.kntnt-photo-drop-drop-zone__retry' );
+		await expect( retry ).toBeVisible();
+		await retry.click();
+
+		// The previously-failed file now uploads: it moves to the uploaded bucket, the
+		// failed bucket clears, and the Retry button is gone.
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--uploaded' )
+		).toHaveText( '1 uploaded', { timeout: 30_000 } );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__bucket--failed' )
+		).toHaveCount( 0 );
+		await expect(
+			status.locator( '.kntnt-photo-drop-drop-zone__retry' )
+		).toHaveCount( 0 );
+
+		// Server truth after the retry: a real `<name>.jpg.webp` is now stored and
+		// served as WebP — proving Retry re-sent the actual file bytes, not an empty
+		// re-queue (the #44 regression this guards).
+		const after = await page.request.get(
+			storedImageUrl( retrySlug, FIXTURE_ALPHA, 'admin' )
+		);
+		expect( after.ok() ).toBeTruthy();
+		expect( after.headers()[ 'content-type' ] ).toContain( 'image/webp' );
 	} );
 } );

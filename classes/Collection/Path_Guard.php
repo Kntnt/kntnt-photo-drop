@@ -36,6 +36,29 @@ namespace Kntnt\Photo_Drop\Collection;
 final class Path_Guard {
 
 	/**
+	 * Reports whether a relative path passes the filesystem-free lexical checks.
+	 *
+	 * The lexical half of the guard: percent-decoding to a fixed point, then the
+	 * pure string rejections (NUL and control characters, URI schemes,
+	 * backslashes, absolute paths, and any `..` parent reference). It touches no
+	 * filesystem and needs no collection root, so it is the unit the placement
+	 * template's save-time validation reuses to reject an unsafe template (such as
+	 * `%year%/../../x`) before any upload — the same checks `resolve()` runs first,
+	 * never a re-implementation (ADR-0014). An empty or `.`-only path is lexically
+	 * safe (it denotes the root itself); the realpath confinement that `resolve()`
+	 * adds on top is what catches a symlink escape, which a lexical check cannot
+	 * see.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $relative_path The untrusted relative path to vet lexically.
+	 * @return bool True when the path passes every lexical check.
+	 */
+	public static function is_lexically_safe( string $relative_path ): bool {
+		return self::lexical_segments( $relative_path ) !== null;
+	}
+
+	/**
 	 * The canonical absolute path of the collection root.
 	 *
 	 * Resolved with realpath() at construction so every confinement comparison
@@ -89,55 +112,13 @@ final class Path_Guard {
 	 */
 	public function resolve( string $relative_path ): ?string {
 
-		// Percent-decode first so encoded traversal (`%2e%2e%2f`), double-encoded
-		// sequences, and overlong forms are unmasked before any check runs. A
-		// single pass over a fully decoded string would still hide a
-		// double-encoded payload, so decode repeatedly until the string is
-		// stable (a fixed point), capping the loop to defeat pathological input.
-		$decoded = $this->fully_decode( $relative_path );
-		if ( $decoded === null ) {
+		// Run the filesystem-free lexical half first (decode, character-class and
+		// scheme rejection, backslash and absolute rejection, `..` rejection). A
+		// null is a lexically hostile path the realpath walk must never see; the
+		// returned segments are the safe, collapsed components to confine.
+		$safe_segments = self::lexical_segments( $relative_path );
+		if ( $safe_segments === null ) {
 			return null;
-		}
-
-		// Reject NUL bytes and control characters outright: a NUL truncates the
-		// path in the underlying C calls, and control characters have no place
-		// in a legitimate relative path.
-		if ( preg_match( '/[\x00-\x1f\x7f]/', $decoded ) === 1 ) {
-			return null;
-		}
-
-		// Reject anything carrying a URI scheme (`file://`, `php://`, …); a
-		// legitimate relative path never contains a scheme separator.
-		if ( preg_match( '#^[a-zA-Z][a-zA-Z0-9+.\-]*://#', $decoded ) === 1 ) {
-			return null;
-		}
-
-		// Reject backslashes wholesale. They are the Windows separator and the
-		// UNC prefix (`\\server\share`); on the case-sensitive Linux target a
-		// backslash is never a directory separator, so its only role here would
-		// be to smuggle a separator past a forward-slash-only check.
-		if ( str_contains( $decoded, '\\' ) ) {
-			return null;
-		}
-
-		// Reject absolute paths: a leading slash means "from the filesystem
-		// root", which by definition is not relative to the collection root.
-		if ( str_starts_with( $decoded, '/' ) ) {
-			return null;
-		}
-
-		// Split on forward slashes and drop empty and single-dot segments
-		// (collapsing `a//b` and `a/./b`); reject the moment a parent reference
-		// appears, since no `..` is ever legitimate in a confined relative path.
-		$safe_segments = [];
-		foreach ( explode( '/', $decoded ) as $segment ) {
-			if ( $segment === '' || $segment === '.' ) {
-				continue;
-			}
-			if ( $segment === '..' ) {
-				return null;
-			}
-			$safe_segments[] = $segment;
 		}
 
 		// An empty result (empty input, `.`, `./`, or only redundant separators)
@@ -204,6 +185,79 @@ final class Path_Guard {
 	}
 
 	/**
+	 * Runs the filesystem-free lexical half and returns the safe segments.
+	 *
+	 * The single home of the lexical rejections, called once by `resolve()` (which
+	 * then adds realpath confinement) and once by `is_lexically_safe()` (which does
+	 * not). It percent-decodes to a fixed point, rejects NUL/control characters,
+	 * URI schemes, backslashes, and absolute paths, then splits on `/`, collapses
+	 * empty and single-dot segments, and rejects any `..` parent reference.
+	 * Returns the collapsed, traversal-free segments (an empty array for the root
+	 * itself), or `null` when the input is lexically hostile.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $relative_path The untrusted relative path.
+	 * @return array<int,string>|null The safe segments, or null when lexically hostile.
+	 */
+	private static function lexical_segments( string $relative_path ): ?array {
+
+		// Percent-decode first so encoded traversal (`%2e%2e%2f`), double-encoded
+		// sequences, and overlong forms are unmasked before any check runs. A
+		// single pass over a fully decoded string would still hide a
+		// double-encoded payload, so decode repeatedly until the string is
+		// stable (a fixed point), capping the loop to defeat pathological input.
+		$decoded = self::fully_decode( $relative_path );
+		if ( $decoded === null ) {
+			return null;
+		}
+
+		// Reject NUL bytes and control characters outright: a NUL truncates the
+		// path in the underlying C calls, and control characters have no place
+		// in a legitimate relative path.
+		if ( preg_match( '/[\x00-\x1f\x7f]/', $decoded ) === 1 ) {
+			return null;
+		}
+
+		// Reject anything carrying a URI scheme (`file://`, `php://`, …); a
+		// legitimate relative path never contains a scheme separator.
+		if ( preg_match( '#^[a-zA-Z][a-zA-Z0-9+.\-]*://#', $decoded ) === 1 ) {
+			return null;
+		}
+
+		// Reject backslashes wholesale. They are the Windows separator and the
+		// UNC prefix (`\\server\share`); on the case-sensitive Linux target a
+		// backslash is never a directory separator, so its only role here would
+		// be to smuggle a separator past a forward-slash-only check.
+		if ( str_contains( $decoded, '\\' ) ) {
+			return null;
+		}
+
+		// Reject absolute paths: a leading slash means "from the filesystem
+		// root", which by definition is not relative to the collection root.
+		if ( str_starts_with( $decoded, '/' ) ) {
+			return null;
+		}
+
+		// Split on forward slashes and drop empty and single-dot segments
+		// (collapsing `a//b` and `a/./b`); reject the moment a parent reference
+		// appears, since no `..` is ever legitimate in a confined relative path.
+		$safe_segments = [];
+		foreach ( explode( '/', $decoded ) as $segment ) {
+			if ( $segment === '' || $segment === '.' ) {
+				continue;
+			}
+			if ( $segment === '..' ) {
+				return null;
+			}
+			$safe_segments[] = $segment;
+		}
+
+		return $safe_segments;
+
+	}
+
+	/**
 	 * Repeatedly percent-decodes until the string stops changing.
 	 *
 	 * A single `rawurldecode()` leaves a double-encoded payload (`%252e`)
@@ -216,7 +270,7 @@ final class Path_Guard {
 	 * @param string $value The raw, possibly multiply-encoded input.
 	 * @return string|null The fully decoded string, or null when the cap is hit.
 	 */
-	private function fully_decode( string $value ): ?string {
+	private static function fully_decode( string $value ): ?string {
 
 		// Decode up to a small fixed number of times; legitimate input is
 		// decoded in one pass, so anything still shrinking after several passes

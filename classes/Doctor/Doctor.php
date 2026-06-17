@@ -14,10 +14,9 @@
  *
  * The service computes that flat, typed diagnosis first — pure and testable —
  * and only then prints it (report-only, the default) or applies it (`--repair`).
- * `--repair --force` re-derives *every* thumbnail and rebuilds *every* index,
- * the path taken after a `kntnt_photo_drop_thumbnail_width` change. The doctor
- * never alters a main image and never deletes a foreign file, even with
- * `--repair`.
+ * `--repair --force` re-derives *every* rendition and rebuilds *every* index,
+ * the path taken after a full- or thumbnail-width change. The doctor never
+ * alters a main image and never deletes a foreign file, even with `--repair`.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.4.0
@@ -30,6 +29,7 @@ namespace Kntnt\Photo_Drop\Doctor;
 use Kntnt\Photo_Drop\Collection\Image_Name;
 use Kntnt\Photo_Drop\Collection\Repository;
 use Kntnt\Photo_Drop\Imaging\Gd_Webp_Codec;
+use Kntnt\Photo_Drop\Imaging\Rendition_Plan;
 use Kntnt\Photo_Drop\Imaging\Thumbnailer;
 use Kntnt\Photo_Drop\Imaging\Webp_Codec;
 use Kntnt\Photo_Drop\Plugin;
@@ -98,7 +98,7 @@ final class Doctor {
 	 * @since 0.4.0
 	 *
 	 * @param string           $root        Absolute path to the collection root directory.
-	 * @param Descriptor       $descriptor  The collection's output contract and thumbnail widths.
+	 * @param Descriptor       $descriptor  The collection's upload contract and rendition settings.
 	 * @param Ignore_Matcher   $ignore      The foreign-file ignore matcher for this run.
 	 * @param Webp_Codec|null  $codec       The codec to probe mains with, or null for GD.
 	 * @param Thumbnailer|null $thumbnailer The thumbnailer to derive with, or null for the default.
@@ -124,11 +124,11 @@ final class Doctor {
 	 * Always computes the full typed diagnosis first. When `$repair` is false the
 	 * findings are returned untouched — the report is the dry run, and nothing on
 	 * disk changes. When `$repair` is true the findings are acted on: every
-	 * missing thumbnail is derived, every orphan thumbnail is removed, and every
+	 * missing rendition is derived, every orphan derived file is removed, and every
 	 * folder that gained or lost a derived artifact has its index rebuilt;
-	 * `$force` additionally re-derives *all* thumbnails, rebuilds *all* indexes,
+	 * `$force` additionally re-derives *all* renditions, rebuilds *all* indexes,
 	 * and prunes the width buckets of de-configured widths regardless of the
-	 * findings (the path after a thumbnail-width change). A contract-violating
+	 * findings (the path after a full- or thumbnail-width change). A contract-violating
 	 * main and a foreign file are reported in both modes but never acted on — the
 	 * main is never altered, the foreign file never deleted. Symlinks are never
 	 * followed anywhere: a planted link is invisible to the walks, and nothing is
@@ -301,8 +301,8 @@ final class Doctor {
 				continue;
 			}
 
-			// A conforming main: every configured width below its own needs a
-			// thumbnail, and the folder index needs its entry.
+			// A conforming main: each derived rendition the tier-skip plan calls for
+			// must exist, and the folder index needs its entry.
 			$findings = [ ...$findings, ...$this->missing_thumbnails( $folder, $main, $probe['width'] ) ];
 			if ( ! in_array( $main, $indexed, true ) ) {
 				$findings[] = new Finding(
@@ -318,44 +318,71 @@ final class Doctor {
 	}
 
 	/**
-	 * Finds the missing thumbnails a conforming main should have.
+	 * Finds the missing derived renditions a conforming main should have.
 	 *
-	 * Only widths strictly below the main's own width apply — a width at or above
-	 * is served by the main itself in the gallery's `srcset`, so it is never
-	 * flagged. A width whose thumbnail path runs through a symlink is not demanded
-	 * either: flagging it would make `--repair` write through the link to a
-	 * location outside the collection, so diagnosis and repair both treat it as
-	 * out of bounds. For each remaining width whose thumbnail file is absent, a
-	 * missing-derived finding naming the width is produced.
+	 * Which renditions should exist — the full and/or the thumbnail, at which
+	 * widths — is computed from the main's own width and the descriptor's
+	 * full/thumbnail settings by `Rendition_Plan`, the same authority the deriver
+	 * realises and the srcset reads, so diagnosis and repair never drift. A width
+	 * whose rendition path runs through a symlink is not demanded: flagging it would
+	 * make `--repair` write through the link to a location outside the collection,
+	 * so diagnosis and repair both treat it as out of bounds. For each remaining
+	 * rendition whose file is absent, a missing-derived finding naming the width is
+	 * produced.
 	 *
 	 * @since 0.4.0
 	 *
 	 * @param string $folder     Absolute path to the content folder.
 	 * @param string $main       The stored main filename.
 	 * @param int    $main_width The main's own pixel width.
-	 * @return array<int,Finding> One finding per missing applicable thumbnail.
+	 * @return array<int,Finding> One finding per missing applicable rendition.
 	 */
 	private function missing_thumbnails( string $folder, string $main, int $main_width ): array {
 
-		// Check each writable configured width below the main width for its
-		// thumbnail file, recording a finding only when the file is absent.
+		// Ask the plan which derived widths this main should have, then keep only the
+		// ones whose write path is symlink-free, and record a finding for each whose
+		// file is absent.
+		$widths = $this->writable_widths( $folder, $main, $this->expected_widths( $main_width ) );
 		$findings = [];
-		foreach ( $this->writable_widths( $folder, $main, $this->descriptor->thumbnail_widths ) as $width ) {
-			if ( $width >= $main_width ) {
-				continue;
-			}
+		foreach ( $widths as $width ) {
 			$thumb = Thumbnailer::thumbnail_path( $folder, $main, $width );
 			if ( ! is_file( $thumb ) ) {
 				$findings[] = new Finding(
 					Finding_Kind::Missing_Derived,
 					$this->relative( $thumb ),
-					"thumbnail {$width}px",
+					"rendition {$width}px",
 				);
 			}
 		}
 
 		return $findings;
 
+	}
+
+	/**
+	 * Returns the derived-rendition widths a main of a given width should have.
+	 *
+	 * A thin read of `Rendition_Plan` against the descriptor's full/thumbnail
+	 * settings, returning just the widths (the qualities are the deriver's concern).
+	 * Keeping the tier-skip decision in the plan means the doctor flags exactly the
+	 * files the deriver would write.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param int $main_width The main's own pixel width.
+	 * @return array<int,int> The ascending derived-rendition widths.
+	 */
+	private function expected_widths( int $main_width ): array {
+		return array_map(
+			static fn ( array $rendition ): int => $rendition['width'],
+			Rendition_Plan::derived(
+				$main_width,
+				$this->descriptor->full_width,
+				$this->descriptor->full_quality,
+				$this->descriptor->thumbnail_width,
+				$this->descriptor->thumbnail_quality,
+			),
+		);
 	}
 
 	/**
@@ -469,15 +496,15 @@ final class Doctor {
 	/**
 	 * Applies the diagnosis: derive what is missing, remove orphans, rebuild indexes.
 	 *
-	 * Missing thumbnails are derived from their (conforming) mains, orphan
-	 * thumbnails are unlinked, and every folder that changed has its index rebuilt
-	 * so a stale or missing index entry self-heals. Under `$force` the derive and
-	 * rebuild run for *every* folder regardless of the findings, and the width
-	 * buckets of widths no longer configured are pruned afterwards — together that
-	 * is how a thumbnail-width change re-derives the whole collection without
-	 * leaving the old widths' thumbnails behind forever. Contract violations and
-	 * foreign files are never acted on. Returns the diagnosis with the
-	 * created/removed/pruned tallies and the repaired flag set.
+	 * Missing renditions are derived from their (conforming) mains, orphan derived
+	 * files are unlinked, and every folder that changed has its index rebuilt so a
+	 * stale or missing index entry self-heals. Under `$force` the derive and rebuild
+	 * run for *every* folder regardless of the findings, and the width buckets of
+	 * widths no longer configured are pruned afterwards — together that is how a
+	 * full- or thumbnail-width change re-derives the whole collection without
+	 * leaving the old widths' files behind forever. Contract violations and foreign
+	 * files are never acted on. Returns the diagnosis with the created/removed/pruned
+	 * tallies and the repaired flag set.
 	 *
 	 * @since 0.4.0
 	 *
@@ -514,12 +541,13 @@ final class Doctor {
 	/**
 	 * Removes every thumbnail bucket of a width no longer configured.
 	 *
-	 * The `--repair --force` companion to the regenerate: after a thumbnail-width
-	 * change (say `[640]` to `[320]`) the regenerate writes the new widths but the
-	 * old `640/` buckets would otherwise live forever as unreachable derived
-	 * artifacts. Thumbnails are slaved to the configuration as much as to their
-	 * mains, so each folder's numeric `<width>/` directories outside the
-	 * configured set are emptied and removed. Every symlink guard applies: a
+	 * The `--repair --force` companion to the regenerate: after a derived-width
+	 * change (say the thumbnail moving from 640 to 320) the regenerate writes the
+	 * new widths but the old `640/` buckets would otherwise live forever as
+	 * unreachable derived artifacts. Derived files are slaved to the configuration
+	 * as much as to their mains, so each folder's numeric `<width>/` directories
+	 * outside the configured set (the full and thumbnail widths) are emptied and
+	 * removed. Every symlink guard applies: a
 	 * symlinked artifacts root or width bucket is never followed, a symlink inside
 	 * a bucket is never unlinked, and a bucket that does not empty out is left in
 	 * place with a warning. Returns the number of thumbnail files pruned.
@@ -530,6 +558,10 @@ final class Doctor {
 	 * @return int The number of stale thumbnail files removed.
 	 */
 	private function prune_stale_width_dirs( array $folders ): int {
+
+		// The two configured derived widths — the full and the thumbnail — are the
+		// only buckets that may survive; everything else is a de-configured width.
+		$configured = [ $this->descriptor->full_width, $this->descriptor->thumbnail_width ];
 
 		// Visit each folder's real width buckets and clear the ones whose numeric
 		// width is no longer configured; non-numeric directories are not ours to
@@ -542,7 +574,7 @@ final class Doctor {
 			}
 			foreach ( $this->width_dirs( $thumbs_root ) as $width_dir ) {
 				$name = basename( $width_dir );
-				if ( ! ctype_digit( $name ) || in_array( (int) $name, $this->descriptor->thumbnail_widths, true ) ) {
+				if ( ! ctype_digit( $name ) || in_array( (int) $name, $configured, true ) ) {
 					continue;
 				}
 				$pruned += $this->remove_width_dir( $width_dir );
@@ -627,44 +659,35 @@ final class Doctor {
 	/**
 	 * Derives every thumbnail the diagnosis flagged missing, returning the count.
 	 *
-	 * Each missing-thumbnail finding names one width of one main; the mains are
-	 * grouped so a main is decoded once and all its missing widths are written in a
-	 * single thumbnailer pass. A flagged *index* entry is not a thumbnail and is
+	 * Each missing-derived finding names one width of one main; the mains are
+	 * de-duplicated so a main is decoded and re-derived once even when several of
+	 * its renditions are missing. A flagged *index* entry is not a rendition and is
 	 * healed by the rebuild, so it is skipped here.
 	 *
 	 * @since 0.4.0
 	 *
 	 * @param array<int,Finding> $findings The diagnosis.
-	 * @return int The number of thumbnail files created.
+	 * @return int The number of derived files created.
 	 */
 	private function create_missing_thumbnails( array $findings ): int {
 
-		// Collect, per main, the set of widths whose thumbnails are missing, so the
-		// thumbnailer decodes each main once for all of its widths.
-		$wanted = [];
+		// Collect the distinct mains with a missing rendition; the deriver computes
+		// the full plan per main itself, so only the set of affected mains matters.
+		$mains = [];
 		foreach ( $findings as $finding ) {
-			$width = $this->thumbnail_width_of( $finding );
-			if ( $width === null ) {
+			if ( $this->thumbnail_width_of( $finding ) === null ) {
 				continue;
 			}
 			$main = $this->main_path_for_thumbnail( $finding->path );
-			$wanted[ $main ][] = $width;
+			$mains[ $main ] = $main;
 		}
 
-		// Derive each main's missing widths and tally what was actually written.
-		// The widths are re-filtered through the symlink guard as defense-in-depth,
-		// so even a finding produced before a link was planted writes nothing
-		// through it.
+		// Re-derive each affected main and tally what was actually written. The
+		// deriver realises the tier-skip plan and refuses any symlinked write itself,
+		// so a finding produced before a link was planted writes nothing through it.
 		$created = 0;
-		foreach ( $wanted as $key => $widths ) {
-			$main_path = (string) $key;
-			$written = $this->thumbnailer->generate(
-				$main_path,
-				basename( $main_path ),
-				$this->writable_widths( \dirname( $main_path ), basename( $main_path ), $widths ),
-				$this->descriptor->quality,
-			);
-			$created += count( $written );
+		foreach ( $mains as $main_path ) {
+			$created += count( $this->derive_renditions( $main_path ) );
 		}
 
 		return $created;
@@ -672,25 +695,25 @@ final class Doctor {
 	}
 
 	/**
-	 * Regenerates every thumbnail for every conforming main in the collection.
+	 * Regenerates every derived rendition for every conforming main in the collection.
 	 *
 	 * The `--repair --force` path: it ignores the diagnosis and re-derives each
-	 * main's full set of configured thumbnails, which is how a change to the
-	 * `kntnt_photo_drop_thumbnail_width` filter is rolled out across an existing
-	 * collection. A contract-violating main is skipped — it is never processed in
-	 * place — so a forced regenerate still never touches a non-conforming main.
+	 * main's full set of renditions, which is how a full- or thumbnail-width change
+	 * is rolled out across an existing collection. A contract-violating main is
+	 * skipped — it is never processed in place — so a forced regenerate still never
+	 * touches a non-conforming main.
 	 *
 	 * @since 0.4.0
 	 *
 	 * @param array<int,string> $folders The collection's content folders.
-	 * @return int The number of thumbnail files written.
+	 * @return int The number of derived files written.
 	 */
 	private function regenerate_all_thumbnails( array $folders ): int {
 
-		// Walk every folder's mains and re-derive each conforming main's thumbnails
+		// Walk every folder's mains and re-derive each conforming main's renditions
 		// from scratch, summing what was written across the whole collection. The
-		// widths pass the symlink guard so a forced regenerate, like the diagnosis,
-		// never writes through a planted link.
+		// deriver applies the tier-skip plan and the symlink guard itself, so a forced
+		// regenerate never writes through a planted link.
 		$created = 0;
 		foreach ( $folders as $folder ) {
 			foreach ( $this->folder_mains( $folder ) as $main ) {
@@ -698,19 +721,37 @@ final class Doctor {
 				if ( $this->contract_violation( $this->codec->probe( $this->read( $main_path ) ?? '' ) ) !== null ) {
 					continue;
 				}
-				$created += count(
-					$this->thumbnailer->generate(
-						$main_path,
-						$main,
-						$this->writable_widths( $folder, $main, $this->descriptor->thumbnail_widths ),
-						$this->descriptor->quality,
-					),
-				);
+				$created += count( $this->derive_renditions( $main_path ) );
 			}
 		}
 
 		return $created;
 
+	}
+
+	/**
+	 * Re-derives one main's full set of renditions, returning the paths written.
+	 *
+	 * The shared derive step both repair paths route through: it hands the deriver
+	 * the descriptor's full/thumbnail width+quality settings, and the deriver
+	 * computes the tier-skip plan from the main's own width and refuses any
+	 * symlinked write itself. Re-deriving an already-present rendition is harmless
+	 * (the encode is deterministic), so the missing-only and force paths share it.
+	 *
+	 * @since 0.7.0
+	 *
+	 * @param string $main_path Absolute path to the conforming main image.
+	 * @return array<int,string> Absolute paths of the renditions written.
+	 */
+	private function derive_renditions( string $main_path ): array {
+		return $this->thumbnailer->generate(
+			$main_path,
+			basename( $main_path ),
+			$this->descriptor->full_width,
+			$this->descriptor->full_quality,
+			$this->descriptor->thumbnail_width,
+			$this->descriptor->thumbnail_quality,
+		);
 	}
 
 	/**
@@ -939,10 +980,11 @@ final class Doctor {
 			return 'not WebP';
 		}
 
-		// A finite ceiling the main exceeds is the width violation; a null ceiling
-		// imposes no limit.
-		if ( $this->descriptor->max_width !== null && $width > $this->descriptor->max_width ) {
-			return "over the {$this->descriptor->max_width}px ceiling ({$width}px)";
+		// A finite upload ceiling the main exceeds is the width violation; a null
+		// ceiling imposes no limit. Only the immutable upload pair bounds the main —
+		// the full and thumbnail widths bound derived files, not the main.
+		if ( $this->descriptor->upload_width !== null && $width > $this->descriptor->upload_width ) {
+			return "over the {$this->descriptor->upload_width}px ceiling ({$width}px)";
 		}
 
 		return null;
@@ -1089,7 +1131,7 @@ final class Doctor {
 	 * @return bool True when the entry is a main image.
 	 */
 	private function is_main( string $filename ): bool {
-		return Image_Name::to_stored( $filename ) === $filename && str_ends_with( strtolower( $filename ), '.webp' );
+		return Image_Name::is_stored_main( $filename );
 	}
 
 	/**

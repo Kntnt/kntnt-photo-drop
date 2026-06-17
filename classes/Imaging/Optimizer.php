@@ -179,13 +179,13 @@ final class Optimizer {
 		// stored pixel data is byte-identical to the source; only EXIF/XMP
 		// container chunks are removed, losslessly, to match the privacy property
 		// the re-encode path gets for free.
-		if ( $probe['is_webp'] && $this->within_ceiling( $width, $descriptor->max_width ) ) {
+		if ( $probe['is_webp'] && $this->within_ceiling( $width, $descriptor->upload_width ) ) {
 			return new Optimized_Image( Webp_Metadata_Stripper::strip( $bytes ), $width, false );
 		}
 
 		// Downscale only when a finite ceiling is exceeded; a null ceiling and an
 		// already-small image both skip scaling, so width is never increased.
-		$target_width = $this->target_width( $width, $descriptor->max_width );
+		$target_width = $this->target_width( $width, $descriptor->upload_width );
 		if ( $target_width !== $width ) {
 			$scaled = $this->codec->scale( $image, $target_width );
 			if ( $scaled === null ) {
@@ -195,9 +195,9 @@ final class Optimizer {
 			$image = $scaled;
 		}
 
-		// Re-encode to WebP at the descriptor's quality; the width is whatever the
-		// (possibly scaled) handle now carries.
-		$encoded = $this->codec->encode( $image, $descriptor->quality );
+		// Re-encode to WebP at the descriptor's upload quality; the width is whatever
+		// the (possibly scaled) handle now carries.
+		$encoded = $this->codec->encode( $image, $descriptor->upload_quality );
 		if ( $encoded === null ) {
 			Plugin::warning( 'Failed to encode a source image to WebP during optimisation.' );
 			return null;

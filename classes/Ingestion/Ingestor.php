@@ -69,16 +69,16 @@ final class Ingestor {
 	/**
 	 * Constructs an ingestor anchored at one collection.
 	 *
-	 * The root anchors the `Path_Guard`; the descriptor fixes the output contract
-	 * and the thumbnail widths every ingested file is made to honour. The engine
-	 * collaborators default to the production GD-backed pair, so the CLI
-	 * constructs an ingestor with just the root and descriptor; tests inject their
-	 * own to exercise or fake the pixel work.
+	 * The root anchors the `Path_Guard`; the descriptor fixes the upload contract
+	 * and the full/thumbnail rendition settings every ingested file is made to
+	 * honour. The engine collaborators default to the production GD-backed pair, so
+	 * the CLI constructs an ingestor with just the root and descriptor; tests inject
+	 * their own to exercise or fake the pixel work.
 	 *
 	 * @since 0.3.0
 	 *
 	 * @param string           $root        Absolute path to the collection root directory.
-	 * @param Descriptor       $descriptor  The collection's output contract and thumbnail widths.
+	 * @param Descriptor       $descriptor  The collection's upload contract and rendition settings.
 	 * @param Optimizer|null   $optimizer   The optimiser to use, or null for the default.
 	 * @param Thumbnailer|null $thumbnailer The thumbnailer to use, or null for the default.
 	 * @throws \InvalidArgumentException When the root does not resolve to a directory.
@@ -151,13 +151,16 @@ final class Ingestor {
 			return Ingest_Result::rejected( $relative_path );
 		}
 
-		// Derive the main's thumbnail(s) from the freshly stored file. The index is
-		// deliberately left untouched — it self-heals on the next gallery view.
+		// Derive the main's full and thumbnail renditions from the freshly stored
+		// file (the deriver decides via Rendition_Plan which tiers survive). The
+		// index is deliberately left untouched — it self-heals on the next view.
 		$thumbnails = $this->thumbnailer->generate(
 			$target,
 			$stored_name,
-			$this->descriptor->thumbnail_widths,
-			$this->descriptor->quality,
+			$this->descriptor->full_width,
+			$this->descriptor->full_quality,
+			$this->descriptor->thumbnail_width,
+			$this->descriptor->thumbnail_quality,
 		);
 
 		// Split the two "now stored" outcomes by whether the optimiser had to

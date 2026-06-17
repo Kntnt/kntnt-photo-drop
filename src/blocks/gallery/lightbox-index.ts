@@ -151,6 +151,51 @@ export function last( state: LightboxState ): LightboxState {
 }
 
 /**
+ * Removes the image at `removedIndex` and realigns the shown index to the shrunk
+ * set.
+ *
+ * The live trash overlay (ADR-0015) deletes an image while the lightbox may be
+ * open on it, so the navigable state must shrink in lock-step and never page onto
+ * a gone image. Removing an image *before* the shown one shifts the shown image
+ * left by one (its index decrements, keeping the same image visible). Removing
+ * the shown image — or one after it — keeps the index, which then clamps onto the
+ * image that slid into the slot: the next image, or the new last when the removed
+ * one was the last. Emptying the set closes the lightbox (`open: false`, index
+ * `0`), since there is nothing left to show. An index outside `[0, count)` removes
+ * nothing and returns the state unchanged.
+ *
+ * @since 0.13.0
+ *
+ * @param state        - The current state.
+ * @param removedIndex - The zero-based index of the image being removed.
+ * @return The state with the count shrunk and the index realigned, closed when emptied.
+ */
+export function removeImageAt(
+	state: LightboxState,
+	removedIndex: number
+): LightboxState {
+	// An index outside the current set removes nothing — a stale or foreign
+	// target leaves the state untouched.
+	if ( removedIndex < 0 || removedIndex >= state.count ) {
+		return state;
+	}
+
+	// Emptying the set leaves nothing to show, so the lightbox closes at index 0.
+	const count = state.count - 1;
+	if ( count === 0 ) {
+		return { count: 0, index: 0, open: false };
+	}
+
+	// Realign the shown index: a removal before it shifts it left to keep the
+	// same image visible; a removal of it (or after it) keeps the index, then
+	// clamps onto the image that slid into the slot — the next one, or the new
+	// last when the removed image was last.
+	const shifted = removedIndex < state.index ? state.index - 1 : state.index;
+	const index = Math.min( Math.max( 0, shifted ), count - 1 );
+	return { ...state, count, index };
+}
+
+/**
  * The indices of the images adjacent to the current one, for neighbour preload.
  *
  * Both neighbours wrap the same way `next`/`prev` do, so the preload covers the

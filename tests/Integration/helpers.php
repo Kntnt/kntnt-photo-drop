@@ -383,17 +383,16 @@ function unique_slug(): string {
  *
  * Seeding is setup, not subject-under-test, so a failure here throws with the
  * CLI's own words instead of letting later assertions fail confusingly. The
- * uploader-folders placement rule is left at its default (on) unless the caller
- * passes `false`, which adds `--no-uploader-folders` so the collection lands
- * Drop Zone uploads at its root (ADR-0008).
+ * `$max_width` value seeds the immutable upload-width contract; the full and
+ * thumbnail renditions and the path-components template take their documented
+ * defaults (ADR-0013, ADR-0014).
  *
  * @since 0.3.0
  *
- * @param string      $slug             The collection slug.
- * @param string      $max_width        The contract ceiling in pixels, or "none".
- * @param int         $quality          The WebP quality (0–100).
- * @param string|null $name             Optional display name; null humanises the slug.
- * @param bool        $uploader_folders Whether Drop Zone uploads namespace per uploader.
+ * @param string      $slug      The collection slug.
+ * @param string      $max_width The upload-width ceiling in pixels, or "none".
+ * @param int         $quality   The upload WebP quality (0–100).
+ * @param string|null $name      Optional display name; null humanises the slug.
  * @throws \RuntimeException When the CLI refuses to create the collection.
  */
 function create_collection(
@@ -401,24 +400,20 @@ function create_collection(
 	string $max_width = '1200',
 	int $quality = 70,
 	?string $name = null,
-	bool $uploader_folders = true,
 ): void {
 
-	// Assemble the create command, adding --name only when the caller set one and
-	// the negation flag only when the placement rule is explicitly turned off.
+	// Assemble the create command from the immutable upload pair (the full and
+	// thumbnail renditions default), adding --name only when the caller set one.
 	$arguments = [
 		'kntnt-photo-drop',
 		'collection',
 		'create',
 		$slug,
-		"--max-width={$max_width}",
-		"--quality={$quality}",
+		"--upload-width={$max_width}",
+		"--upload-quality={$quality}",
 	];
 	if ( $name !== null ) {
 		$arguments[] = "--name={$name}";
-	}
-	if ( ! $uploader_folders ) {
-		$arguments[] = '--no-uploader-folders';
 	}
 
 	// Run it and surface any failure as a hard setup error.
@@ -433,25 +428,24 @@ function create_collection(
  * Creates a collection through the admin create form over HTTP.
  *
  * Drives the real `admin-post.php` create handler exactly as a browser would:
- * a logged-in admin session POSTs the nonce-protected create form, so the
- * uploader-folders checkbox travels the same superglobal path the page reads in
- * production. The checkbox is present only when ticked; omitting it models an
- * unchecked box, which the handler reads as "off" (ADR-0008). Returns nothing —
+ * a logged-in admin session POSTs the nonce-protected six-rendition create form.
+ * The `$max_width` value seeds the immutable upload-width contract (its radio
+ * picks the explicit pixel ceiling or "Original dimensions"); the full and
+ * thumbnail rendition fields are left blank so the handler defaults them, exactly
+ * as a builder who keeps the pre-filled values would submit. Returns nothing —
  * the caller asserts the resulting `collection.json` on disk.
  *
  * @since 0.5.0
  *
- * @param string $slug             The collection slug.
- * @param string $max_width        The contract ceiling in pixels, or "none".
- * @param int    $quality          The WebP quality (0–100).
- * @param bool   $uploader_folders Whether to tick the uploader-folders checkbox.
+ * @param string $slug      The collection slug.
+ * @param string $max_width The upload-width ceiling in pixels, or "none".
+ * @param int    $quality   The upload WebP quality (0–100).
  * @throws \RuntimeException When the admin POST does not establish the collection.
  */
 function create_collection_via_admin(
 	string $slug,
 	string $max_width = '1200',
 	int $quality = 70,
-	bool $uploader_folders = true,
 ): void {
 
 	// Mint a session and a matching admin-post nonce for the create action, the
@@ -459,21 +453,22 @@ function create_collection_via_admin(
 	$session = admin_session();
 	$nonce   = admin_post_nonce( $session['jar'], 'kntnt_photo_drop_create_collection' );
 
-	// Build the form fields. "none" selects the no-limit radio; any other width is
-	// the limit mode. The checkbox field is included only when it should be ticked,
-	// mirroring how an HTML checkbox submits nothing when unchecked.
+	// Build the form fields. "none" selects the "Original dimensions" radio; any
+	// other width is the limit mode. The full and thumbnail fields are left blank so
+	// the handler defaults each from its filter.
 	$fields = [
-		'action'         => 'kntnt_photo_drop_create_collection',
-		'_wpnonce'       => $nonce,
-		'slug'           => $slug,
-		'name'           => '',
-		'max_width_mode' => $max_width === 'none' ? 'none' : 'limit',
-		'max_width'      => $max_width === 'none' ? '' : $max_width,
-		'quality'        => (string) $quality,
+		'action'            => 'kntnt_photo_drop_create_collection',
+		'_wpnonce'          => $nonce,
+		'slug'              => $slug,
+		'name'              => '',
+		'upload_width_mode' => $max_width === 'none' ? 'none' : 'limit',
+		'upload_width'      => $max_width === 'none' ? '' : $max_width,
+		'upload_quality'    => (string) $quality,
+		'full_width'        => '',
+		'full_quality'      => '',
+		'thumbnail_width'   => '',
+		'thumbnail_quality' => '',
 	];
-	if ( $uploader_folders ) {
-		$fields['uploader_folders'] = '1';
-	}
 
 	// POST to admin-post.php with the session cookie; the handler redirects on
 	// completion, so the descriptor on disk — not the HTTP body — is the proof.
@@ -481,6 +476,83 @@ function create_collection_via_admin(
 	if ( read_descriptor( $slug ) === null ) {
 		throw new \RuntimeException( "The admin create form did not establish collection '{$slug}'." );
 	}
+
+}
+
+/**
+ * Creates a collection through the CLI with an explicit placement template.
+ *
+ * Mirrors create_collection() but threads `--path-components` so a placement test
+ * can pin a deterministic template (e.g. `%uploader%` alone, avoiding the
+ * date-dependent default). A failure throws with the CLI's own words, since
+ * seeding is setup rather than the subject under test (ADR-0014).
+ *
+ * @since 0.7.0
+ *
+ * @param string $slug     The collection slug.
+ * @param string $template The path-components template to store.
+ * @throws \RuntimeException When the CLI refuses to create the collection.
+ */
+function create_collection_with_template( string $slug, string $template ): void {
+
+	// Seed with the documented upload contract and the supplied placement template.
+	$result = run_cli(
+		[
+			'kntnt-photo-drop',
+			'collection',
+			'create',
+			$slug,
+			'--upload-width=1200',
+			'--upload-quality=70',
+			"--path-components={$template}",
+		],
+	);
+	if ( $result['exit_code'] !== 0 ) {
+		throw new \RuntimeException( "Cannot seed collection '{$slug}' with a template: {$result['output']}" );
+	}
+
+}
+
+/**
+ * Updates a collection's placement template through the CLI.
+ *
+ * @since 0.7.0
+ *
+ * @param string $slug     The collection slug.
+ * @param string $template The new path-components template.
+ * @return array{output:string,exit_code:int} The filtered output and the exit code.
+ */
+function update_path_components( string $slug, string $template ): array {
+	return run_cli(
+		[ 'kntnt-photo-drop', 'collection', 'update', $slug, '--name=Updated', "--path-components={$template}" ],
+	);
+}
+
+/**
+ * Returns today's date as `Y/m/d` in the site's timezone, read from the container.
+ *
+ * The Drop Zone expands `%year%/%month%/%day%` in the site timezone (ADR-0014),
+ * so a placement assertion against the default template must compute the same
+ * date the server will — through a `wp eval` so it honours the live
+ * `wp_timezone()`, never the host's clock or zone.
+ *
+ * @since 0.7.0
+ *
+ * @return string The site-timezone date as `Y/m/d`.
+ * @throws \RuntimeException When the date cannot be resolved from the container.
+ */
+function site_today_path(): string {
+
+	// Ask WordPress for the current site-timezone date, matching the server's own
+	// expansion exactly.
+	$result = run_cli(
+		[ 'eval', 'echo ( new DateTimeImmutable( "now", wp_timezone() ) )->format( "Y/m/d" ), "\n";' ],
+	);
+	if ( preg_match( '~\b(\d{4}/\d{2}/\d{2})\b~', $result['output'], $match ) !== 1 ) {
+		throw new \RuntimeException( "Cannot resolve the site date: {$result['output']}" );
+	}
+
+	return $match[1];
 
 }
 
@@ -960,6 +1032,92 @@ function admin_post( array $fields, string $jar ): array {
 }
 
 /**
+ * POSTs a JSON regenerate request to the plugin's re-derive endpoint.
+ *
+ * Drives `kntnt-photo-drop/v1/collections/<slug>/regenerate` exactly as the admin
+ * regenerate UI would: a JSON body carrying the target full/thumbnail widths plus
+ * a batch `index` (or a `finalize` flag), authenticated by the session cookie and
+ * the `wp_rest` nonce. The cookie jar and the nonce are independently optional so
+ * a test can model the forgery-gate rejection (no nonce). Returns the HTTP status
+ * and the decoded JSON body.
+ *
+ * @since 0.11.0
+ *
+ * @param string              $slug  The target collection slug.
+ * @param array<string,mixed> $body  The JSON body fields (target widths, index, finalize).
+ * @param string|null         $jar   A cookie-jar path, or null for an anonymous request.
+ * @param string|null         $nonce A `wp_rest` nonce, or null to omit the header.
+ * @return array{status:int,body:array<string,mixed>|null} The HTTP status and the decoded JSON body.
+ */
+function rest_regenerate( string $slug, array $body, ?string $jar, ?string $nonce ): array {
+
+	// Build the JSON POST against the collection's regenerate route, attaching the
+	// nonce header and the session cookie only when the caller supplied them.
+	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/regenerate';
+	$handle  = curl_init( $url );
+	$headers = [ 'Content-Type: application/json' ];
+	if ( $nonce !== null ) {
+		$headers[] = "X-WP-Nonce: {$nonce}";
+	}
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_POST           => true,
+			CURLOPT_POSTFIELDS     => (string) json_encode( $body ),
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 60,
+		],
+	);
+	if ( $jar !== null ) {
+		curl_setopt( $handle, CURLOPT_COOKIEFILE, $jar );
+	}
+
+	// Fire and decode; a non-JSON body decodes to null, which the test treats as its
+	// own failure signal.
+	$response = curl_exec( $handle );
+	$status   = (int) curl_getinfo( $handle, CURLINFO_RESPONSE_CODE );
+	$decoded  = is_string( $response ) ? json_decode( $response, true ) : null;
+
+	return [
+		'status' => $status,
+		'body'   => is_array( $decoded ) ? $decoded : null,
+	];
+
+}
+
+/**
+ * Returns the numeric width-bucket directory names under a collection's root folder.
+ *
+ * The derived renditions live at `<root>/.kntnt-thumbnails/<width>/`, so the set of
+ * numeric sub-directories there is exactly the set of derived widths present for the
+ * root folder's mains. A regenerate-then-flip test asserts on this set to prove the
+ * new widths were written and the old ones pruned. Only the root folder is
+ * inspected, which is where the integration fixture imports its single image.
+ *
+ * @since 0.11.0
+ *
+ * @param string $slug The collection slug.
+ * @return array<int,int> The numeric width-bucket names, unsorted.
+ */
+function width_buckets( string $slug ): array {
+
+	// Enumerate the hidden corral's immediate sub-directories and keep the numeric
+	// ones; a missing corral yields an empty set.
+	$corral  = collection_path( $slug ) . '/.kntnt-thumbnails';
+	$entries = is_dir( $corral ) ? scandir( $corral ) : false;
+	$widths  = [];
+	foreach ( $entries === false ? [] : $entries as $entry ) {
+		if ( ctype_digit( $entry ) && is_dir( $corral . '/' . $entry ) ) {
+			$widths[] = (int) $entry;
+		}
+	}
+
+	return $widths;
+
+}
+
+/**
  * Fetches a URL anonymously and returns the status and body.
  *
  * @since 0.3.0
@@ -1073,6 +1231,173 @@ function create_subscriber( string $username, string $password ): void {
  */
 function delete_user( string $username ): void {
 	run_cli( [ 'user', 'delete', $username, '--yes' ] );
+}
+
+/**
+ * POSTs an add-to-media copy request to the gallery's REST write-path.
+ *
+ * Drives the add-to-media overlay's server-side action exactly as the gallery
+ * view module does: a JSON POST carrying the collection-relative `path` of the
+ * image to copy, the session cookie, and (optionally) a `wp_rest` nonce. The jar
+ * and the nonce are independently optional so a test can model every shape — both
+ * present (the happy path), no nonce (forgery rejection), or a low-privilege
+ * session (capability rejection).
+ *
+ * @since 0.12.0
+ *
+ * @param string      $slug  The target collection slug.
+ * @param string      $path  The collection-relative path of the main image to copy.
+ * @param string|null $jar   A cookie-jar path, or null for an anonymous request.
+ * @param string|null $nonce A `wp_rest` nonce, or null to omit the header.
+ * @return array{status:int,body:array<string,mixed>|null} The HTTP status and the decoded JSON body.
+ */
+function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $nonce ): array {
+
+	// Build the JSON POST against the collection's media route.
+	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/media';
+	$headers = [ 'Content-Type: application/json' ];
+	if ( $nonce !== null ) {
+		$headers[] = "X-WP-Nonce: {$nonce}";
+	}
+	$handle = curl_init( $url );
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_POST           => true,
+			CURLOPT_POSTFIELDS     => (string) json_encode( [ 'path' => $path ] ),
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 30,
+		],
+	);
+	if ( $jar !== null ) {
+		curl_setopt( $handle, CURLOPT_COOKIEFILE, $jar );
+	}
+
+	// Fire and decode; a non-JSON body decodes to null, which the test treats as
+	// its own failure signal.
+	$response = curl_exec( $handle );
+	$status   = (int) curl_getinfo( $handle, CURLINFO_RESPONSE_CODE );
+	$body     = is_string( $response ) ? json_decode( $response, true ) : null;
+
+	return [
+		'status' => $status,
+		'body'   => is_array( $body ) ? $body : null,
+	];
+
+}
+
+/**
+ * Sends a DELETE to the gallery's trash REST write-path.
+ *
+ * Drives the trash overlay's destructive server-side action exactly as the
+ * gallery view module does: a JSON `DELETE` carrying the collection-relative
+ * `path` of the main image to remove, the session cookie, and (optionally) a
+ * `wp_rest` nonce. The jar and the nonce are independently optional so a test
+ * can model every shape — both present (the happy path), no nonce (forgery
+ * rejection), or a low-privilege session (capability rejection). The path rides
+ * in the JSON body (matching the add-to-media write-path) rather than the query
+ * string, so an encoded traversal reaches `Path_Guard` as raw bytes.
+ *
+ * @since 0.13.0
+ *
+ * @param string      $slug  The target collection slug.
+ * @param string      $path  The collection-relative path of the main image to delete.
+ * @param string|null $jar   A cookie-jar path, or null for an anonymous request.
+ * @param string|null $nonce A `wp_rest` nonce, or null to omit the header.
+ * @return array{status:int,body:array<string,mixed>|null} The HTTP status and the decoded JSON body.
+ */
+function rest_delete_image( string $slug, string $path, ?string $jar, ?string $nonce ): array {
+
+	// Build the JSON DELETE against the collection's images route.
+	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/images';
+	$headers = [ 'Content-Type: application/json' ];
+	if ( $nonce !== null ) {
+		$headers[] = "X-WP-Nonce: {$nonce}";
+	}
+	$handle = curl_init( $url );
+	curl_setopt_array(
+		$handle,
+		[
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_CUSTOMREQUEST  => 'DELETE',
+			CURLOPT_POSTFIELDS     => (string) json_encode( [ 'path' => $path ] ),
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 30,
+		],
+	);
+	if ( $jar !== null ) {
+		curl_setopt( $handle, CURLOPT_COOKIEFILE, $jar );
+	}
+
+	// Fire and decode; a non-JSON body decodes to null, which the test treats as
+	// its own failure signal.
+	$response = curl_exec( $handle );
+	$status   = (int) curl_getinfo( $handle, CURLINFO_RESPONSE_CODE );
+	$body     = is_string( $response ) ? json_decode( $response, true ) : null;
+
+	return [
+		'status' => $status,
+		'body'   => is_array( $body ) ? $body : null,
+	];
+
+}
+
+/**
+ * Counts the attachments currently in the Media Library, via WP-CLI.
+ *
+ * The add-to-media tests assert the count before and after a copy, so a stable
+ * count read from inside the container — never the host filesystem — is the
+ * proof a real, independent attachment was (or was not) created.
+ *
+ * @since 0.12.0
+ *
+ * @return int The number of `attachment` posts.
+ * @throws \RuntimeException When the count cannot be read from the container.
+ */
+function attachment_count(): int {
+
+	// Ask WP-CLI for the bare attachment count; --format=count prints just the
+	// integer, so the match keeps any residual decoration out of the number.
+	$result = run_cli( [ 'post', 'list', '--post_type=attachment', '--post_status=any', '--format=count' ] );
+	if ( preg_match( '/\b(\d+)\b/', $result['output'], $match ) !== 1 ) {
+		throw new \RuntimeException( "Cannot read the attachment count: {$result['output']}" );
+	}
+
+	return (int) $match[1];
+
+}
+
+/**
+ * Counts the WordPress-generated sub-sizes recorded for one attachment.
+ *
+ * A real, independent attachment carries its own `sizes` in
+ * `_wp_attachment_metadata` (thumbnail, medium, …) — the proof add-to-media
+ * sideloaded a genuine copy rather than registering a bare file (ADR-0015). This
+ * reads that metadata from inside the container and counts the generated sizes.
+ *
+ * @since 0.12.0
+ *
+ * @param int $attachment_id The attachment id to inspect.
+ * @return int The number of generated sub-sizes.
+ * @throws \RuntimeException When the metadata cannot be read from the container.
+ */
+function attachment_subsize_count( int $attachment_id ): int {
+
+	// Read the attachment metadata's `sizes` count through a wp eval so the real
+	// generated sub-sizes are counted, never assumed.
+	$php    = sprintf(
+		'$m = wp_get_attachment_metadata( %d ); echo is_array( $m ) && isset( $m["sizes"] )'
+			. ' ? count( $m["sizes"] ) : 0, "\n";',
+		$attachment_id,
+	);
+	$result = run_cli( [ 'eval', $php ] );
+	if ( preg_match( '/\b(\d+)\b/', $result['output'], $match ) !== 1 ) {
+		throw new \RuntimeException( "Cannot read the sub-size count: {$result['output']}" );
+	}
+
+	return (int) $match[1];
+
 }
 
 // Guard the whole suite at load time: every integration test needs the live

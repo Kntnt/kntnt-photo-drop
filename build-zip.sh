@@ -10,7 +10,7 @@
 #
 # Arguments: none.
 #
-# Output: kntnt-photo-drop.zip in the project root.
+# Output: dist/kntnt-photo-drop.zip (the GitHub asset keeps the version-less basename).
 #
 # Exit codes:
 #   0  Success.
@@ -115,8 +115,12 @@ if [[ -d "${project_root}/languages" ]]; then
 	cp -R "${project_root}/languages" "$target/languages"
 fi
 
+# Write the archive into dist/ (gitignored), creating it on first run. The file
+# keeps its version-less basename, so the uploaded GitHub asset URL stays stable.
 # Remove any previous ZIP with the same name before writing the new one.
-output_zip="${project_root}/${zip_name}"
+dist_dir="${project_root}/dist"
+mkdir -p "$dist_dir"
+output_zip="${dist_dir}/${zip_name}"
 rm -f "$output_zip"
 
 # Zip the staging folder so the archive contains a single top-level directory,

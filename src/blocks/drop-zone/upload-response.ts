@@ -6,10 +6,12 @@
  * written/skipped, 422 for rejected) and a `WP_Error` envelope (`code`,
  * `message`, `data`) for request-level failures such as an expired nonce.
  * These rules turn a raw HTTP status plus a parsed (or unparseable) body into
- * the three decisions the uploader needs: which outcome a success carries,
- * whether a failure is a nonce rejection worth one automatic retry after a
- * nonce refresh, and which human-readable label to surface — always preferring
- * the server's actionable `message` over the generic "Upload failed".
+ * the two decisions the uploader needs: which outcome a success carries (so the
+ * file can be recorded `uploaded` or `skipped`, under the server's canonical
+ * name), and whether a failure is a nonce rejection worth one automatic retry
+ * after a nonce refresh. Every other failure is recorded `failed` without
+ * inspecting the body — the aggregate summary lists failures by name, not by
+ * reason (issue #44).
  *
  * The rules are pure over plain values so Jest covers every response shape
  * without a network; the view module's XHR handler is the only caller.
@@ -28,23 +30,6 @@
 export interface UploadOutcome {
 	readonly outcome: 'stored' | 'skipped' | 'reencoded' | 'rejected';
 	readonly name: string | null;
-}
-
-/**
- * The pre-translated labels the interpretation rules can emit.
- *
- * A subset of the full string map `Render_Drop_Zone::translations()` passes
- * through the Interactivity context; declared here so the rules and their
- * tests need only the keys they read.
- *
- * @since 0.2.0
- */
-export interface OutcomeStrings {
-	readonly outcomeStored: string;
-	readonly outcomeReencoded: string;
-	readonly outcomeSkipped: string;
-	readonly outcomeRejected: string;
-	readonly uploadFailed: string;
 }
 
 /**
@@ -81,7 +66,7 @@ const KNOWN_OUTCOMES: ReadonlySet< string > = new Set( [
  * four backed outcome values, null for anything else — a `WP_Error` envelope,
  * an unparseable body, or a shape from some interfering proxy. A null return
  * means the upload must be treated as failed even on a 2xx status, because a
- * success may never be reported without a parsed outcome.
+ * success may never be recorded without a parsed outcome.
  *
  * @since 0.2.0
  *
@@ -106,27 +91,6 @@ export function readOutcome( payload: unknown ): UploadOutcome | null {
 		outcome: record.outcome as UploadOutcome[ 'outcome' ],
 		name: typeof record.name === 'string' ? record.name : null,
 	};
-}
-
-/**
- * Reads the server's human-readable `message` from an error body.
- *
- * A `WP_Error` REST envelope carries an actionable, translated `message`
- * (e.g. "Your session could not be verified. Please reload and try again.");
- * returns it when present and non-empty, null otherwise.
- *
- * @since 0.2.0
- *
- * @param payload - The parsed JSON body, or null when parsing failed.
- * @return The server's message, or null when the body carries none.
- */
-export function readErrorMessage( payload: unknown ): string | null {
-	if ( payload === null || typeof payload !== 'object' ) {
-		return null;
-	}
-	const message = ( payload as { message?: unknown } ).message;
-
-	return typeof message === 'string' && message !== '' ? message : null;
 }
 
 /**
@@ -160,65 +124,4 @@ export function isNonceRejection(
 	const code = ( payload as { code?: unknown } ).code;
 
 	return typeof code === 'string' && NONCE_ERROR_CODES.has( code );
-}
-
-/**
- * Maps a per-file outcome to its pre-translated status label.
- *
- * @since 0.2.0
- *
- * @param outcome - The backed outcome from the REST response.
- * @param strings - The pre-translated label map.
- * @return The label to show for that outcome.
- */
-export function labelForOutcome(
-	outcome: UploadOutcome[ 'outcome' ],
-	strings: OutcomeStrings
-): string {
-	switch ( outcome ) {
-		case 'stored':
-			return strings.outcomeStored;
-		case 'reencoded':
-			return strings.outcomeReencoded;
-		case 'skipped':
-			return strings.outcomeSkipped;
-		case 'rejected':
-			return strings.outcomeRejected;
-		default:
-			return strings.uploadFailed;
-	}
-}
-
-/**
- * Chooses the most informative label for a failed response.
- *
- * Preference order: the server's actionable `message` (a `WP_Error` envelope),
- * then the outcome label (a 422 rejection carries `outcome: 'rejected'`), and
- * only as a last resort the generic "Upload failed" — so a photographer whose
- * session expired reads the server's "reload and try again", not a shrug.
- *
- * @since 0.2.0
- *
- * @param payload - The parsed JSON body, or null when parsing failed.
- * @param strings - The pre-translated label map.
- * @return The label to surface for the failed file.
- */
-export function errorLabelFor(
-	payload: unknown,
-	strings: OutcomeStrings
-): string {
-	// The server's own message is the most actionable text available.
-	const message = readErrorMessage( payload );
-	if ( message !== null ) {
-		return message;
-	}
-
-	// A per-file outcome (e.g. a 422 rejection) still labels the failure more
-	// precisely than the generic fallback.
-	const outcome = readOutcome( payload );
-	if ( outcome !== null ) {
-		return labelForOutcome( outcome.outcome, strings );
-	}
-
-	return strings.uploadFailed;
 }
