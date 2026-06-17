@@ -727,9 +727,12 @@ final class Admin_Page {
 	 * The four re-derivable full/thumbnail fields still fall back to their
 	 * `kntnt_photo_drop_default_*` filters (via `Rendition_Defaults`) when blank.
 	 * A present field is parsed by the shared `Collection_Input` so the positive-int
-	 * widths and the quality ceiling match the CLI; the upload quality additionally
-	 * rejects the degenerate `0` (its 1–100 floor is the immutable contract's, #70),
-	 * while the re-derivable full/thumbnail qualities keep the shared 0–100 range.
+	 * widths and the quality ceiling match the CLI; the upload width is parsed
+	 * strictly (no "none" keyword — that is a CLI-only spelling of "no max", and
+	 * the admin form's one way to say it is a blank field), the upload quality
+	 * additionally rejects the degenerate `0` (its 1–100 floor is the immutable
+	 * contract's, #70), while the re-derivable full/thumbnail qualities keep the
+	 * shared 0–100 range.
 	 * The first malformed value queues a precise error and returns `null`, so the
 	 * caller aborts before any directory is made. On success it returns the typed
 	 * values keyed for the descriptor constructor.
@@ -743,12 +746,15 @@ final class Admin_Page {
 
 		// The upload width is the nullable half of the contract: a blank field means
 		// the source's own dimensions (null), and any present value must be a strictly
-		// positive integer.
+		// positive integer. The admin form has no "none" keyword (that is a CLI-only
+		// affordance) — blank is its one way to say "no max" — so a present value is
+		// parsed strictly, and a crafted "none" POST is rejected like any other
+		// non-numeric width (#70, docs/blocks.md).
 		$upload_width_raw = $raw['upload-width'] ?? '';
 		if ( $upload_width_raw === '' ) {
 			$upload_width = null;
 		} else {
-			$upload_width = $this->input->parse_upload_width( $upload_width_raw );
+			$upload_width = $this->input->parse_width( $upload_width_raw );
 			if ( $upload_width === false ) {
 				$this->add_error(
 					// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
