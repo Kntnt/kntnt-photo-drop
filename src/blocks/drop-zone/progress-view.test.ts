@@ -3,14 +3,16 @@
  *
  * The view projects a `ProgressSnapshot` from the bucket-accounting model
  * onto the three regions `Render_Drop_Zone` emits (issue #44): the `__progress`
- * aggregate bar with its Cancel button, the `__status` three-bucket result
- * list, and the `__summary` live region. These tests pin, in jsdom, the
- * load-bearing DOM contract — the `role="progressbar"` plus
- * `aria-valuenow`/`aria-valuemax`, the "N / total" read-out, the live-region
- * announcement, the Cancel wiring, and the three-bucket finalisation (uploaded
- * as a count, skipped and failed by filename, a Retry-failed button that fires
- * exactly the failed set, and no Retry button when nothing failed) — and that
- * every filename is written as inert text.
+ * aggregate bar with the summary-and-Cancel row beneath it, the `__status`
+ * three-bucket result list, and the `__summary` live region. These tests pin,
+ * in jsdom, the load-bearing DOM contract — the `role="progressbar"` plus
+ * `aria-valuenow`/`aria-valuemax`, the "N of T processed" summary row that sits
+ * directly below the bar with Cancel on the same row (issue #68; the earlier
+ * "N / total" lower-corner counters are gone), the live-region announcement,
+ * the Cancel wiring, and the three-bucket finalisation (uploaded as a count,
+ * skipped and failed by filename, a Retry-failed button that fires exactly the
+ * failed set, and no Retry button when nothing failed) — and that every
+ * filename is written as inert text.
  *
  * @since 0.11.0
  */
@@ -92,7 +94,7 @@ describe( 'createProgressView', () => {
 			expect( bar?.getAttribute( 'aria-valuemax' ) ).toBe( '3' );
 		} );
 
-		it( 'shows the processed / total read-out', () => {
+		it( 'shows the "N of T processed" summary directly below the bar', () => {
 			const { elements, view } = freshView();
 			const model = createProgressModel();
 			model.record( 'a', 'a', 'uploaded' );
@@ -102,7 +104,62 @@ describe( 'createProgressView', () => {
 
 			view.render( model.snapshot() );
 
-			expect( elements.progress.textContent ).toContain( '2 / 4' );
+			// The summary row carries "2 of 4 processed" and sits immediately
+			// after the bar in document order, so it renders below it.
+			const summary = elements.progress.querySelector(
+				'.kntnt-photo-drop-drop-zone__progress-summary'
+			);
+			expect( summary?.textContent ).toContain( '2 of 4 processed' );
+			const children = Array.from( elements.progress.children );
+			const barIndex = children.findIndex( ( child ) =>
+				child.matches( '[role="progressbar"]' )
+			);
+			const summaryIndex = children.indexOf( summary as Element );
+			expect( barIndex ).toBeGreaterThanOrEqual( 0 );
+			expect( summaryIndex ).toBe( barIndex + 1 );
+		} );
+
+		it( 'no longer renders the lower "N /" and "T" corner counters', () => {
+			const { elements, view } = freshView();
+			const model = createProgressModel();
+			model.record( 'a', 'a', 'uploaded' );
+			model.record( 'b', 'b', 'uploaded' );
+			model.record( 'c', 'c', 'pending' );
+			model.record( 'd', 'd', 'pending' );
+
+			view.render( model.snapshot() );
+
+			expect(
+				elements.progress.querySelector(
+					'.kntnt-photo-drop-drop-zone__progress-count'
+				)
+			).toBeNull();
+			expect(
+				elements.progress.querySelector(
+					'.kntnt-photo-drop-drop-zone__progress-total'
+				)
+			).toBeNull();
+			expect( elements.progress.textContent ).not.toContain( '2 / 4' );
+		} );
+
+		it( 'places Cancel on the same row as the summary', () => {
+			const { elements, view } = freshView();
+			const model = createProgressModel();
+			model.record( 'a', 'a', 'uploaded' );
+			model.record( 'b', 'b', 'pending' );
+
+			view.render( model.snapshot() );
+
+			// Cancel is a child of the summary row, not a loose sibling of the
+			// bar, so the "N of T processed" text and Cancel share one row.
+			const summaryRow = elements.progress.querySelector(
+				'.kntnt-photo-drop-drop-zone__progress-summary'
+			);
+			const cancel = elements.progress.querySelector(
+				'.kntnt-photo-drop-drop-zone__cancel'
+			);
+			expect( cancel ).not.toBeNull();
+			expect( summaryRow?.contains( cancel ) ).toBe( true );
 		} );
 
 		it( 'announces progress in the live summary region', () => {
