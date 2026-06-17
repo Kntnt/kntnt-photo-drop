@@ -388,6 +388,29 @@ test( 'the create form upload-quality help recommends 95 and warns about 100', f
 	admin_remove_tree( $basedir );
 } );
 
+test( 'the create form upload-quality input enforces a minimum of 1', function (): void {
+	$basedir = fresh_admin_basedir();
+	wire_admin_render_stubs( $basedir );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The upload quality is part of the immutable contract and 0 is a forbidden,
+	// permanent value, so the input's HTML floor matches the help text and the
+	// server-side floor: min="1", not the generic 0 (#70, AC "Range 1–100").
+	expect( $html )->toMatch( '/<input[^>]*name="upload_quality"[^>]*min="1"[^>]*>/' );
+	expect( $html )->not->toMatch( '/<input[^>]*name="upload_quality"[^>]*min="0"[^>]*>/' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
 // ---------------------------------------------------------------------------
 // One uniform rendition section — the contract/renditions split is dropped (#67)
 // ---------------------------------------------------------------------------
@@ -1210,6 +1233,7 @@ test( 'create rejects a malformed rendition value', function ( array $overrides 
 	'zero upload width'    => [ [ 'upload-width' => '0' ] ],
 	'non-numeric upload'   => [ [ 'upload-width' => 'wide' ] ],
 	'upload quality 101'   => [ [ 'upload-quality' => '101' ] ],
+	'upload quality 0'     => [ [ 'upload-quality' => '0' ] ],
 	'zero full width'      => [ [ 'full-width' => '0' ] ],
 	'negative thumb width' => [ [ 'thumbnail-width' => '-5' ] ],
 	'thumb quality over'   => [ [ 'thumbnail-quality' => '200' ] ],
