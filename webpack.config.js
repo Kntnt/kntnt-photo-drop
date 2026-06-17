@@ -4,11 +4,12 @@
  * Block sources stay entirely on the @wordpress/scripts happy path — this file
  * imports the bundled default config unchanged and only *adds* the admin scripts
  * (`src/admin/regenerate.ts` → `build/admin/regenerate.js`, the regenerate UI that
- * shares the Drop Zone's progress view per ADR-0013; and `src/admin/slug.ts` →
- * `build/admin/slug.js`, the Create-form slug on-blur default) to the **scripts**
- * config's entry map. Neither is a block, so the default block-entry resolver would
- * never pick them up; a small entry extension is the minimal way to build them
- * through the same bundler.
+ * shares the Drop Zone's progress view per ADR-0013; `src/admin/slug.ts` →
+ * `build/admin/slug.js`, the Create-form slug on-blur default; and
+ * `src/admin/width-clamp-dom.ts` → `build/admin/width-clamp.js`, the Create/Edit
+ * tier-width live clamp) to the **scripts** config's entry map. None is a block, so
+ * the default block-entry resolver would never pick them up; a small entry extension
+ * is the minimal way to build them through the same bundler.
  *
  * Under `WP_EXPERIMENTAL_MODULES` the default export is an array
  * `[ scriptsConfig, modulesConfig ]` (the second builds the block view modules);
@@ -24,12 +25,17 @@ const defaultConfig = require( '@wordpress/scripts/config/webpack.config' );
 const path = require( 'path' );
 
 // The admin entries, added to whichever config builds classic scripts: the
-// regenerate UI (src/admin/regenerate.ts) and the Create-form slug on-blur default
-// (src/admin/slug.ts). Neither is a block, so the default block-entry resolver would
-// never pick them up.
+// regenerate UI (src/admin/regenerate.ts), the Create-form slug on-blur default
+// (src/admin/slug.ts), and the Create/Edit tier-width live clamp
+// (src/admin/width-clamp-dom.ts). None is a block, so the default block-entry
+// resolver would never pick them up.
 const adminEntry = {
 	'admin/regenerate': path.resolve( __dirname, 'src/admin/regenerate.ts' ),
 	'admin/slug': path.resolve( __dirname, 'src/admin/slug.ts' ),
+	'admin/width-clamp': path.resolve(
+		__dirname,
+		'src/admin/width-clamp-dom.ts'
+	),
 };
 
 /**

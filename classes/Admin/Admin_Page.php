@@ -129,6 +129,21 @@ final class Admin_Page {
 	private const SLUG_HANDLE = 'kntnt-photo-drop-slug';
 
 	/**
+	 * The script handle for the Create/Edit tier-width live clamp.
+	 *
+	 * Enqueued on both the Create and Edit views and built by `@wordpress/scripts`
+	 * into `build/admin/width-clamp.js`. It keeps the rendition width fields in a
+	 * descending tier ladder as the builder types — Full clamped to the upload limit,
+	 * Thumbnail to Full (ADR-0013) — purely as a self-consistency aid; the server
+	 * re-validates every width at submit, so the page works unchanged when it is
+	 * absent.
+	 *
+	 * @since 0.13.0
+	 * @var string
+	 */
+	private const WIDTH_CLAMP_HANDLE = 'kntnt-photo-drop-width-clamp';
+
+	/**
 	 * The literal "Upload width" form value that maps to "source dimensions" (`null`).
 	 *
 	 * The upload contract is irreversible, so the width must be stated explicitly;
@@ -230,8 +245,8 @@ final class Admin_Page {
 	}
 
 	/**
-	 * Adds the page's stylesheet, the live path-preview script, and — on the Edit
-	 * view — the regenerate script, scoped to this admin screen only.
+	 * Adds the page's stylesheet, the live path-preview script, and the per-view
+	 * built scripts, scoped to this admin screen only.
 	 *
 	 * Wired to `admin_enqueue_scripts`. The CSS is the presentation the list markup
 	 * should not carry inline (the header gap and the right-aligned actions column),
@@ -239,11 +254,13 @@ final class Admin_Page {
 	 * preview script powers the create/edit Path components field's live expanded-path
 	 * preview (ADR-0014): it substitutes the four placeholders with the same sample
 	 * values the server-rendered initial preview uses (passed as config so PHP stays
-	 * the single source of truth), updating the preview as the field is typed. On the
-	 * Edit view it additionally enqueues the browser-driven regenerate script that
-	 * drives the manage-gated re-derive endpoint and the shared progress view
-	 * (ADR-0013). Both scripts are presentational/operational on top of a server that
-	 * re-validates everything, so the page degrades gracefully when either is absent.
+	 * the single source of truth), updating the preview as the field is typed. The
+	 * Edit view additionally enqueues the browser-driven regenerate script that drives
+	 * the manage-gated re-derive endpoint and the shared progress view (ADR-0013); the
+	 * Create view enqueues the slug on-blur default; and both lifecycle forms enqueue
+	 * the tier-width live clamp that keeps the rendition widths in a descending ladder
+	 * as they are typed. Every script is presentational/operational on top of a server
+	 * that re-validates everything, so the page degrades gracefully when any is absent.
 	 *
 	 * @since 0.4.0
 	 *
@@ -293,6 +310,13 @@ final class Admin_Page {
 			$this->enqueue_regenerate_script();
 		} elseif ( $action === 'create' ) {
 			$this->enqueue_built_admin_script( self::SLUG_HANDLE, 'slug' );
+		}
+
+		// Both lifecycle forms carry editable Full/Thumbnail width fields whose tier
+		// ladder the live clamp keeps self-consistent (ADR-0013); the server re-validates
+		// regardless, so this rides on top of either form.
+		if ( $action === 'create' || $action === 'edit' ) {
+			$this->enqueue_built_admin_script( self::WIDTH_CLAMP_HANDLE, 'width-clamp' );
 		}
 
 	}

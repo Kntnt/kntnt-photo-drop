@@ -665,6 +665,62 @@ test( 'the page assets — stylesheet and preview script — are added on this a
 	expect( implode( "\n", $inline ) )->toContain( Path_Template::SAMPLE_UPLOADER );
 } );
 
+test( 'the tier-width clamp script is enqueued on the create and edit views but not the list', function (): void {
+	Functions\when( '__' )->returnArg( 1 );
+	Functions\when( 'apply_filters' )->alias( static fn ( string $hook, mixed $value ): mixed => $value );
+	Functions\when( 'add_submenu_page' )->justReturn( 'media_page_kntnt-photo-drop' );
+	Functions\when( 'wp_json_encode' )->alias(
+		static fn ( mixed $data ): string|false => json_encode( $data )
+	);
+	Functions\when( 'wp_add_inline_style' )->justReturn( true );
+	Functions\when( 'wp_register_script' )->justReturn( true );
+	Functions\when( 'wp_add_inline_script' )->justReturn( true );
+	Functions\when( 'esc_url_raw' )->returnArg( 1 );
+	Functions\when( 'rest_url' )->justReturn( 'https://example.test/wp-json/' );
+	Functions\when( 'wp_create_nonce' )->justReturn( 'regen-nonce' );
+	Functions\when( 'wp_unslash' )->returnArg( 1 );
+	Functions\when( 'sanitize_text_field' )->alias( static fn ( string $str ): string => trim( $str ) );
+
+	// Point the built-asset enqueuer at the real worktree, so build/admin/<name>.asset.php
+	// resolves and plugins_url yields a recognisable URL; the built width-clamp asset
+	// must exist (npm run build) for the enqueue to fire.
+	$plugin_root = dirname( __DIR__, 3 ) . '/';
+	Functions\when( 'plugin_dir_path' )->justReturn( $plugin_root );
+	Functions\when( 'plugins_url' )->alias(
+		static fn ( string $path = '' ): string => 'https://example.test/' . $path
+	);
+
+	// Record every enqueued script handle so the per-view routing can be asserted.
+	$scripts = [];
+	Functions\when( 'wp_enqueue_script' )->alias(
+		static function ( string $handle ) use ( &$scripts ): void {
+			$scripts[] = $handle;
+		}
+	);
+
+	$page = new Admin_Page( new Repository() );
+	$page->register_menu();
+
+	// The Create view enqueues the slug default and the tier-width clamp on top of the
+	// always-present inline preview handle.
+	$_GET = [ 'action' => 'create' ];
+	$scripts = [];
+	$page->enqueue_styles( 'media_page_kntnt-photo-drop' );
+	expect( $scripts )->toContain( 'kntnt-photo-drop-width-clamp' );
+
+	// The Edit view enqueues the regenerate UI and the tier-width clamp.
+	$_GET = [ 'action' => 'edit' ];
+	$scripts = [];
+	$page->enqueue_styles( 'media_page_kntnt-photo-drop' );
+	expect( $scripts )->toContain( 'kntnt-photo-drop-width-clamp' );
+
+	// The list view has no editable width fields, so the clamp script is not enqueued.
+	$_GET = [];
+	$scripts = [];
+	$page->enqueue_styles( 'media_page_kntnt-photo-drop' );
+	expect( $scripts )->not->toContain( 'kntnt-photo-drop-width-clamp' );
+} );
+
 // ---------------------------------------------------------------------------
 // List view — an unreadable subdirectory must not white-screen the page
 // ---------------------------------------------------------------------------

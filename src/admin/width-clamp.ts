@@ -122,7 +122,16 @@ function clampTo( raw: string, ceiling: number | null ): string {
  * @return The clamped Full and Thumbnail width strings.
  */
 export function clampWidths( fields: WidthFields ): ClampedWidths {
-	// RED stub: the clamp is not implemented yet, so the lower tiers pass through
-	// unchanged. The tests below must be seen to fail before the real rule lands.
-	return { full: fields.full, thumbnail: fields.thumbnail };
+	// Full's ceiling is the upload width, but only under an active pixel limit; an
+	// "Original dimensions" upload (or the Edit form's read-only contract) imposes no
+	// upper bound on Full.
+	const uploadCeiling =
+		fields.uploadMode === 'limit' ? positiveInt( fields.upload ) : null;
+	const full = clampTo( fields.full, uploadCeiling );
+
+	// Thumbnail's ceiling is the already-clamped Full, so a lowered upload limit
+	// cascades through Full into Thumbnail in this one call.
+	const thumbnail = clampTo( fields.thumbnail, positiveInt( full ) );
+
+	return { full, thumbnail };
 }
