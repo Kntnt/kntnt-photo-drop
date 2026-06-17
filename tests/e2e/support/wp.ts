@@ -54,14 +54,22 @@ export function uniqueSlug( label: string ): string {
  * The full and thumbnail renditions take their documented defaults (ADR-0013).
  * The path-components template defaults too, unless a caller pins one — a Drop
  * Zone placement test passes a deterministic `%uploader%` template so the stored
- * path is fixed (no date folder) and assertable (ADR-0014).
+ * path is fixed (no date folder) and assertable (ADR-0014). A caller may pin the
+ * display name too: it is the breadcrumb's first crumb (ADR-0015), so a long
+ * name is the deterministic lever a breadcrumb-overflow spec pulls to force the
+ * crumb wider than its box.
  *
  * @since 0.2.0
  *
  * @param slug           - The collection slug.
  * @param pathComponents - An optional placement template, or '' for the default.
+ * @param name           - An optional display name, or '' for the slug-derived default.
  */
-export function createCollection( slug: string, pathComponents = '' ): void {
+export function createCollection(
+	slug: string,
+	pathComponents = '',
+	name = ''
+): void {
 	const args = [
 		'kntnt-photo-drop',
 		'collection',
@@ -72,6 +80,9 @@ export function createCollection( slug: string, pathComponents = '' ): void {
 	];
 	if ( pathComponents !== '' ) {
 		args.push( `--path-components=${ pathComponents }` );
+	}
+	if ( name !== '' ) {
+		args.push( `--name=${ name }` );
 	}
 	wpCli( args );
 }
