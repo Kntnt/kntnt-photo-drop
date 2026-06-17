@@ -20,10 +20,23 @@ The major redesign previously settled only in the specs is now **implemented in 
 - **Gallery ordering is a pre-order tree traversal** — a folder's own images before its subfolders, natural-sorted within each level; descending reverses the sort within each level while keeping the own-images-before-subfolders structure. (ADR-0015, #43)
 - The gallery's caption is replaced by the **breadcrumbs** overlay: the humanised folder path with the collection display name as the first crumb. (ADR-0015)
 - **Contributor and agent-workflow standards (process docs).** The TDD rule now requires the *red* step to be demonstrated (a test seen failing before the code that satisfies it) and to automate at the lowest layer that meaningfully constrains behaviour; a documented autonomous multi-agent operating model was added to `AGENTS.md` (agents never block on the maintainer, resolve ambiguity by recorded assumption, and report upward in three buckets — *automatically tested* / *remaining for a human* / *assumptions & blockers*). ADRs 0002/0003/0005/0008 carry amendment banners pointing to the redesign decisions, and ADR-0002 records the rejection of a "store originals as-is" / lossless-WebP mode (high-quality lossy WebP is the fidelity ceiling).
+- **The collection Create/Edit forms present the three image tiers as one uniform section.** The former "Upload contract (immutable)" and "Renditions (re-derivable)" headings are gone; upload, full, and thumbnail now sit together under a single **Image settings** heading. The upload pair is still immutable — marked on Create, read-only on Edit, and rejected server-side — while the full and thumbnail settings remain editable. (#67)
+- **The Full and Thumbnail width fields clamp live to the tier above** while you type on the Create/Edit forms: Full cannot exceed the upload width (when an upload limit is set) and Thumbnail cannot exceed Full, and lowering a tier pulls the ones below it down to match. Server-side validation remains the source of truth. (#69)
+- **The integration and end-to-end test harness is now worktree-portable** — `@wordpress/env` mounts the plugin under the checkout's own directory name and the e2e fixtures derive that slug, with a `WP_ENV_PORT` override, so the suites run from a git worktree (and several in parallel) without hand-editing paths. (contributor tooling)
 
 ### Removed
 
 - The immutable **"uploader folders"** boolean (replaced by the mutable path-components template) and the standalone **caption** concept (replaced by the breadcrumbs overlay). Pre-1.0, no migration. (ADR-0014, ADR-0015)
+
+### Fixed
+
+- **The Drop Zone upload-progress UI now respects the block's default padding.** The progress bar, summary, and Cancel control inset by the default padding — as they already did for an explicit inspector padding — instead of rendering flush to the block edges. (#56)
+- **Equal-width collections upload at full speed again.** When a collection's full width/quality equal its upload width/quality (so no separate full image is produced), ingestion no longer performs a redundant full-resolution decode per image, and such a collection uploads in time comparable to the two-tier baseline. (#57)
+- **Gallery breadcrumbs overflow correctly.** A path wider than its box now shows a leading "…" and keeps the tail — the deepest folder — visible inside the right padding, instead of clipping the tail with no ellipsis and running to the image edge; the behaviour is RTL-aware and correct at all nine overlay positions. (#58)
+- **Gallery breadcrumb default colours survive theme `figcaption` styling.** The breadcrumbs keep their white-on-dark default under a theme that colours `figcaption`, while a Colour-panel foreground/background selection still overrides them. (#60)
+- **The trash confirmation popover text is left-aligned** (start-aligned in RTL) regardless of a centred gallery or theme context. (#61)
+- **The Edit collection form lists Display name above Slug**, matching the Create form; the Slug stays read-only. (#63)
+- **Saving a collection with the default path-components template no longer fails.** The default `%year%/%month%/%day%/%uploader%` was false-rejected as "Invalid path components" because `sanitize_text_field` mangled `%day%`; the `%`-placeholders now survive submission intact, while genuinely invalid templates (stray `%`, `..`, absolute paths, backslashes, NUL) are still rejected. (#64)
 
 ### Security
 

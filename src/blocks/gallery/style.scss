@@ -415,7 +415,7 @@
 
 	// The legible default overlay colours, robust against ordinary theme
 	// `figcaption` styling. The breadcrumb is a `<figcaption>`, and a theme
-	// rule such as `div[class*="wp-block-"] figcaption` (specificity 0-2-1) beat
+	// rule such as `div[class*="wp-block-"] figcaption` (specificity 0-1-2) beat
 	// the old zero-specificity `:where()` default, so the breadcrumb took the
 	// theme's caption colour (issue #60). The class is repeated three times to
 	// reach specificity 0-3-0 — above that theme rule, yet still below both ways

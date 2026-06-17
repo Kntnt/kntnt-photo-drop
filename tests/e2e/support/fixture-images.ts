@@ -27,18 +27,34 @@ import { chromium } from '@playwright/test';
 export const FIXTURES_DIR = path.join( __dirname, '..', 'fixtures' );
 
 /**
+ * The plugin's mount slug inside the wp-env containers.
+ *
+ * `@wordpress/env` mounts a local plugin source at
+ * `wp-content/plugins/<basename>`, taking the basename verbatim from the
+ * source directory's own name (its `path.basename( sourcePath )`). Deriving
+ * the slug from this repo's directory name — rather than hardcoding
+ * `kntnt-photo-drop` — keeps the e2e harness correct when run from a git
+ * worktree, whose directory (e.g. `.claude/worktrees/wf_…`) mounts under that
+ * name instead. The repo root is three levels above this support file.
+ *
+ * @since 0.10.2
+ */
+const PLUGIN_MOUNT_SLUG = path.basename(
+	path.resolve( __dirname, '..', '..', '..' )
+);
+
+/**
  * The same fixtures directory as seen from inside the wp-env containers.
  *
- * The plugin repo is mounted at `wp-content/plugins/kntnt-photo-drop`, so a
- * fixture written on the host is importable by `wp kntnt-photo-drop image
- * import` at this absolute container path. An absolute source path collapses
- * to its basename on import, which keeps seeded images flat at the
- * collection root.
+ * The plugin repo is mounted at `wp-content/plugins/<slug>` (see
+ * {@link PLUGIN_MOUNT_SLUG}), so a fixture written on the host is importable
+ * by `wp kntnt-photo-drop image import` at this absolute container path. An
+ * absolute source path collapses to its basename on import, which keeps
+ * seeded images flat at the collection root.
  *
  * @since 0.2.0
  */
-export const CONTAINER_FIXTURES_DIR =
-	'/var/www/html/wp-content/plugins/kntnt-photo-drop/tests/e2e/fixtures';
+export const CONTAINER_FIXTURES_DIR = `/var/www/html/wp-content/plugins/${ PLUGIN_MOUNT_SLUG }/tests/e2e/fixtures`;
 
 /**
  * First fixture filename; sorts before {@link FIXTURE_BETA} so the gallery's

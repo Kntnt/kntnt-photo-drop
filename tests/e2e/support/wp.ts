@@ -203,7 +203,9 @@ export function setSiteLanguage( locale: string ): void {
  *
  * Reads `WP_BASE_URL` (defaulted by `playwright.config.ts`), for the places
  * a config-inherited `baseURL` is not guaranteed — fresh contexts created
- * with `browser.newContext()` and direct API requests.
+ * with `browser.newContext()` and direct API requests. The fallback honours
+ * `WP_ENV_PORT` so this resolves to the same host as the config even if a
+ * spec is ever run without the config's `WP_BASE_URL` default in place.
  *
  * @since 0.2.0
  *
@@ -211,7 +213,9 @@ export function setSiteLanguage( locale: string ): void {
  * @return The absolute URL.
  */
 export function siteUrl( pathname: string ): string {
-	const base = process.env.WP_BASE_URL ?? 'http://localhost:8888';
+	const base =
+		process.env.WP_BASE_URL ??
+		`http://localhost:${ process.env.WP_ENV_PORT ?? '8888' }`;
 	return new URL( pathname, base ).toString();
 }
 

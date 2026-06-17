@@ -3,10 +3,12 @@
  *
  * Mirrors the recommended config that `@wordpress/scripts` ships
  * (`config/playwright.config.js`), adapted to this repo: the suite runs
- * against the `@wordpress/env` development instance on port 8888 (where the
- * plugin's WP-CLI surface lives in the `cli` container), specs sit next to
- * this file, and artifacts stay inside `tests/e2e/` so they are easy to
- * ignore. The `WP_BASE_URL` / `STORAGE_STATE_PATH` environment defaults are
+ * against the `@wordpress/env` development instance (port 8888 by default,
+ * overridable via `WP_ENV_PORT` so concurrent git worktrees can each bind a
+ * distinct port), where the plugin's WP-CLI surface lives in the `cli`
+ * container; specs sit next to this file, and artifacts stay inside
+ * `tests/e2e/` so they are easy to ignore. The `WP_BASE_URL` /
+ * `STORAGE_STATE_PATH` environment defaults are
  * set here because `@wordpress/e2e-test-utils-playwright` reads both at
  * import time in every worker, and Playwright re-evaluates this config file
  * in each worker process — the same mechanism the wp-scripts config relies
@@ -22,11 +24,18 @@ import { defineConfig, devices } from '@playwright/test';
 // this config in every process, so the hooks exist wherever specs load.
 import './support/transpile-wp-e2e-utils';
 
+// Resolve the wp-env development port. It defaults to 8888 but is overridable
+// via WP_ENV_PORT — the same variable wp-env itself reads — so two git
+// worktrees can run the suite at once without colliding on a single host port.
+// The derived base URL feeds both the e2e-test-utils default below and the
+// webServer readiness check at the bottom of this config.
+const wpEnvPort = Number( process.env.WP_ENV_PORT ?? 8888 );
+
 // Point the e2e-test-utils at the wp-env development instance and park the
 // authenticated storage state under tests/e2e/.auth/ (gitignored). Both env
 // vars are read by the package's config module on import, so they must be
 // set before any spec imports it.
-process.env.WP_BASE_URL ??= 'http://localhost:8888';
+process.env.WP_BASE_URL ??= `http://localhost:${ wpEnvPort }`;
 process.env.STORAGE_STATE_PATH ??= path.join(
 	__dirname,
 	'.auth',
@@ -96,7 +105,7 @@ const config = defineConfig( {
 	},
 	webServer: {
 		command: 'npm run wp-env start',
-		port: 8888,
+		port: wpEnvPort,
 		timeout: 120_000,
 		reuseExistingServer: true,
 	},

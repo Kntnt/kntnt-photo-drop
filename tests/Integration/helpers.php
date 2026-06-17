@@ -4,12 +4,13 @@
  *
  * The integration tests run on the host (plain Pest, no Brain Monkey) against
  * the live `@wordpress/env` instance: WP-CLI commands execute inside the `cli`
- * container via `npx wp-env run`, HTTP requests hit http://localhost:8888, and
- * filesystem assertions read the collections root directly through the bind
- * mount under the wp-env install path. Everything environment-shaped lives
- * here — container shelling with noise filtering, install-path resolution,
- * GD-built image fixtures, cookie/nonce authentication, and collection/page
- * seeding — so the test files stay declarative.
+ * container via `npx wp-env run`, HTTP requests hit the dev site (port 8888 by
+ * default, overridable via `WP_ENV_PORT`), and filesystem assertions read the
+ * collections root directly through the bind mount under the wp-env install
+ * path. Everything environment-shaped lives here — container shelling with
+ * noise filtering, install-path resolution, GD-built image fixtures,
+ * cookie/nonce authentication, and collection/page seeding — so the test
+ * files stay declarative.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.3.0
@@ -22,12 +23,21 @@ namespace Tests\Integration;
 // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The harness runs on the host with no WordPress loaded (esc_html() does not exist); exception messages surface only in the Pest console, never in HTML.
 
 /**
- * The base URL of the running `@wordpress/env` development site.
+ * Returns the base URL of the running `@wordpress/env` development site.
  *
- * @since 0.3.0
- * @var string
+ * The dev port defaults to 8888 but is overridable via the `WP_ENV_PORT`
+ * environment variable — the same variable wp-env itself reads — so two git
+ * worktrees can run their suites at once without colliding on a single host
+ * port. A `const` cannot consult the environment, hence a function.
+ *
+ * @since 0.13.0
+ *
+ * @return string The site's base URL, e.g. `http://localhost:8888`.
  */
-const SITE_URL = 'http://localhost:8888';
+function site_url(): string {
+	$port = getenv( 'WP_ENV_PORT' );
+	return 'http://localhost:' . ( $port === false || $port === '' ? '8888' : $port );
+}
 
 /**
  * The admin credentials `@wordpress/env` provisions by default.
@@ -49,9 +59,10 @@ const ADMIN_PASSWORD = 'password';
  * Fails fast when the wp-env instance is not reachable.
  *
  * Every test in this suite needs the live WordPress, so the first touch of the
- * harness (and the load of this file) probes http://localhost:8888 once and
- * raises an actionable error when nothing answers. The probe result is cached
- * for the process — a site that was up at suite start is assumed to stay up.
+ * harness (and the load of this file) probes the dev site root once —
+ * `site_url()`, which honours `WP_ENV_PORT` — and raises an actionable error
+ * when nothing answers. The probe result is cached for the process — a site
+ * that was up at suite start is assumed to stay up.
  *
  * @since 0.3.0
  *
@@ -62,7 +73,7 @@ function ensure_wp_env(): void {
 	// Probe the site root once per process; any HTTP answer counts as alive.
 	static $alive = null;
 	if ( $alive === null ) {
-		$handle = curl_init( SITE_URL . '/' );
+		$handle = curl_init( site_url() . '/' );
 		curl_setopt_array( $handle, [
 			CURLOPT_RETURNTRANSFER => true,
 			CURLOPT_NOBODY         => true,
@@ -797,7 +808,7 @@ function login_session( string $username, string $password ): array {
 	// POST the login form with the pre-set test cookie, capturing the session
 	// cookies into a fresh jar.
 	$jar    = (string) tempnam( sys_get_temp_dir(), 'it-jar-' );
-	$handle = curl_init( SITE_URL . '/wp-login.php' );
+	$handle = curl_init( site_url() . '/wp-login.php' );
 	curl_setopt_array(
 		$handle,
 		[
@@ -846,7 +857,7 @@ function login_session( string $username, string $password ): array {
 function rest_nonce( string $jar ): string {
 
 	// Ask the core ajax endpoint for a nonce tied to the jar's session.
-	$handle = curl_init( SITE_URL . '/wp-admin/admin-ajax.php?action=rest-nonce' );
+	$handle = curl_init( site_url() . '/wp-admin/admin-ajax.php?action=rest-nonce' );
 	curl_setopt_array(
 		$handle,
 		[
@@ -911,7 +922,7 @@ function admin_session(): array {
 function rest_upload( string $slug, string $file_path, string $relative_path, ?string $jar, ?string $nonce ): array {
 
 	// Build the multipart POST against the collection's upload route.
-	$url    = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/images';
+	$url    = site_url() . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/images';
 	$handle = curl_init( $url );
 	curl_setopt_array(
 		$handle,
@@ -967,7 +978,7 @@ function rest_upload( string $slug, string $file_path, string $relative_path, ?s
 function admin_post_nonce( string $jar, string $action ): string {
 
 	// Fetch the create view as the logged-in admin; its form embeds the nonce.
-	$url    = SITE_URL . '/wp-admin/upload.php?page=kntnt-photo-drop&action=create';
+	$url    = site_url() . '/wp-admin/upload.php?page=kntnt-photo-drop&action=create';
 	$handle = curl_init( $url );
 	curl_setopt_array(
 		$handle,
@@ -1009,7 +1020,7 @@ function admin_post( array $fields, string $jar ): array {
 
 	// POST urlencoded to admin-post.php, following the handler's redirect to the
 	// list view so the request fully settles.
-	$handle = curl_init( SITE_URL . '/wp-admin/admin-post.php' );
+	$handle = curl_init( site_url() . '/wp-admin/admin-post.php' );
 	curl_setopt_array(
 		$handle,
 		[
@@ -1053,7 +1064,7 @@ function rest_regenerate( string $slug, array $body, ?string $jar, ?string $nonc
 
 	// Build the JSON POST against the collection's regenerate route, attaching the
 	// nonce header and the session cookie only when the caller supplied them.
-	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/regenerate';
+	$url     = site_url() . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/regenerate';
 	$handle  = curl_init( $url );
 	$headers = [ 'Content-Type: application/json' ];
 	if ( $nonce !== null ) {
@@ -1254,7 +1265,7 @@ function delete_user( string $username ): void {
 function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $nonce ): array {
 
 	// Build the JSON POST against the collection's media route.
-	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/media';
+	$url     = site_url() . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/media';
 	$headers = [ 'Content-Type: application/json' ];
 	if ( $nonce !== null ) {
 		$headers[] = "X-WP-Nonce: {$nonce}";
@@ -1310,7 +1321,7 @@ function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $n
 function rest_delete_image( string $slug, string $path, ?string $jar, ?string $nonce ): array {
 
 	// Build the JSON DELETE against the collection's images route.
-	$url     = SITE_URL . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/images';
+	$url     = site_url() . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/images';
 	$headers = [ 'Content-Type: application/json' ];
 	if ( $nonce !== null ) {
 		$headers[] = "X-WP-Nonce: {$nonce}";
