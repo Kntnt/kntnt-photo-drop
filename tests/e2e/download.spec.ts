@@ -13,6 +13,7 @@
  *
  * @since 0.5.0
  * @since 0.11.0 Overlay model (ADR-0015); asserts the main-image download target.
+ * @since 0.10.2 Also asserts no popup ('new tab') opens on either surface (#59).
  */
 
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
@@ -77,11 +78,17 @@ test.describe( 'Gallery download', () => {
 		page,
 	} ) => {
 		// Drop the admin cookies so the gallery is exercised exactly as the
-		// public sees it, and count every download the page ever starts.
+		// public sees it, and count every download — and every new tab/window —
+		// the page ever starts. A popup is the regression this spec pins, so the
+		// listener stays armed for the whole test.
 		await page.context().clearCookies();
 		let downloads = 0;
+		let popups = 0;
 		page.on( 'download', () => {
 			downloads++;
+		} );
+		page.on( 'popup', () => {
+			popups++;
 		} );
 		await page.goto( `/?page_id=${ thumbnailPageId }` );
 		const url = page.url();
@@ -118,6 +125,7 @@ test.describe( 'Gallery download', () => {
 		expect( download.suggestedFilename() ).toContain( '.webp' );
 		await expect( page ).toHaveURL( url );
 		expect( page.context().pages() ).toHaveLength( 1 );
+		expect( popups ).toBe( 0 );
 	} );
 
 	test( 'lightbox on: only the in-lightbox icon downloads; the enlarged image does nothing', async ( {
@@ -125,8 +133,12 @@ test.describe( 'Gallery download', () => {
 	} ) => {
 		await page.context().clearCookies();
 		let downloads = 0;
+		let popups = 0;
 		page.on( 'download', () => {
 			downloads++;
+		} );
+		page.on( 'popup', () => {
+			popups++;
 		} );
 		await page.goto( `/?page_id=${ lightboxPageId }` );
 		const url = page.url();
@@ -166,5 +178,6 @@ test.describe( 'Gallery download', () => {
 		await expect( dialog ).toBeVisible();
 		await expect( page ).toHaveURL( url );
 		expect( page.context().pages() ).toHaveLength( 1 );
+		expect( popups ).toBe( 0 );
 	} );
 } );
