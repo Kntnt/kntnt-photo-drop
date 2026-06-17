@@ -414,11 +414,15 @@
 	// rule such as `div[class*="wp-block-"] figcaption` (specificity 0-2-1) beat
 	// the old zero-specificity `:where()` default, so the breadcrumb took the
 	// theme's caption colour (issue #60). The class is repeated three times to
-	// reach specificity 0-3-0 — above that theme rule, yet still below the inline
-	// declaration a custom Colour-panel value emits (1-0-0) and the `!important`
-	// rule a preset value emits, so a panel selection always wins. The shared
-	// overlay custom properties supply the value through the same fallback idiom
-	// the icons use, so a future projection onto the breadcrumb would flow here.
+	// reach specificity 0-3-0 — above that theme rule, yet still below both ways
+	// a Colour-panel selection projects: a custom value's inline `style`
+	// declaration (which outranks every selector — inline styles sit in a higher
+	// cascade-origin bucket, not on the a-b-c specificity scale at all), and a
+	// preset value's `has-…-color` class, whose `var(--wp--preset--…) !important`
+	// declaration beats this non-important rule on the `!important` flag. Either
+	// way a panel selection always wins. The shared overlay custom properties
+	// supply the value through the same fallback idiom the icons use, so a future
+	// projection onto the breadcrumb would flow here.
 	&__breadcrumbs#{&}__breadcrumbs#{&}__breadcrumbs {
 		color: var(--kntnt-photo-drop-overlay-fg, #fff);
 		background: var(--kntnt-photo-drop-overlay-bg, rgba(0, 0, 0, 0.5));
