@@ -17,14 +17,17 @@
  * content box on the other, with a perceptible gutter to the border-box edge. A
  * short, non-overflowing crumb keeps both glyphs inside the box untouched.
  *
- * Three cases: an overflowing crumb on a default LTR site, a non-overflowing
- * crumb on the same, and an overflowing crumb on an RTL-locale site. The crumb's
- * clip direction is keyed to the strong-LTR path content, not the site chrome:
- * the fix routes `direction: rtl` through a custom property so the build's RTLCSS
- * pass cannot mirror it, leaving the crumb `direction: rtl` in *both* the LTR and
- * the RTLCSS stylesheets. The RTL case therefore renders identically to the LTR
- * one (head clipped on the left, tail kept inside the right padding) and proves
- * the RTLCSS mirror did not flip the crumb back to LTR.
+ * The cases: an overflowing crumb on a default LTR site (across all nine
+ * anchor positions, so the right-half anchors whose text-align and box edge
+ * both flip under RTLCSS are exercised, not only the default bottom-left), a
+ * non-overflowing crumb on the same, and an overflowing crumb on an RTL-locale
+ * site. The crumb's clip direction is keyed to the (left-to-right) path content
+ * the test uses, not the site chrome: the fix routes `direction: rtl` through a
+ * custom property so the build's RTLCSS pass cannot mirror it, leaving the crumb
+ * `direction: rtl` in *both* the LTR and the RTLCSS stylesheets. The RTL case
+ * therefore renders identically to the LTR one (head clipped on the left, tail
+ * kept inside the right padding) and proves the RTLCSS mirror did not flip the
+ * crumb back to LTR.
  *
  * @since 0.11.1
  */
@@ -125,7 +128,7 @@ async function measureBreadcrumb(
  * Asserts the leading-ellipsis contract on a measured, overflowing breadcrumb.
  *
  * The fix keeps the crumb `direction: rtl` in both stylesheets, so on both an
- * LTR and an RTL site a strong-LTR path clips the head on the visual *left* and
+ * LTR and an RTL site an LTR path clips the head on the visual *left* and
  * keeps the tail on the *right* inside the right padding — the RTL case renders
  * identically to the LTR one, which is the whole point of routing the direction
  * through a custom property RTLCSS cannot mirror. The check is nonetheless kept
@@ -271,6 +274,94 @@ test.describe( 'Gallery breadcrumb overflow', () => {
 			geo!.contentRight + 0.5
 		);
 	} );
+} );
+
+// The nine anchor positions the breadcrumb can take. The default bottom-left is
+// covered above; this list drives one gallery per position so the right-half
+// anchors — whose `text-align` and anchored box edge both flip under RTLCSS — and
+// the centre and top/middle anchors are exercised too, closing the gap against
+// issue #58's "the other nine-point positions" acceptance criterion.
+const ALL_POSITIONS = [
+	'top-left',
+	'top-center',
+	'top-right',
+	'middle-left',
+	'middle-center',
+	'middle-right',
+	'bottom-left',
+	'bottom-center',
+	'bottom-right',
+] as const;
+
+// One overflowing gallery per anchor position, sharing the long-named collection
+// seeded for this block. The slug is reused for the whole set (one collection,
+// nine galleries pointing at it), and each page id is keyed by its position so a
+// failing anchor names itself.
+const positionsSlug = uniqueSlug( 'crumb-positions' );
+const positionPageIds: Record< string, number > = {};
+
+test.describe( 'Gallery breadcrumb overflow at every anchor', () => {
+	test.beforeAll( async ( { requestUtils } ) => {
+		// One long-named, one-image collection feeds every position's gallery, so
+		// the only variable across the nine pages is `breadcrumbsPosition`.
+		createCollection( positionsSlug, '', longName );
+		importFixture( positionsSlug, FIXTURE_ALPHA );
+
+		// One published gallery per anchor position, each overflowing because it
+		// reuses the long display name as its sole crumb.
+		for ( const position of ALL_POSITIONS ) {
+			const positionPage = await requestUtils.createPage( {
+				title: `E2E Crumb ${ position } ${ positionsSlug }`,
+				content:
+					`<!-- wp:kntnt-photo-drop/gallery ` +
+					`{"collection":"${ positionsSlug }","breadcrumbsVisibility":"thumbnail",` +
+					`"breadcrumbsPosition":"${ position }"} /-->`,
+				status: 'publish',
+			} );
+			positionPageIds[ position ] = positionPage.id;
+		}
+	} );
+
+	test.afterAll( async ( { requestUtils } ) => {
+		// Remove every position's page, then the shared collection, so reruns start
+		// clean.
+		for ( const id of Object.values( positionPageIds ) ) {
+			if ( id !== 0 ) {
+				await requestUtils.rest( {
+					method: 'DELETE',
+					path: `/wp/v2/pages/${ id }`,
+					params: { force: true },
+				} );
+			}
+		}
+		deleteCollection( positionsSlug );
+	} );
+
+	for ( const position of ALL_POSITIONS ) {
+		test( `an overflowing breadcrumb keeps its tail at the ${ position } anchor`, async ( {
+			page,
+		} ) => {
+			// Visit this position's gallery as the public sees it.
+			await page.context().clearCookies();
+			await page.goto( `/?page_id=${ positionPageIds[ position ] }` );
+			const crumb = page
+				.locator( '.kntnt-photo-drop-gallery__breadcrumbs' )
+				.first();
+			await expect( crumb ).toBeVisible();
+
+			// The crumb overflows, and the leading-ellipsis-keeps-tail contract
+			// holds regardless of which anchor (and therefore which `text-align` and
+			// box edge) the position applies — the head is clipped on one side, the
+			// tail kept inside the padding on the other.
+			const geo = await measureBreadcrumb(
+				page,
+				'.kntnt-photo-drop-gallery__breadcrumbs'
+			);
+			expect( geo ).not.toBeNull();
+			expect( geo!.overflows ).toBe( true );
+			expectLeadingEllipsisKeepsTail( geo! );
+		} );
+	}
 } );
 
 // The RTL counterpart of the overflow case. The same long-named collection is
