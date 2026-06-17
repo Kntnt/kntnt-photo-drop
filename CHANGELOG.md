@@ -28,6 +28,7 @@ The major redesign previously settled only in the specs is now **implemented in 
 ### Security
 
 - The transitive development dependency `form-data` is bumped to 4.0.6 (Dependabot, #55). Build-chain only; nothing shipped to the browser changes.
+- Three further transitive development-dependency advisories are resolved through npm `overrides`: `js-yaml` → 4.2.0 and `markdown-it` → 14.2.0 (both quadratic-complexity DoS), and `@babel/core` → 7.29.7 (arbitrary file read via a `sourceMappingURL` comment). All are build-chain/test tooling only — pulled transitively by `@wordpress/env` and `@wordpress/scripts` — so nothing shipped to the browser changes.
 
 ## [0.10.1] - 2026-06-12
 
