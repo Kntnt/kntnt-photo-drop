@@ -177,11 +177,59 @@ final class Thumbnailer {
 			return false;
 		}
 
+		// Defer to the width-driven check with the decoded main's own width; the decode
+		// existed only to learn that width.
+		return $this->renditions_present_for_width(
+			$this->codec->width( $image ),
+			$main_path,
+			$stored_name,
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			$thumbnail_quality,
+		);
+
+	}
+
+	/**
+	 * Reports completeness for a main whose width the caller already knows.
+	 *
+	 * The decode-free core of `renditions_present()`: given the main's pixel width —
+	 * which a caller holding a fresh index already has stored, sparing the full pixel
+	 * decode that method performs solely to read it — it asks `Rendition_Plan` which
+	 * renditions the width calls for under the target settings and confirms each one's
+	 * file is on disk. The symlink exclusion and the empty-plan-is-complete rule are
+	 * identical to the decode path, so the two agree on every input bar where the
+	 * width comes from. The width must be the main's *actual* current width; a caller
+	 * that cannot guarantee that (a stale or missing index entry) must use
+	 * `renditions_present()` instead, which reads the width by decoding.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @param int    $main_width        The main image's pixel width (from a trusted source).
+	 * @param string $main_path         Absolute path to the stored main image.
+	 * @param string $stored_name       The main's `<original>.webp` filename.
+	 * @param int    $full_width        The full-image width to check against.
+	 * @param int    $full_quality      The full-image quality (unused for presence; kept for plan symmetry).
+	 * @param int    $thumbnail_width   The thumbnail width to check against.
+	 * @param int    $thumbnail_quality The thumbnail quality (unused for presence; kept for plan symmetry).
+	 * @return bool True when every expected, writable rendition exists on disk.
+	 */
+	public function renditions_present_for_width(
+		int $main_width,
+		string $main_path,
+		string $stored_name,
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): bool {
+
 		// Ask the plan which renditions this main's width calls for under the target
 		// settings; an empty plan is the legitimate collapse and is vacuously complete.
 		$folder = \dirname( $main_path );
 		$plan   = Rendition_Plan::derived(
-			$this->codec->width( $image ),
+			$main_width,
 			$full_width,
 			$full_quality,
 			$thumbnail_width,

@@ -33,6 +33,7 @@ namespace Kntnt\Photo_Drop\Imaging;
 use Kntnt\Photo_Drop\Plugin;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Index;
+use Kntnt\Photo_Drop\Storage\Index_Store;
 
 /**
  * Drives the regenerate-then-flip re-derive of one collection.
@@ -59,26 +60,38 @@ final class Rendition_Regenerator {
 	private readonly Thumbnailer $thumbnailer;
 
 	/**
+	 * The self-healing index store the completeness sweep reads main widths from.
+	 *
+	 * @since 0.13.0
+	 * @var Index_Store
+	 */
+	private readonly Index_Store $index_store;
+
+	/**
 	 * Constructs a regenerator anchored at one collection.
 	 *
 	 * The root and descriptor fix the collection being re-derived and its immutable
-	 * upload contract (which the flip carries over). The thumbnailer defaults to the
-	 * production GD-backed deriver, so the REST controller constructs the regenerator
-	 * with just the root and descriptor; a test injects its own deriver to exercise
-	 * the mechanics without real pixel work.
+	 * upload contract (which the flip carries over). The thumbnailer and index store
+	 * both default to their production implementations, so the REST controller
+	 * constructs the regenerator with just the root and descriptor; a test injects its
+	 * own deriver to exercise the mechanics without real pixel work, or its own index
+	 * store to pin the completeness sweep's width source.
 	 *
 	 * @since 0.11.0
 	 *
 	 * @param string           $root        Absolute path to the collection root directory.
 	 * @param Descriptor       $descriptor  The collection's current descriptor.
 	 * @param Thumbnailer|null $thumbnailer The deriver to re-write renditions with, or null for GD.
+	 * @param Index_Store|null $index_store The index store the sweep reads widths from, or null for the default.
 	 */
 	public function __construct(
 		private readonly string $root,
 		private readonly Descriptor $descriptor,
 		?Thumbnailer $thumbnailer = null,
+		?Index_Store $index_store = null,
 	) {
 		$this->thumbnailer = $thumbnailer ?? new Thumbnailer();
+		$this->index_store = $index_store ?? new Index_Store();
 	}
 
 	/**
@@ -300,11 +313,24 @@ final class Rendition_Regenerator {
 	 * Reports whether every main's expected new-width renditions are on disk.
 	 *
 	 * The completeness sweep behind verify-then-flip: it walks every stored main and
-	 * confirms — through the deriver's own `renditions_present()`, so the check matches
-	 * exactly what the deriver would write — that each main's renditions for the target
-	 * widths are present. The first incomplete main short-circuits the sweep to `false`,
-	 * which aborts the flip. An empty collection (no mains) is vacuously complete, since
-	 * a no-image collection is a valid flip target.
+	 * confirms that each main's renditions for the target widths are present on disk.
+	 * The first incomplete main short-circuits the sweep to `false`, which aborts the
+	 * flip. An empty collection (no mains) is vacuously complete, since a no-image
+	 * collection is a valid flip target.
+	 *
+	 * To learn each main's width — all the completeness check needs — it reads the
+	 * per-folder index through the self-healing `Index_Store` rather than decoding the
+	 * main, sparing a full pixel-buffer allocation per main across the whole collection
+	 * (a real cost at hundreds or thousands of images). Sourcing the width from the
+	 * index is safe precisely because the store is mtime-validated: a main rewritten at
+	 * a different width bumps its folder's mtime, which forces a rebuild before this
+	 * sweep reads it, so the width is always current — never a stale cache. A main the
+	 * index cannot vouch for (absent because the folder has no index yet and could not
+	 * be rebuilt, a symlinked main the index skips by design, or one whose dimensions
+	 * could not be measured) falls back to the deriver's decode-based
+	 * `renditions_present()`, which reads the width by decoding and treats an
+	 * undecodable main as incomplete. Either way the safety guarantee holds: the flip
+	 * proceeds only when every expected rendition is verified present on disk.
 	 *
 	 * @since 0.11.0
 	 *
@@ -321,23 +347,76 @@ final class Rendition_Regenerator {
 		int $thumbnail_quality,
 	): bool {
 
-		// Demand completeness from every main; the first one missing a rendition aborts
-		// the whole sweep, so the flip happens only when the collection is whole.
-		foreach ( $this->mains() as $main_path ) {
-			$complete = $this->thumbnailer->renditions_present(
-				$main_path,
-				basename( $main_path ),
-				$full_width,
-				$full_quality,
-				$thumbnail_width,
-				$thumbnail_quality,
-			);
-			if ( ! $complete ) {
-				return false;
+		// Sweep folder by folder so each folder's index — the width source — is read at
+		// most once; the first main missing a rendition aborts the whole sweep, so the
+		// flip happens only when the collection is whole.
+		foreach ( $this->content_folders() as $folder ) {
+
+			// Read this folder's main widths from the self-healing index once; a main it
+			// covers is checked from its stored width with no decode, a main it does not
+			// cover falls back to the decode-based check.
+			$widths = $this->folder_main_widths( $folder );
+			foreach ( $this->folder_mains( $folder ) as $name ) {
+				$main_path = $folder . '/' . $name;
+				$complete  = isset( $widths[ $name ] )
+					? $this->thumbnailer->renditions_present_for_width(
+						$widths[ $name ],
+						$main_path,
+						$name,
+						$full_width,
+						$full_quality,
+						$thumbnail_width,
+						$thumbnail_quality,
+					)
+					: $this->thumbnailer->renditions_present(
+						$main_path,
+						$name,
+						$full_width,
+						$full_quality,
+						$thumbnail_width,
+						$thumbnail_quality,
+					);
+				if ( ! $complete ) {
+					return false;
+				}
 			}
 		}
 
 		return true;
+
+	}
+
+	/**
+	 * Maps a folder's main filenames to their pixel widths via the self-healing index.
+	 *
+	 * The width source for the completeness sweep: it resolves the folder to a current
+	 * `Index` through `Index_Store::get_or_rebuild()` — a cache hit measures no image,
+	 * and a stale or missing index is rebuilt (reading dimensions once via the cheap
+	 * header probe, never a full decode) — then returns each stored main's `file =>
+	 * width`. A folder with no index (it could not be rebuilt, e.g. it has vanished)
+	 * yields an empty map, so every main falls back to the decode-based check.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @param string $folder Absolute path to a content folder.
+	 * @return array<string,int> Each main filename mapped to its pixel width.
+	 */
+	private function folder_main_widths( string $folder ): array {
+
+		// A folder with no resolvable index leaves every main to the decode fallback.
+		$index = $this->index_store->get_or_rebuild( $folder );
+		if ( $index === null ) {
+			return [];
+		}
+
+		// Project the index's image entries to a filename => width lookup the sweep
+		// indexes by each main's stored name.
+		$widths = [];
+		foreach ( $index->images as $entry ) {
+			$widths[ $entry->file ] = $entry->width;
+		}
+
+		return $widths;
 
 	}
 
