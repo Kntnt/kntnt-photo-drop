@@ -333,13 +333,17 @@
 		transform: translateX(-50%);
 
 		&__message {
-			// The prompt spans the full panel width above the buttons; its copy states
-			// the deletion is permanent.
+			// The prompt spans the full panel width above the buttons; its copy
+			// states the deletion is permanent. It pins its own start-side
+			// alignment so it reads as a normal sentence regardless of a centred
+			// gallery or theme context (an RTL site flips `left` to the right via
+			// its own `direction`, like the other overlays here).
 			flex-basis: 100%;
 			margin: 0;
 			font-size: 0.8125rem;
 			line-height: 1.4;
 			color: #fff;
+			text-align: left;
 		}
 
 		&__button {
