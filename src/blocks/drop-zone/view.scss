@@ -3,10 +3,11 @@
 // asset (view.css), declared as viewStyle in block.json. The block's wrapper
 // is itself the layout container and the native drag-drop + click-to-browse
 // zone, so this covers the click affordance and the drag-over highlight on the
-// wrapper plus the live summary, the aggregate progress bar with its Cancel
-// button, and the three-bucket result summary with its Retry-failed button.
-// The visible upload controls are the builder's own tokened links (ADR-0010),
-// styled by core, not here. There is no FilePond.
+// wrapper plus the screen-reader live announcer, the aggregate progress bar
+// with the "N of T processed" summary and Cancel sharing the row beneath it
+// (issue #68), and the three-bucket result summary with its Retry-failed
+// button. The visible upload controls are the builder's own tokened links
+// (ADR-0010), styled by core, not here. There is no FilePond.
 
 .kntnt-photo-drop-drop-zone {
 
@@ -29,14 +30,26 @@
 		cursor: auto;
 	}
 
+	// The aria-live announcer is for assistive tech only: the sighted user reads
+	// the same count from the visible summary row beneath the bar (issue #68), so
+	// this region is kept off-screen rather than duplicating that text. The
+	// clip-rect idiom keeps it in the accessibility tree where a visibility:hidden
+	// or display:none would silence the announcement.
 	&__summary {
-		margin: 0.75rem 0 0;
-		font-size: 0.9em;
-		font-weight: 600;
+		position: absolute;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		border: 0;
+		white-space: nowrap;
 	}
 
-	// The aggregate progress region: the bar, the read-out row, and Cancel,
-	// stacked. The region is empty (and so collapses) until a batch starts.
+	// The aggregate progress region: the bar with the "N of T processed" summary
+	// and Cancel sharing the row beneath it. The region is empty (and so
+	// collapses) until a batch starts.
 	&__progress {
 		margin: 0.5rem 0 0;
 
@@ -61,19 +74,32 @@
 		transition: width 0.2s ease-out;
 	}
 
-	// The "N / total" read-out: processed on the left, total pushed to the far
-	// right so the batch size is always in the same place.
-	&__progress-count {
+	// The summary row directly below the bar: the "N of T processed" read-out on
+	// the left and Cancel pushed to the far right of the same row (issue #68).
+	&__progress-summary {
 		display: flex;
+		align-items: center;
 		justify-content: space-between;
+		gap: 0.5rem;
 		margin: 0.25rem 0 0;
+	}
+
+	// The read-out text in the summary row; no top margin of its own since the
+	// row owns the spacing.
+	&__progress-text {
+		margin: 0;
 		font-size: 0.9em;
 	}
 
 	// Cancel and Retry are real buttons inside the click-to-browse surface; the
 	// view module wires their behaviour. Keep them visually quiet — the theme's
-	// own button styles otherwise apply.
-	&__cancel,
+	// own button styles otherwise apply. Cancel rides the summary row (issue #68),
+	// so it carries no top margin there; Retry still spaces itself in the status
+	// summary.
+	&__cancel {
+		cursor: pointer;
+	}
+
 	&__retry {
 		margin: 0.5rem 0 0;
 		cursor: pointer;

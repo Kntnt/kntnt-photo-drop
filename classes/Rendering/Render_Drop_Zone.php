@@ -265,8 +265,8 @@ final class Render_Drop_Zone {
 	 * the aggregate progress bar, the live announcer, and the three-bucket result
 	 * summary (issue #44), all inserted via `textContent`, never `innerHTML`, so
 	 * no output escaping is applied here. The `{processed}`/`{total}` tokens in
-	 * `countTemplate` and `summaryTemplate`, and the `{uploaded}` token in
-	 * `bucketUploaded`, are replaced with live counts in the browser.
+	 * `summaryTemplate`, and the `{uploaded}` token in `bucketUploaded`, are
+	 * replaced with live counts in the browser.
 	 *
 	 * @since 0.5.0
 	 * @since 0.11.0 Per-file status/outcome labels gave way to the aggregate
@@ -276,8 +276,6 @@ final class Render_Drop_Zone {
 	 */
 	private static function translations(): array {
 		return [
-			/* translators: {processed} and {total} are replaced with live file counts in the browser. */
-			'countTemplate'   => __( '{processed} / {total}', 'kntnt-photo-drop' ),
 			'cancel'          => __( 'Cancel', 'kntnt-photo-drop' ),
 			'retryFailed'     => __( 'Retry failed', 'kntnt-photo-drop' ),
 			/* translators: {processed} and {total} are replaced with live file counts in the browser. */

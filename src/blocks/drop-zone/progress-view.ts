@@ -28,13 +28,12 @@ import type { FailedFile, ProgressSnapshot } from './progress-model';
  *
  * View-script modules cannot import `@wordpress/i18n`, so every runtime string
  * is translated server-side and handed across the Interactivity context. The
- * `countTemplate` and `summaryTemplate` carry `{processed}`/`{total}` tokens;
- * `bucketUploaded` carries an `{uploaded}` token.
+ * `summaryTemplate` carries `{processed}`/`{total}` tokens; `bucketUploaded`
+ * carries an `{uploaded}` token.
  *
  * @since 0.11.0
  */
 export interface ProgressStrings {
-	readonly countTemplate: string;
 	readonly cancel: string;
 	readonly retryFailed: string;
 	readonly summaryTemplate: string;
@@ -186,8 +185,7 @@ export function createProgressView(
 		render: ( snapshot ) => {
 			// Redraw the bar from scratch each tick: a progressbar element
 			// carrying the ARIA value attributes and a fill whose width tracks
-			// the ratio, the "processed / total" read-out (total at the far
-			// right), and a Cancel button wired to the abort handler.
+			// the ratio.
 			elements.progress.replaceChildren();
 			const bar = document.createElement( 'div' );
 			bar.className = `${ BLOCK }__progress-bar`;
@@ -202,34 +200,26 @@ export function createProgressView(
 			fill.style.width = `${ Math.round( ratio * 100 ) }%`;
 			bar.appendChild( fill );
 
-			// The read-out: the template is split at its `{total}` token so the
-			// processed side (e.g. "2 / ") and the total (e.g. "4") become
-			// separate spans — preserving the literal between the tokens so the
-			// rendered text reads "2 / 4" — and the stylesheet can push the total
-			// span to the far right of the row.
-			const [ before = '', after = '' ] =
-				strings.countTemplate.split( '{total}' );
-			const readout = document.createElement( 'p' );
-			readout.className = `${ BLOCK }__progress-count`;
-			const processed = document.createElement( 'span' );
-			processed.textContent = before.replace(
-				'{processed}',
-				String( snapshot.processed )
-			);
-			const total = document.createElement( 'span' );
-			total.className = `${ BLOCK }__progress-total`;
-			total.textContent = `${ snapshot.total }${ after }`;
-			readout.append( processed, total );
-
-			// Cancel is visible for the whole live phase; its click aborts the
-			// in-flight uploads and stops the queue.
+			// The summary row sits directly below the bar (issue #68): the
+			// "N of T processed" read-out on the left and Cancel pushed to the
+			// far right of the same row, so the batch size and the abort control
+			// share one line and the earlier lower-corner counters are gone.
+			const row = document.createElement( 'div' );
+			row.className = `${ BLOCK }__progress-summary`;
+			const text = document.createElement( 'p' );
+			text.className = `${ BLOCK }__progress-text`;
+			text.textContent = fillCounts( strings.summaryTemplate, snapshot );
 			const cancel = document.createElement( 'button' );
 			cancel.type = 'button';
 			cancel.className = `${ BLOCK }__cancel`;
 			cancel.textContent = strings.cancel;
 			cancel.addEventListener( 'click', () => callbacks.onCancel() );
+			row.append( text, cancel );
 
-			elements.progress.append( bar, readout, cancel );
+			// Mount the bar and its summary row, and announce the same progress
+			// line through the dedicated aria-live region so assistive tech is
+			// told without the chatter a per-file list would cause.
+			elements.progress.append( bar, row );
 			elements.summary.textContent = fillCounts(
 				strings.summaryTemplate,
 				snapshot

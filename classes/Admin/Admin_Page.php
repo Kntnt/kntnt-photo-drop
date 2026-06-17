@@ -258,8 +258,8 @@ final class Admin_Page {
 
 		// The spacing rule separates the header row from the list table; the actions
 		// rule pins the Edit/Delete buttons to the row's right-hand end; the regenerate
-		// rules give the shared progress view a visible bar and a readable read-out on
-		// the Edit view (the same block-element classes the Drop Zone bar uses, under
+		// rules give the shared progress view a visible bar and a readable summary row
+		// on the Edit view (the same block-element classes the Drop Zone bar uses, under
 		// this page's own prefix).
 		wp_add_inline_style(
 			'common',
@@ -270,8 +270,9 @@ final class Admin_Page {
 			. ' overflow: hidden; }'
 			. ' .kntnt-photo-drop-regenerate__progress-fill { display: block; height: 100%; background: #2271b1;'
 			. ' transition: width 0.2s ease; }'
-			. ' .kntnt-photo-drop-regenerate__progress-count { display: flex; justify-content: space-between;'
-			. ' max-width: 30em; margin: 0.25em 0; }',
+			. ' .kntnt-photo-drop-regenerate__progress-summary { display: flex; justify-content: space-between;'
+			. ' max-width: 30em; margin: 0.25em 0; }'
+			. ' .kntnt-photo-drop-regenerate__progress-text { margin: 0; }',
 		);
 
 		// Register an inline-only handle and attach the live path-preview script,

@@ -373,7 +373,6 @@ test( 'the markup carries the three feedback regions and the aggregate i18n stri
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__summary' );
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__progress' );
 	expect( $html )->toContain( 'kntnt-photo-drop-drop-zone__status' );
-	expect( $html )->toContain( '"countTemplate"' );
 	expect( $html )->toContain( '"cancel"' );
 	expect( $html )->toContain( '"retryFailed"' );
 	expect( $html )->toContain( '"summaryTemplate"' );
@@ -385,6 +384,10 @@ test( 'the markup carries the three feedback regions and the aggregate i18n stri
 	// old runtime status strings must no longer be emitted.
 	expect( $html )->not->toContain( '"statusUploading"' );
 	expect( $html )->not->toContain( '"outcomeStored"' );
+
+	// The lower-corner "N / total" read-out is gone (issue #68): the summary now
+	// renders below the bar, so its split-counter template must not be emitted.
+	expect( $html )->not->toContain( '"countTemplate"' );
 
 	// The folder warning/consent flow is gone (ADR-0008): a drop now walks the
 	// tree recursively like the picker, so its i18n string must not be emitted.

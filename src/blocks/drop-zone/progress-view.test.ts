@@ -30,7 +30,6 @@ import type { FailedFile } from './progress-model';
  * The pre-translated string fixtures mirroring the server-translated strings.
  */
 const STRINGS: ProgressStrings = {
-	countTemplate: '{processed} / {total}',
 	cancel: 'Cancel',
 	retryFailed: 'Retry failed',
 	summaryTemplate: '{processed} of {total} processed',

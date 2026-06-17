@@ -100,14 +100,13 @@ function readTarget( root: HTMLElement ): RegenerateTarget | null {
  *
  * Reuses the Drop Zone progress view's string shape; the regenerate surface has no
  * skipped bucket and no per-file retry, so those strings are present-but-unused
- * placeholders, while the count and uploaded (here "regenerated") strings carry the
- * regenerate wording.
+ * placeholders, while the summary and uploaded (here "regenerated") strings carry
+ * the regenerate wording.
  *
  * @return The progress strings for the regenerate UI.
  */
 function regenerateStrings(): ProgressStrings {
 	return {
-		countTemplate: __( '{processed} / {total}', 'kntnt-photo-drop' ),
 		cancel: __( 'Cancel', 'kntnt-photo-drop' ),
 		retryFailed: __( 'Retry', 'kntnt-photo-drop' ),
 		summaryTemplate: __(
