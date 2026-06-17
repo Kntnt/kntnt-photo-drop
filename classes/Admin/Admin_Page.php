@@ -1192,7 +1192,9 @@ final class Admin_Page {
 	 * live expanded-path preview), and the six rendition fields — the immutable upload
 	 * width/quality contract and the re-derivable full and thumbnail width/quality
 	 * pairs — each pre-filled from its `kntnt_photo_drop_default_*` filter via
-	 * `Rendition_Defaults`. The upload width offers an explicit "Original dimensions"
+	 * `Rendition_Defaults`. The six fields are presented as one uniform "Image
+	 * settings" section, not a contract/renditions split (#67) — uniform layout, not
+	 * uniform behaviour. The upload width offers an explicit "Original dimensions"
 	 * choice. There is deliberately no format field (always WebP). The slug and the
 	 * upload pair carry a permanence ⚠️ marker; a prominent irreversibility warning
 	 * sits above the two upload-contract fields, and a set-once rule line sits beside
@@ -1252,6 +1254,14 @@ final class Admin_Page {
 
 		echo '</tbody></table>';
 
+		// All three tiers — upload (main), full, thumbnail — sit under one uniform
+		// heading: every field is a width/quality pair, so splitting the upload pair
+		// from the full/thumbnail pairs into separately-labelled sections is just
+		// visual noise (#67). Uniform layout is not uniform behaviour: only the upload
+		// pair is permanent, so the irreversibility warning still sits directly above
+		// it, and the re-derivable pairs still carry their milder note below.
+		echo '<h2>' . esc_html__( 'Image settings', 'kntnt-photo-drop' ) . '</h2>';
+
 		// The irreversibility warning sits directly above the two upload-contract
 		// fields so it cannot be missed before they are set; only the upload pair is
 		// permanent (ADR-0013).
@@ -1259,7 +1269,6 @@ final class Admin_Page {
 		$warning_lead = __( 'The upload width and quality fix the collection’s immutable output contract and cannot be changed afterwards.', 'kntnt-photo-drop' );
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		$warning_body = __( 'The main image is downscaled and re-encoded at ingestion and the original is never kept, so these two values are permanent. The full and thumbnail renditions below are re-derived from the main and can be changed later.', 'kntnt-photo-drop' );
-		echo '<h2>' . esc_html__( 'Upload contract (immutable)', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<div class="notice notice-warning inline"><p><strong>';
 		echo esc_html( $warning_lead );
 		echo '</strong> ';
@@ -1306,12 +1315,12 @@ final class Admin_Page {
 
 		echo '</tbody></table>';
 
-		// The re-derivable renditions sit in their own section, without the
-		// irreversibility warning, because they can be regenerated later — a mild note
-		// makes that consequence explicit (no permanence marker here; ADR-0013).
+		// The re-derivable full and thumbnail pairs continue the same section — no
+		// separate heading (#67) — without the irreversibility warning, because they
+		// can be regenerated later; a mild note makes that consequence explicit (no
+		// permanence marker here; ADR-0013).
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		$rederive_note = __( 'These are not permanent, but changing them later regenerates every existing image.', 'kntnt-photo-drop' );
-		echo '<h2>' . esc_html__( 'Renditions (re-derivable)', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<p class="description">' . esc_html( $rederive_note ) . '</p>';
 		echo '<table class="form-table" role="presentation"><tbody>';
 		$this->render_width_field(
@@ -1517,9 +1526,11 @@ final class Admin_Page {
 	 * irreversible pair. The re-derivable full and thumbnail width/quality are
 	 * editable, but in a separate regenerate section *after* the form
 	 * (`render_regenerate_section()`): changing one takes effect by browser-driven
-	 * regenerate-then-flip (ADR-0013), not the instant-save POST. The slug is shown
-	 * read-only as the durable identity. An unknown slug shows an error and a link
-	 * back to the list.
+	 * regenerate-then-flip (ADR-0013), not the instant-save POST. The read-only upload
+	 * pair and the editable regenerate pairs share one uniform "Image settings"
+	 * heading (#67) — uniform layout, not uniform behaviour: the section split is
+	 * dropped, the submission split is not. The slug is shown read-only as the durable
+	 * identity. An unknown slug shows an error and a link back to the list.
 	 *
 	 * @since 0.5.0
 	 *
@@ -1565,13 +1576,17 @@ final class Admin_Page {
 
 		echo '</tbody></table>';
 
-		// Show the immutable upload contract read-only: the upload width and quality
-		// were fixed at establishment (the source is discarded), and the format is
-		// always WebP, so none of these is an editable field and none POSTs — a save
-		// touches only the display name and the placement template.
+		// All three tiers — upload (main), full, thumbnail — sit under one uniform
+		// heading (#67); the read-only upload pair opens it here, inside the
+		// instant-save form, and the editable full/thumbnail pairs continue it in the
+		// regenerate section below (no separate heading there). Uniform layout is not
+		// uniform behaviour: the upload width and quality were fixed at establishment
+		// (the source is discarded) and the format is always WebP, so none of these is
+		// an editable field and none POSTs — a save touches only the display name and
+		// the placement template.
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		$contract_note = __( 'The upload width and quality were fixed when the collection was established and cannot be changed.', 'kntnt-photo-drop' );
-		echo '<h2>' . esc_html__( 'Upload contract (immutable)', 'kntnt-photo-drop' ) . '</h2>';
+		echo '<h2>' . esc_html__( 'Image settings', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<p class="description">' . esc_html( $contract_note ) . '</p>';
 		echo '<table class="form-table" role="presentation"><tbody>';
 		$this->render_disabled_row(
@@ -1619,11 +1634,12 @@ final class Admin_Page {
 	 */
 	private function render_regenerate_section( string $slug, Descriptor $descriptor ): void {
 
-		// Introduce the section and name the consequence of changing a value, so the
-		// builder understands a change triggers a regenerate rather than an instant save.
+		// Continue the single "Image settings" section the read-only upload pair opened
+		// (#67) — no separate heading — and name the consequence of changing a value,
+		// so the builder understands a change triggers a regenerate rather than an
+		// instant save.
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		$note = __( 'The full and thumbnail renditions are re-derived from the main image. Changing a width or quality regenerates every image; the gallery keeps showing the current renditions until the regeneration finishes.', 'kntnt-photo-drop' );
-		echo '<h2>' . esc_html__( 'Renditions (re-derivable)', 'kntnt-photo-drop' ) . '</h2>';
 		echo '<p class="description">' . esc_html( $note ) . '</p>';
 
 		// The host element carries the slug and a fresh wp_rest nonce so the regenerate

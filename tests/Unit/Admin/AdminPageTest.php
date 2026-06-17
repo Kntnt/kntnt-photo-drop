@@ -271,7 +271,7 @@ test( 'the create form has no format field and no uploader-folders field', funct
 // One uniform rendition section — the contract/renditions split is dropped (#67)
 // ---------------------------------------------------------------------------
 
-test( 'the create form presents the tiers as one uniform section without the contract/renditions split', function (): void {
+test( 'the create form presents the tiers as one uniform section, not a contract/renditions split', function (): void {
 	$basedir = fresh_admin_basedir();
 	wire_admin_render_stubs( $basedir );
 
@@ -298,7 +298,7 @@ test( 'the create form presents the tiers as one uniform section without the con
 	admin_remove_tree( $basedir );
 } );
 
-test( 'the edit form presents the tiers as one uniform section without the contract/renditions split', function (): void {
+test( 'the edit form presents the tiers as one uniform section, not a contract/renditions split', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_render_stubs( $basedir );
 	seed_admin_collection( $root, 'uniform', 'Uniform', 1440, 65 );
