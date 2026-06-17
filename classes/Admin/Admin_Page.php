@@ -1581,17 +1581,18 @@ final class Admin_Page {
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		// Slug — shown read-only as the durable identity; renaming the slug is an
-		// out-of-band `mv`, not a field on this page.
-		echo '<tr><th scope="row">' . esc_html__( 'Slug', 'kntnt-photo-drop' ) . '</th>';
-		echo '<td><code>' . esc_html( $slug ) . '</code></td></tr>';
-
-		// Display name — editable.
+		// Display name — editable; rendered first so both forms agree on field order
+		// (Display name → Slug; docs/blocks.md).
 		$name_label = __( 'Display name', 'kntnt-photo-drop' );
 		echo '<tr><th scope="row"><label for="kntnt-photo-drop-name">' . esc_html( $name_label ) . '</label></th><td>';
 		echo '<input name="name" id="kntnt-photo-drop-name" type="text" class="regular-text" value="';
 		echo esc_attr( $descriptor->name ) . '" required />';
 		echo '</td></tr>';
+
+		// Slug — shown read-only as the durable identity; renaming the slug is an
+		// out-of-band `mv`, not a field on this page.
+		echo '<tr><th scope="row">' . esc_html__( 'Slug', 'kntnt-photo-drop' ) . '</th>';
+		echo '<td><code>' . esc_html( $slug ) . '</code></td></tr>';
 
 		// Path components — editable; it affects only future uploads, so it is safe
 		// to change (ADR-0014). Pre-filled with the stored template and shown with
