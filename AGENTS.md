@@ -22,7 +22,7 @@ This plugin **mirrors the repository structure, build chain, and conventions of 
 git clone --depth 1 https://github.com/Kntnt/kntnt-gpx-blocks.git /tmp/kntnt-gpx-blocks
 ```
 
-Mirror, in particular: the `Plugin` singleton (component wiring + the four-level `error`/`warning`/`info`/`debug` logging API gated by a `KNTNT_PHOTO_DROP_LOG_LEVEL` constant), the `Updater` class (GitHub-Releases auto-update by ZIP `content_type`), `autoloader.php`, `composer.json` / `package.json` / `phpcs.xml.dist` / `phpstan.neon.dist` / `tsconfig.json`, the `build-release-zip.sh` script, the Pest + Brain Monkey test harness (`tests/Unit/TestCase.php`, `tests/Pest.php`), and the dynamic-block layout under `src/blocks/<slug>/` compiling into `build/blocks/<slug>/`. Where gpx-blocks and this plugin's specs disagree (e.g. gpx is consent-gated for map tiles; we have no third-party embed to gate), the specs in `docs/` win.
+Mirror, in particular: the `Plugin` singleton (component wiring + the four-level `error`/`warning`/`info`/`debug` logging API gated by a `KNTNT_PHOTO_DROP_LOG_LEVEL` constant), the `Updater` class (GitHub-Releases auto-update by ZIP `content_type`), `autoloader.php`, `composer.json` / `package.json` / `phpcs.xml.dist` / `phpstan.neon.dist` / `tsconfig.json`, the `build-zip.sh` script, the Pest + Brain Monkey test harness (`tests/Unit/TestCase.php`, `tests/Pest.php`), and the dynamic-block layout under `src/blocks/<slug>/` compiling into `build/blocks/<slug>/`. Where gpx-blocks and this plugin's specs disagree (e.g. gpx is consent-gated for map tiles; we have no third-party embed to gate), the specs in `docs/` win.
 
 ## Second move: invoke the coder skill
 
@@ -106,7 +106,7 @@ There is no live WordPress on the maintainer's machine. For interactive verifica
 
 ## Cutting a release
 
-Mirror gpx-blocks: bump the `Version:` header in `kntnt-photo-drop.php` **and** `"version"` in `package.json` (must match), run every gate over the merged work, commit, tag `vX.Y.Z`, `./build-release-zip.sh` to produce `dist/kntnt-photo-drop.zip` (runtime artefacts only, single top-level folder), push the commit and tag, then `gh release create vX.Y.Z ./dist/kntnt-photo-drop.zip`. The `Updater` finds the asset by `content_type === "application/zip"`, so the stable filename is intentional. Skipping the ZIP means the auto-updater sees no new version.
+Releasing is **tag-triggered and runs on CI** — it is never an upload performed from a local script. Bump the `Version:` header in `kntnt-photo-drop.php` **and** `"version"` in `package.json` (must match), commit, and push; then push the tag `vX.Y.Z`. The `release` job in `.github/workflows/ci.yml` runs only on a `v*` tag and only after every gate job (PHP, Node, integration/e2e) is green, then runs `./build-zip.sh` and attaches the resulting `dist/kntnt-photo-drop.zip` to a **draft** GitHub Release. Review the draft and **publish it from GitHub** — that publish is the one deliberate "go live to users" step, and the `Updater` (which reads only the *latest published* release) offers nothing until then. The `Updater` finds the asset by `content_type === "application/zip"`, so the version-less filename is intentional; a release published without this ZIP offers no installable package. `./build-zip.sh` is a build-only step (it never uploads) — run it locally only to inspect or test the package.
 
 ## Conventions for these docs
 

@@ -273,13 +273,15 @@ npm run build           # compile src/blocks/** into build/blocks/**
 
 `npm run start` watches the sources and rebuilds on change. The compiled `build/` directory is committed to the repository.
 
-### Build a release artefact
+### Build the distribution ZIP locally
 
 ```bash
-./build-release-zip.sh
+./build-zip.sh
 ```
 
-This produces `dist/kntnt-photo-drop.zip` (the `dist/` directory is gitignored), containing the runtime artefacts only (PHP, the production Composer install, and the compiled `build/`) under a single top-level folder. The filename is deliberately version-less: the auto-updater selects the release asset by its `application/zip` content type, not by name, so a release published without this ZIP offers no installable package.
+This produces `dist/kntnt-photo-drop.zip` (the `dist/` directory is gitignored), containing the runtime artefacts only (PHP, the production Composer install, and the compiled `build/`) under a single top-level folder. It is a **build step only** — it never uploads anything — so it is safe to run for local inspection or to test the packaged plugin. The filename is deliberately version-less: the auto-updater selects the release asset by its `application/zip` content type, not by name, so a release published without this ZIP offers no installable package.
+
+Cutting an actual release is a separate, deliberate act: push a `vX.Y.Z` tag and the CI release workflow runs the gates, builds this same ZIP, and attaches it to a **draft** GitHub Release for you to review and publish. See the release sequence in [`docs/updater.md`](docs/updater.md).
 
 ### Run tests
 

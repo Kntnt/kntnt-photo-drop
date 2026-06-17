@@ -10,8 +10,8 @@ vendor/
 coverage/
 .npm/
 
-# Release artefacts emitted by ./build-release-zip.sh — uploaded to the
-# GitHub release as an asset, not committed.
+# Release artefacts emitted by ./build-zip.sh (and the release workflow) —
+# uploaded to the GitHub release as an asset, not committed.
 /dist/
 
 # Playwright e2e artifacts — auth storage state (a generated login, also a minor

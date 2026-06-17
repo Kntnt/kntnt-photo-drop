@@ -1,6 +1,6 @@
 # Updater and distribution
 
-How kntnt-photo-drop ships and how it updates itself. The plugin is not on the WordPress.org directory; it is distributed through **GitHub Releases**, and the `Updater` class teaches WordPress to find new releases there. This document describes the mechanism and the six-step release sequence. It mirrors kntnt-gpx-blocks and is consistent with [`AGENTS.md`](../AGENTS.md) § *Cutting a release* — if the two ever drift, `AGENTS.md` is the authoritative checklist and this document explains the why.
+How kntnt-photo-drop ships and how it updates itself. The plugin is not on the WordPress.org directory; it is distributed through **GitHub Releases**, and the `Updater` class teaches WordPress to find new releases there. This document describes the update mechanism and the tag-triggered release sequence. It mirrors kntnt-gpx-blocks and is consistent with [`AGENTS.md`](../AGENTS.md) § *Cutting a release* — if the two ever drift, `AGENTS.md` is the authoritative checklist and this document explains the why.
 
 ## The update mechanism
 
@@ -19,27 +19,26 @@ The behaviour is unit-tested with `wp_remote_get` stubbed via Brain Monkey (`tes
 
 ## Why the ZIP filename is version-less
 
-`build-release-zip.sh` always writes `dist/kntnt-photo-drop.zip` — the basename carries no version segment. The per-release tag in the GitHub asset URL already encodes the version, and the `Updater` matches the asset by `content_type`, so a stable filename keeps the asset URL predictable across releases. **Skipping the ZIP on a release means the auto-updater sees no installable package and offers nothing**, even though a newer tag exists.
+`build-zip.sh` always writes `dist/kntnt-photo-drop.zip` — the basename carries no version segment. The per-release tag in the GitHub asset URL already encodes the version, and the `Updater` matches the asset by `content_type`, so a stable filename keeps the asset URL predictable across releases. **Skipping the ZIP on a release means the auto-updater sees no installable package and offers nothing**, even though a newer tag exists.
 
 ## The release ZIP
 
-`build-release-zip.sh` (project root, executable) stages **runtime artefacts only** under a single top-level `kntnt-photo-drop/` folder and zips them:
+`build-zip.sh` (project root, executable) stages **runtime artefacts only** under a single top-level `kntnt-photo-drop/` folder and zips them:
 
 - `kntnt-photo-drop.php`, `autoloader.php`, `install.php`, `uninstall.php`, `README.md`, `LICENSE`
 - `classes/`, `vendor/` (production install), `build/` (compiled blocks)
 - `js/`, `css/`, `languages/` — copied only if present (the plugin currently ships none; all client code compiles into `build/`)
 
-It parses the `Version:` header, runs `composer install --no-dev --optimize-autoloader`, `npm ci`, and `npm run build`, stages into a `mktemp -d` directory cleaned up by an `EXIT` trap, writes `kntnt-photo-drop.zip` into the gitignored `dist/` directory, and finally **restores the development composer install** so the working tree returns to dev mode. Dev-only files (`tests/`, `node_modules/`, `src/`, `docs/`, dotfiles, the lock files) never enter the archive.
+It parses the `Version:` header, runs `composer install --no-dev --optimize-autoloader`, `npm ci`, and `npm run build`, stages into a `mktemp -d` directory cleaned up by an `EXIT` trap, writes `kntnt-photo-drop.zip` into the gitignored `dist/` directory, and finally **restores the development composer install** so the working tree returns to dev mode. Dev-only files (`tests/`, `node_modules/`, `src/`, `docs/`, dotfiles, the lock files) never enter the archive. The CI release job runs this same script, so the published artefact is built exactly as a local run would build it. The script is **build-only — it never uploads** — so running it locally for inspection can never cut a release.
 
-## Cutting a release — the six steps
+## Cutting a release
 
-Mirror gpx-blocks. Run these in order from a clean, merged working tree:
+Releasing is **tag-triggered and runs on CI** — the `release` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), never an upload from a local script. Run these from a clean, merged working tree:
 
 1. **Bump the version in lockstep** — the `Version:` header in `kntnt-photo-drop.php` **and** `"version"` in `package.json` must match.
-2. **Run every gate** over the merged work: `composer phpstan`, `composer phpcs`, `composer test`, `npm run build` (plus the JS lint/test gates). All green — the union of merged work, not just the last change. See [`definition-of-done.md`](definition-of-done.md).
-3. **Commit** the version bump.
-4. **Tag** `vX.Y.Z` on that commit.
-5. **Build the ZIP**: `./build-release-zip.sh` produces `dist/kntnt-photo-drop.zip` (runtime artefacts only, single top-level folder), then restores the dev composer install.
-6. **Push and publish**: push the commit and the tag, then `gh release create vX.Y.Z ./dist/kntnt-photo-drop.zip`. GitHub serves the asset with `content_type: application/zip`, which is exactly what the `Updater` looks for.
+2. **Commit and push** the version bump to the default branch. CI runs every gate (PHPStan, PHPCS, Pest, the JS lint/test/build gates, and integration/e2e) on the push — see [`definition-of-done.md`](definition-of-done.md).
+3. **Tag and push** `vX.Y.Z` on that commit: `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag push is the signal that cuts the release.
+4. **CI builds and drafts the release.** The `release` job fires *only* on a `v*` tag and *only* after the PHP, Node, and integration/e2e gate jobs are green; it runs `./build-zip.sh` and attaches the resulting `dist/kntnt-photo-drop.zip` to a **draft** GitHub Release for the tag. A failing gate or a failing build leaves no release behind. GitHub serves the attached asset with `content_type: application/zip`, which is exactly what the `Updater` looks for.
+5. **Review and publish from GitHub.** Open the draft release, confirm the ZIP asset is attached, and click **Publish release**. This is the single deliberate "go live to users" step — and, because `wp_remote_get` reads only `/releases/latest` (which excludes drafts), the `Updater` offers nothing until you publish.
 
-Once the release is published, sites running the plugin pick up the new version on their next update check.
+Once published, the release becomes the latest release the `Updater` sees, so sites running the plugin pick up the new version on their next update check.
