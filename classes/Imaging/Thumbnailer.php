@@ -107,6 +107,58 @@ final class Thumbnailer {
 			return [];
 		}
 
+		// Realise the plan from the freshly decoded handle; this is the path the
+		// regenerator drives, where no decode is yet in hand and the main must be
+		// read from disk.
+		return $this->generate_from_image(
+			$image,
+			$main_path,
+			$stored_name,
+			$full_width,
+			$full_quality,
+			$thumbnail_width,
+			$thumbnail_quality,
+		);
+
+	}
+
+	/**
+	 * Derives every rendition the plan calls for from an already-decoded main handle.
+	 *
+	 * The decode-free twin of `generate()`, for the caller that already holds the
+	 * main's decoded pixels: the ingestion path, where the `Optimizer` has just
+	 * decoded the source to enforce the contract and hands its upright,
+	 * contract-width handle straight on. Scaling the renditions from that handle
+	 * spares the redundant full-resolution decode the two-tier baseline never paid —
+	 * in the equal-widths case the per-image work then matches the baseline exactly
+	 * (issue #57). The handle must be the stored main's own pixels (upright and at
+	 * the contract width), so the plan computed from its width and the renditions
+	 * scaled from it are byte-for-byte what re-reading the main would yield. The
+	 * folder is taken from `$main_path` — only its directory is used; the file need
+	 * not be read again. Returns the absolute paths actually written, possibly empty
+	 * for a main that serves every role itself.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @param object $image             The decoded, upright, contract-width main handle.
+	 * @param string $main_path         Absolute path to the stored main image (its folder roots the corral).
+	 * @param string $stored_name       The main's `<original>.webp` filename, used for each rendition.
+	 * @param int    $full_width        The collection's full-image width.
+	 * @param int    $full_quality      The collection's full-image quality.
+	 * @param int    $thumbnail_width   The collection's thumbnail width.
+	 * @param int    $thumbnail_quality The collection's thumbnail quality.
+	 * @return array<int,string> Absolute paths of the derived files written, possibly empty.
+	 */
+	public function generate_from_image(
+		object $image,
+		string $main_path,
+		string $stored_name,
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): array {
+
 		// The folder the main lives in is where the hidden corral is rooted; the
 		// main's own decoded width decides which renditions the plan calls for.
 		$folder = \dirname( $main_path );

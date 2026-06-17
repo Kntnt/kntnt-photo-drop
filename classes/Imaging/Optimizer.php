@@ -178,9 +178,11 @@ final class Optimizer {
 		// re-encoding a conforming source would only add a second lossy pass. The
 		// stored pixel data is byte-identical to the source; only EXIF/XMP
 		// container chunks are removed, losslessly, to match the privacy property
-		// the re-encode path gets for free.
+		// the re-encode path gets for free. The decoded handle is carried forward so
+		// the deriver scales its renditions from it — the metadata strip is lossless,
+		// so its pixels equal the stored main's — sparing a second full decode (#57).
 		if ( $probe['is_webp'] && $this->within_ceiling( $width, $descriptor->upload_width ) ) {
-			return new Optimized_Image( Webp_Metadata_Stripper::strip( $bytes ), $width, false );
+			return new Optimized_Image( Webp_Metadata_Stripper::strip( $bytes ), $width, false, $image );
 		}
 
 		// Downscale only when a finite ceiling is exceeded; a null ceiling and an
@@ -203,7 +205,10 @@ final class Optimizer {
 			return null;
 		}
 
-		return new Optimized_Image( $encoded, $this->codec->width( $image ), true );
+		// Carry the (possibly scaled) handle forward: it is the exact contract-width
+		// pixels just encoded as the main, so the deriver scales its renditions from
+		// it rather than re-reading and re-decoding the stored main (#57).
+		return new Optimized_Image( $encoded, $this->codec->width( $image ), true, $image );
 
 	}
 

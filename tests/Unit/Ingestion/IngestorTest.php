@@ -360,7 +360,11 @@ test( 'ingesting an accepted-as-is main decodes it exactly once across the whole
 	// rendition derivation are the same per-image work as the two-tier baseline, so a
 	// conforming WebP under the ceiling must be decoded once for integrity validation
 	// and never re-read and re-decoded to derive its thumbnail.
-	$descriptor = ingest_descriptor( [ 'upload_width' => 1920, 'full_width' => 1920, 'thumbnail_width' => 640 ] );
+	$descriptor = ingest_descriptor( [
+		'upload_width'    => 1920,
+		'full_width'      => 1920,
+		'thumbnail_width' => 640,
+	] );
 	counting_ingestor( $root, $descriptor, $codec )->ingest( ingest_webp( 1600, 1000 ), 'photo.webp' );
 
 	// The main and its 640 thumbnail are on disk, yet only a single full-resolution
@@ -382,8 +386,12 @@ test( 'ingesting a re-encoded main decodes it exactly once across the whole path
 	// to the 1920 upload ceiling, and re-encodes; the deriver then needs the 1920 main
 	// to write the 640 thumbnail. That main is exactly the optimiser's scaled handle,
 	// so no second decode of the stored main is needed.
-	$descriptor = ingest_descriptor( [ 'upload_width' => 1920, 'full_width' => 1920, 'thumbnail_width' => 640 ] );
-	$result     = counting_ingestor( $root, $descriptor, $codec )->ingest( ingest_jpeg( 3000, 1800 ), 'big.jpg' );
+	$descriptor = ingest_descriptor( [
+		'upload_width'    => 1920,
+		'full_width'      => 1920,
+		'thumbnail_width' => 640,
+	] );
+	$result = counting_ingestor( $root, $descriptor, $codec )->ingest( ingest_jpeg( 3000, 1800 ), 'big.jpg' );
 
 	// The downscaled main and its thumbnail are written, and the whole ingest decoded
 	// the pixels just once — the redundant re-decode the redesign introduced is gone.

@@ -151,10 +151,15 @@ final class Ingestor {
 			return Ingest_Result::rejected( $relative_path );
 		}
 
-		// Derive the main's full and thumbnail renditions from the freshly stored
-		// file (the deriver decides via Rendition_Plan which tiers survive). The
-		// index is deliberately left untouched — it self-heals on the next view.
-		$thumbnails = $this->thumbnailer->generate(
+		// Derive the main's full and thumbnail renditions from the optimiser's own
+		// decoded handle — the exact contract-width pixels just written as the main —
+		// so the deriver decides via Rendition_Plan which tiers survive without
+		// re-reading and re-decoding the stored main, the redundant full-resolution
+		// decode an equal-widths collection must not pay over the two-tier baseline
+		// (#57). The index is deliberately left untouched — it self-heals on the next
+		// view.
+		$thumbnails = $this->thumbnailer->generate_from_image(
+			$optimized->image,
 			$target,
 			$stored_name,
 			$this->descriptor->full_width,
