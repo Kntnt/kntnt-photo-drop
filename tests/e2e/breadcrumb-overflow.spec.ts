@@ -18,9 +18,13 @@
  * short, non-overflowing crumb keeps both glyphs inside the box untouched.
  *
  * Three cases: an overflowing crumb on a default LTR site, a non-overflowing
- * crumb on the same, and an overflowing crumb on an RTL-locale site (where the
- * RTLCSS-mirrored stylesheet still keeps the tail — the crumb's clip direction
- * is keyed to the LTR path content, not the site chrome).
+ * crumb on the same, and an overflowing crumb on an RTL-locale site. The crumb's
+ * clip direction is keyed to the strong-LTR path content, not the site chrome:
+ * the fix routes `direction: rtl` through a custom property so the build's RTLCSS
+ * pass cannot mirror it, leaving the crumb `direction: rtl` in *both* the LTR and
+ * the RTLCSS stylesheets. The RTL case therefore renders identically to the LTR
+ * one (head clipped on the left, tail kept inside the right padding) and proves
+ * the RTLCSS mirror did not flip the crumb back to LTR.
  *
  * @since 0.11.1
  */
@@ -28,6 +32,7 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
 import { FIXTURE_ALPHA } from './support/fixture-images';
 import {
+	RTL_LOCALE,
 	createCollection,
 	deleteCollection,
 	importFixture,
@@ -119,13 +124,18 @@ async function measureBreadcrumb(
 /**
  * Asserts the leading-ellipsis contract on a measured, overflowing breadcrumb.
  *
- * Direction-agnostic so the same check holds for an LTR site (the crumb's own
- * `direction: rtl` clips the head on the visual left, tail on the right) and an
- * RTL site (the RTLCSS mirror gives `direction: ltr`, clipping the head on the
- * right, tail on the left). The invariant in both: the **head** (first glyph) is
- * clipped fully outside the content box on one side, while the **tail** (last
- * glyph) sits inside the content box with a perceptible gutter between it and the
- * border-box edge on its side — never running flush to the image edge.
+ * The fix keeps the crumb `direction: rtl` in both stylesheets, so on both an
+ * LTR and an RTL site a strong-LTR path clips the head on the visual *left* and
+ * keeps the tail on the *right* inside the right padding — the RTL case renders
+ * identically to the LTR one, which is the whole point of routing the direction
+ * through a custom property RTLCSS cannot mirror. The check is nonetheless kept
+ * direction-agnostic as defense: were RTLCSS ever to flip the crumb back to
+ * `ltr`, the head would clip on the right and the tail on the left, and the
+ * assertion would still hold rather than crash. The invariant in either layout:
+ * the **head** (first glyph) is clipped fully outside the content box on one
+ * side, while the **tail** (last glyph) sits inside the content box with a
+ * perceptible gutter between it and the border-box edge on its side — never
+ * running flush to the image edge.
  *
  * @param geo - The measured breadcrumb geometry.
  */
@@ -265,16 +275,20 @@ test.describe( 'Gallery breadcrumb overflow', () => {
 
 // The RTL counterpart of the overflow case. The same long-named collection is
 // reused, but the whole site is switched to an RTL locale (Hebrew) so WordPress
-// loads the RTLCSS-mirrored stylesheet (`direction: ltr` on the crumb). The
-// leading-ellipsis-keeps-tail contract must hold mirror-imaged.
+// loads the RTLCSS-mirrored stylesheet. The crumb's `direction: rtl` is routed
+// through a custom property RTLCSS cannot mirror, so it survives as `rtl` in that
+// stylesheet too — the leading-ellipsis-keeps-tail contract must therefore hold
+// identically to the LTR case (it is not mirror-imaged), proving the mirror did
+// not flip the crumb back to LTR.
 const rtlSlug = uniqueSlug( 'crumb-rtl' );
 let rtlPageId = 0;
 
 test.describe( 'Gallery breadcrumb overflow (RTL locale)', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
-		// Switch the site to an RTL locale (installed by the e2e environment), then
-		// seed the overflowing collection and gallery under that direction.
-		setSiteLanguage( 'he_IL' );
+		// Switch the site to the RTL locale (its pack installed once in
+		// globalSetup), then seed the overflowing collection and gallery under
+		// that direction.
+		setSiteLanguage( RTL_LOCALE );
 		createCollection( rtlSlug, '', longName );
 		importFixture( rtlSlug, FIXTURE_ALPHA );
 		const rtlPage = await requestUtils.createPage( {
@@ -314,8 +328,9 @@ test.describe( 'Gallery breadcrumb overflow (RTL locale)', () => {
 		await expect( crumb ).toBeVisible();
 
 		// The crumb overflows, and the leading-ellipsis-keeps-tail contract holds
-		// mirror-imaged: the head is clipped on the right, the tail kept inside the
-		// left padding.
+		// exactly as on the LTR site (the crumb stays `direction: rtl` under the
+		// RTLCSS stylesheet): the head is clipped on the left, the tail kept inside
+		// the right padding.
 		const geo = await measureBreadcrumb(
 			page,
 			'.kntnt-photo-drop-gallery__breadcrumbs'

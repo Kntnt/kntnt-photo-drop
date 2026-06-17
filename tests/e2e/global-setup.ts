@@ -7,7 +7,10 @@
  * state to `STORAGE_STATE_PATH` — the same file the config hands every
  * browser context and the worker-scoped `requestUtils` fixture reads back.
  * The JPEG fixtures are regenerated here too, so specs can rely on their
- * existence without ordering concerns.
+ * existence without ordering concerns, and the RTL language pack the
+ * breadcrumb-overflow spec switches to is installed here once — a fresh
+ * wp-env instance ships only `en_US`, so without this the spec's
+ * `site switch-language` would error on a missing pack.
  *
  * @since 0.2.0
  */
@@ -15,6 +18,7 @@
 import { request, type FullConfig } from '@playwright/test';
 import { RequestUtils } from '@wordpress/e2e-test-utils-playwright';
 import { generateFixtureImages } from './support/fixture-images';
+import { RTL_LOCALE, installSiteLanguage } from './support/wp';
 
 /**
  * Authenticates against the wp-env instance and generates the fixtures.
@@ -38,6 +42,11 @@ async function globalSetup( config: FullConfig ): Promise< void > {
 
 	// Regenerate the deterministic JPEG fixtures the specs upload and seed.
 	await generateFixtureImages();
+
+	// Install the RTL language pack the breadcrumb-overflow spec switches to;
+	// a fresh wp-env instance ships only en_US, so the switch would otherwise
+	// error on a missing pack. Idempotent, so a re-run is harmless.
+	installSiteLanguage( RTL_LOCALE );
 }
 
 export default globalSetup;

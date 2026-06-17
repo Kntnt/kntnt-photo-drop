@@ -187,8 +187,13 @@
 		// left-to-right within the line. A prior `unicode-bidi: plaintext` defeated
 		// this by re-deriving an LTR base direction from the content, so the line
 		// laid out LTR and clipped the tail on the right (issue #58); dropping it
-		// restores the leading ellipsis. The clip mechanic is keyed to the LTR
-		// *content*, not the site chrome, so it must stay `rtl` even on an RTL
+		// restores the leading ellipsis. The trade-off: without `plaintext`'s
+		// per-crumb bidi isolation, a strong-RTL path (e.g. a Hebrew folder name)
+		// now lays out RTL and keeps its *head* (the first crumb) while clipping
+		// the deepest segment — the inverse of the intent. That is accepted: the
+		// crumb content is documented strong-LTR (ADR-0015), and that majority
+		// case is what this clip is tuned for. The clip mechanic is keyed to the
+		// LTR *content*, not the site chrome, so it must stay `rtl` even on an RTL
 		// site — but the build's RTLCSS pass mirrors a literal `direction: rtl` to
 		// `ltr`, and runs on already-minified CSS where a source `rtl:ignore`
 		// comment no longer exists. Routing the value through a custom property

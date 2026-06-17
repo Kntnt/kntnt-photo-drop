@@ -16,6 +16,16 @@ import * as path from 'path';
 import { CONTAINER_FIXTURES_DIR } from './fixture-images';
 
 /**
+ * The RTL locale the breadcrumb-overflow spec switches the site to.
+ *
+ * Shared so `globalSetup` installs exactly the pack the spec later switches to;
+ * a single source of truth keeps the install and the switch from drifting.
+ *
+ * @since 0.11.1
+ */
+export const RTL_LOCALE = 'he_IL';
+
+/**
  * Runs one `wp …` command in the wp-env `cli` container and returns stdout.
  *
  * Throws when the command exits non-zero, so a failed seed fails the suite
@@ -149,6 +159,26 @@ export function deleteImage( slug: string, storedName: string ): void {
 }
 
 /**
+ * Installs a WordPress language pack, idempotently.
+ *
+ * `wp site switch-language` errors when the locale's pack is absent, and a
+ * fresh wp-env instance ships only `en_US`. So any spec that switches to an RTL
+ * locale must first install it; `globalSetup` does this once for the whole
+ * suite. `wp language core install` is a no-op when the pack is already present,
+ * so a re-run is harmless. The `en_US` baseline needs no pack and is skipped.
+ *
+ * @since 0.11.1
+ *
+ * @param locale - A WordPress locale such as `he_IL`. `en_US` is a no-op.
+ */
+export function installSiteLanguage( locale: string ): void {
+	if ( locale === '' || locale === 'en_US' ) {
+		return;
+	}
+	wpCli( [ 'language', 'core', 'install', locale ] );
+}
+
+/**
  * Sets the whole site's language, which also flips its text direction.
  *
  * The site language drives WordPress's `is_rtl()`, and an RTL site loads the
@@ -156,7 +186,9 @@ export function deleteImage( slug: string, storedName: string ): void {
  * overflow path end-to-end. A breadcrumb-RTL spec switches to an RTL locale for
  * its duration and restores the default (`''`, the en_US LTR baseline) after,
  * so it never leaves the shared instance in an RTL state for the next spec. The
- * locale must already be installed (`wp language core install <locale>`).
+ * locale's pack must already be installed — `globalSetup` installs the RTL
+ * locale the suite uses via `installSiteLanguage()`, since a fresh wp-env
+ * instance ships only `en_US`.
  *
  * @since 0.11.1
  *
