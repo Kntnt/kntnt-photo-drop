@@ -149,6 +149,24 @@ export function deleteImage( slug: string, storedName: string ): void {
 }
 
 /**
+ * Sets the whole site's language, which also flips its text direction.
+ *
+ * The site language drives WordPress's `is_rtl()`, and an RTL site loads the
+ * RTLCSS-mirrored stylesheet — the only way to exercise the breadcrumb's RTL
+ * overflow path end-to-end. A breadcrumb-RTL spec switches to an RTL locale for
+ * its duration and restores the default (`''`, the en_US LTR baseline) after,
+ * so it never leaves the shared instance in an RTL state for the next spec. The
+ * locale must already be installed (`wp language core install <locale>`).
+ *
+ * @since 0.11.1
+ *
+ * @param locale - A WordPress locale such as `he_IL`, or `''` for the default.
+ */
+export function setSiteLanguage( locale: string ): void {
+	wpCli( [ 'site', 'switch-language', locale === '' ? 'en_US' : locale ] );
+}
+
+/**
  * Builds an absolute URL on the wp-env instance under test.
  *
  * Reads `WP_BASE_URL` (defaulted by `playwright.config.ts`), for the places

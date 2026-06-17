@@ -12,11 +12,15 @@
  * `text-overflow` nor `direction`-driven clipping — so the check runs in
  * Chromium against a published gallery, exactly as the per-image shadow spec
  * does. It measures the rendered geometry of the crumb's first and last glyphs
- * with a `Range`: a leading ellipsis means the **head** is clipped (the first
- * glyph sits left of the content box) while the **tail** stays inside the right
- * padding (the last glyph's right edge is within the content box, leaving a
- * gutter to the border-box edge). A short, non-overflowing crumb keeps both
- * glyphs inside the box untouched.
+ * with a `Range`: a leading ellipsis means the **head** glyph is clipped fully
+ * outside the content box on one side while the **tail** glyph stays inside the
+ * content box on the other, with a perceptible gutter to the border-box edge. A
+ * short, non-overflowing crumb keeps both glyphs inside the box untouched.
+ *
+ * Three cases: an overflowing crumb on a default LTR site, a non-overflowing
+ * crumb on the same, and an overflowing crumb on an RTL-locale site (where the
+ * RTLCSS-mirrored stylesheet still keeps the tail — the crumb's clip direction
+ * is keyed to the LTR path content, not the site chrome).
  *
  * @since 0.11.1
  */
@@ -27,6 +31,7 @@ import {
 	createCollection,
 	deleteCollection,
 	importFixture,
+	setSiteLanguage,
 	uniqueSlug,
 } from './support/wp';
 
@@ -42,9 +47,9 @@ interface BreadcrumbGeometry {
 	readonly borderBoxWidth: number;
 	readonly contentLeft: number;
 	readonly contentRight: number;
-	readonly textLeft: number;
-	readonly textRight: number;
 	readonly firstGlyphLeft: number;
+	readonly firstGlyphRight: number;
+	readonly lastGlyphLeft: number;
 	readonly lastGlyphRight: number;
 	readonly overflows: boolean;
 }
@@ -80,30 +85,72 @@ async function measureBreadcrumb(
 		const contentLeft = padLeft;
 		const contentRight = box.width - padRight;
 
-		// The whole text run's extent and the first/last glyph extents, via a
-		// Range — these report true geometry even where overflow is clipped.
+		// The whole text run's width and the first/last glyph extents, via a
+		// Range — these report true geometry even where overflow is clipped. The
+		// first glyph is the logical head (the crumb's start), the last glyph the
+		// logical tail (the deepest segment / image name), each measured in the
+		// element's own left-origin coordinate space.
 		const full = document.createRange();
 		full.selectNodeContents( textNode );
-		const fullRect = full.getBoundingClientRect();
+		const fullWidth = full.getBoundingClientRect().width;
 		const value = textNode.nodeValue ?? '';
 		const first = document.createRange();
 		first.setStart( textNode, 0 );
 		first.setEnd( textNode, Math.min( 1, value.length ) );
+		const firstRect = first.getBoundingClientRect();
 		const last = document.createRange();
 		last.setStart( textNode, Math.max( 0, value.length - 1 ) );
 		last.setEnd( textNode, value.length );
+		const lastRect = last.getBoundingClientRect();
 
 		return {
 			borderBoxWidth: box.width,
 			contentLeft,
 			contentRight,
-			textLeft: fullRect.left - box.left,
-			textRight: fullRect.right - box.left,
-			firstGlyphLeft: first.getBoundingClientRect().left - box.left,
-			lastGlyphRight: last.getBoundingClientRect().right - box.left,
-			overflows: fullRect.width > contentRight - contentLeft + 0.5,
+			firstGlyphLeft: firstRect.left - box.left,
+			firstGlyphRight: firstRect.right - box.left,
+			lastGlyphLeft: lastRect.left - box.left,
+			lastGlyphRight: lastRect.right - box.left,
+			overflows: fullWidth > contentRight - contentLeft + 0.5,
 		};
 	}, selector );
+}
+
+/**
+ * Asserts the leading-ellipsis contract on a measured, overflowing breadcrumb.
+ *
+ * Direction-agnostic so the same check holds for an LTR site (the crumb's own
+ * `direction: rtl` clips the head on the visual left, tail on the right) and an
+ * RTL site (the RTLCSS mirror gives `direction: ltr`, clipping the head on the
+ * right, tail on the left). The invariant in both: the **head** (first glyph) is
+ * clipped fully outside the content box on one side, while the **tail** (last
+ * glyph) sits inside the content box with a perceptible gutter between it and the
+ * border-box edge on its side — never running flush to the image edge.
+ *
+ * @param geo - The measured breadcrumb geometry.
+ */
+function expectLeadingEllipsisKeepsTail( geo: BreadcrumbGeometry ): void {
+	// The head is clipped on one side: its whole glyph rect lies beyond a content
+	// edge (left of contentLeft on an LTR crumb, right of contentRight on an RTL
+	// one), so the visible start is the ellipsis, not the first crumb.
+	const headClippedLeft = geo.firstGlyphRight <= geo.contentLeft + 0.5;
+	const headClippedRight = geo.firstGlyphLeft >= geo.contentRight - 0.5;
+	expect( headClippedLeft || headClippedRight ).toBe( true );
+
+	// The tail is kept inside the content box on the opposite side, with a real
+	// gutter to the border-box edge — the right padding (LTR) or left padding (RTL)
+	// is perceptible rather than the text running to the edge.
+	if ( headClippedLeft ) {
+		expect( geo.lastGlyphRight ).toBeLessThanOrEqual(
+			geo.contentRight + 0.5
+		);
+		expect( geo.borderBoxWidth - geo.lastGlyphRight ).toBeGreaterThan( 1 );
+	} else {
+		expect( geo.lastGlyphLeft ).toBeGreaterThanOrEqual(
+			geo.contentLeft - 0.5
+		);
+		expect( geo.lastGlyphLeft ).toBeGreaterThan( 1 );
+	}
 }
 
 // A collection whose long display name (the breadcrumb's first crumb) guarantees
@@ -183,19 +230,9 @@ test.describe( 'Gallery breadcrumb overflow', () => {
 		expect( geo ).not.toBeNull();
 		expect( geo!.overflows ).toBe( true );
 
-		// The head is clipped: the first glyph sits left of the content box, so
-		// the visible start is a leading ellipsis, not the path's first crumb.
-		expect( geo!.firstGlyphLeft ).toBeLessThan( geo!.contentLeft );
-
-		// The tail is kept and stays inside the right padding: the last glyph's
-		// right edge is within the content box, leaving a perceptible right gutter
-		// to the border-box edge rather than running flush to the image edge.
-		expect( geo!.lastGlyphRight ).toBeLessThanOrEqual(
-			geo!.contentRight + 0.5
-		);
-		expect( geo!.borderBoxWidth - geo!.lastGlyphRight ).toBeGreaterThan(
-			1
-		);
+		// On this LTR site the crumb keeps its tail and clips the head with a
+		// leading ellipsis, the tail inside the right padding.
+		expectLeadingEllipsisKeepsTail( geo! );
 	} );
 
 	test( 'a non-overflowing breadcrumb is left untouched inside both paddings', async ( {
@@ -223,5 +260,68 @@ test.describe( 'Gallery breadcrumb overflow', () => {
 		expect( geo!.lastGlyphRight ).toBeLessThanOrEqual(
 			geo!.contentRight + 0.5
 		);
+	} );
+} );
+
+// The RTL counterpart of the overflow case. The same long-named collection is
+// reused, but the whole site is switched to an RTL locale (Hebrew) so WordPress
+// loads the RTLCSS-mirrored stylesheet (`direction: ltr` on the crumb). The
+// leading-ellipsis-keeps-tail contract must hold mirror-imaged.
+const rtlSlug = uniqueSlug( 'crumb-rtl' );
+let rtlPageId = 0;
+
+test.describe( 'Gallery breadcrumb overflow (RTL locale)', () => {
+	test.beforeAll( async ( { requestUtils } ) => {
+		// Switch the site to an RTL locale (installed by the e2e environment), then
+		// seed the overflowing collection and gallery under that direction.
+		setSiteLanguage( 'he_IL' );
+		createCollection( rtlSlug, '', longName );
+		importFixture( rtlSlug, FIXTURE_ALPHA );
+		const rtlPage = await requestUtils.createPage( {
+			title: `E2E Crumb RTL ${ rtlSlug }`,
+			content:
+				`<!-- wp:kntnt-photo-drop/gallery ` +
+				`{"collection":"${ rtlSlug }","breadcrumbsVisibility":"thumbnail",` +
+				`"breadcrumbsPosition":"bottom-left"} /-->`,
+			status: 'publish',
+		} );
+		rtlPageId = rtlPage.id;
+	} );
+
+	test.afterAll( async ( { requestUtils } ) => {
+		// Restore the default LTR locale so the next spec is unaffected, then tear
+		// the page and collection down.
+		if ( rtlPageId !== 0 ) {
+			await requestUtils.rest( {
+				method: 'DELETE',
+				path: `/wp/v2/pages/${ rtlPageId }`,
+				params: { force: true },
+			} );
+		}
+		deleteCollection( rtlSlug );
+		setSiteLanguage( '' );
+	} );
+
+	test( 'an overflowing breadcrumb keeps its tail under the RTL stylesheet', async ( {
+		page,
+	} ) => {
+		// Visit the gallery on the RTL site as the public sees it.
+		await page.context().clearCookies();
+		await page.goto( `/?page_id=${ rtlPageId }` );
+		const crumb = page
+			.locator( '.kntnt-photo-drop-gallery__breadcrumbs' )
+			.first();
+		await expect( crumb ).toBeVisible();
+
+		// The crumb overflows, and the leading-ellipsis-keeps-tail contract holds
+		// mirror-imaged: the head is clipped on the right, the tail kept inside the
+		// left padding.
+		const geo = await measureBreadcrumb(
+			page,
+			'.kntnt-photo-drop-gallery__breadcrumbs'
+		);
+		expect( geo ).not.toBeNull();
+		expect( geo!.overflows ).toBe( true );
+		expectLeadingEllipsisKeepsTail( geo! );
 	} );
 } );

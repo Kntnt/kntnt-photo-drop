@@ -179,10 +179,22 @@
 		// the enclosing anchor (the lightbox trigger or the no-JS link). Overflow
 		// keeps the *tail* (the image name) and clips the *head* with a leading
 		// ellipsis — on thumbnails an overflowing path is the common case, so a
-		// pure-CSS single-line clip is used rather than a JS fitter. `direction: rtl`
-		// makes the ellipsis fall at the start of the visual line, while the
-		// plaintext bidi isolation keeps the crumb text reading in its own natural
-		// direction; an RTL site flips the whole thing via its own `direction`.
+		// pure-CSS single-line clip is used rather than a JS fitter. The crumb is a
+		// humanised filesystem path (strong-LTR), so an RTL line base direction
+		// inverts the overflow relative to that content: `text-overflow: ellipsis`
+		// falls at the visual start (the head), the tail stays at the content
+		// box's end inside the right padding, and the Latin text still reads
+		// left-to-right within the line. A prior `unicode-bidi: plaintext` defeated
+		// this by re-deriving an LTR base direction from the content, so the line
+		// laid out LTR and clipped the tail on the right (issue #58); dropping it
+		// restores the leading ellipsis. The clip mechanic is keyed to the LTR
+		// *content*, not the site chrome, so it must stay `rtl` even on an RTL
+		// site — but the build's RTLCSS pass mirrors a literal `direction: rtl` to
+		// `ltr`, and runs on already-minified CSS where a source `rtl:ignore`
+		// comment no longer exists. Routing the value through a custom property
+		// keeps RTLCSS from recognising (and flipping) it, so the breadcrumb keeps
+		// its `rtl` line direction in both stylesheets, and an LTR path keeps its
+		// tail regardless of the surrounding locale's direction.
 		position: absolute;
 		z-index: 1;
 		max-width: 100%;
@@ -194,8 +206,8 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		pointer-events: none;
-		direction: rtl;
-		unicode-bidi: plaintext;
+		--kntnt-photo-drop-breadcrumb-direction: rtl;
+		direction: var(--kntnt-photo-drop-breadcrumb-direction);
 
 		@include breadcrumb-alignment;
 	}
