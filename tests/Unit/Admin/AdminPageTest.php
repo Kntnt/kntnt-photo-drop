@@ -796,6 +796,40 @@ test( 'the list shows Auto for a collection whose full width is unset', function
 	admin_remove_tree( $basedir );
 } );
 
+test( 'the edit form states each width field’s effective value is the min of the tier above', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	seed_admin_collection( $root, 'effective', 'Effective', 1440, 65 );
+
+	$_GET = [
+		'page'       => Admin_Page::MENU_SLUG,
+		'action'     => 'edit',
+		'collection' => 'effective',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The same effective-value help travels to the Edit form's editable width fields:
+	// the full help references the upload width and the thumbnail help the effective
+	// full width, so the cap relationship is communicated identically on both forms
+	// (ADR-0013). The thumbnail names the *effective* full so the chained cap is exact:
+	// effective thumbnail = min(entered, effective full), never min(entered, entered full).
+	$full_help  = 'The effective full width is the smaller of this and the upload width.';
+	$thumb_help = 'The effective thumbnail width is the smaller of this and the effective full width.';
+	expect( $html )->toContain( $full_help );
+	expect( $html )->toContain( $thumb_help );
+
+	// Each help line is attached to its own field: the full help follows the full-width
+	// input and the thumbnail help follows the thumbnail-width input.
+	expect( strpos( $html, $full_help ) )->toBeGreaterThan( (int) strpos( $html, 'name="full_width"' ) );
+	expect( strpos( $html, $thumb_help ) )->toBeGreaterThan( (int) strpos( $html, 'name="thumbnail_width"' ) );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
 // ---------------------------------------------------------------------------
 // List view — always-visible Edit/Delete buttons in the rightmost column
 // ---------------------------------------------------------------------------
@@ -1705,6 +1739,42 @@ test( 'the create form warning scopes the changeable reassurance to fields not m
 	// must not make the blanket "everything else" claim (#62, ADR-0013).
 	expect( $notice )->not->toContain( 'Everything else' );
 	expect( $notice )->toContain( 'not marked ⚠' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
+test( 'the create form states each width field’s effective value is the min of the tier above', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [
+		'page'   => Admin_Page::MENU_SLUG,
+		'action' => 'create',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// Each re-derivable width field carries help text naming its effective value as
+	// the smaller of itself and the tier above (a tier is skipped when the source is
+	// no wider; ADR-0013), so a width entered above the cap is shown to have no
+	// effect. The full help references the upload width; the thumbnail help the
+	// *effective* full width, so the chained cap (effective thumbnail =
+	// min(entered, effective full)) is stated exactly rather than overstated.
+	$full_help  = 'The effective full width is the smaller of this and the upload width.';
+	$thumb_help = 'The effective thumbnail width is the smaller of this and the effective full width.';
+	expect( $html )->toContain( $full_help );
+	expect( $html )->toContain( $thumb_help );
+
+	// Each help line sits with its own field rather than floating loose: the full help
+	// follows the full-width input and the thumbnail help follows the thumbnail-width
+	// input, so the relationship is attached to the field it describes.
+	expect( strpos( $html, $full_help ) )->toBeGreaterThan( (int) strpos( $html, 'name="full_width"' ) );
+	expect( strpos( $html, $thumb_help ) )->toBeGreaterThan( (int) strpos( $html, 'name="thumbnail_width"' ) );
 
 	$_GET = [];
 	admin_remove_tree( $basedir );

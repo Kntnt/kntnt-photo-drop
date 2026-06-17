@@ -1410,6 +1410,7 @@ final class Admin_Page {
 			'full_width',
 			__( 'Full width', 'kntnt-photo-drop' ),
 			Rendition_Defaults::full_width(),
+			$this->full_width_effective_help(),
 		);
 		$this->render_quality_field(
 			'full_quality',
@@ -1420,6 +1421,7 @@ final class Admin_Page {
 			'thumbnail_width',
 			__( 'Thumbnail width', 'kntnt-photo-drop' ),
 			Rendition_Defaults::thumbnail_width(),
+			$this->thumbnail_width_effective_help(),
 		);
 		$this->render_quality_field(
 			'thumbnail_quality',
@@ -1440,21 +1442,57 @@ final class Admin_Page {
 	}
 
 	/**
+	 * The Full-width field's effective-value help, shared by both forms.
+	 *
+	 * A tier is skipped when the source is no wider (ADR-0013), so a full image
+	 * exists only when the main is wider than the entered full width: the effective
+	 * full width is the smaller of the entered value and the upload width. The single
+	 * source for this translatable string keeps the Create and Edit forms in lockstep.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @return string The translated help line for the full-width field.
+	 */
+	private function full_width_effective_help(): string {
+		return __( 'The effective full width is the smaller of this and the upload width.', 'kntnt-photo-drop' );
+	}
+
+	/**
+	 * The Thumbnail-width field's effective-value help, shared by both forms.
+	 *
+	 * A tier is skipped when the source is no wider (ADR-0013), so a thumbnail exists
+	 * only when the full rendition is wider than the entered thumbnail width: the
+	 * effective thumbnail width is the smaller of the entered value and the (already
+	 * capped) effective full width. The single source keeps both forms in lockstep.
+	 *
+	 * @since 0.14.0
+	 *
+	 * @return string The translated help line for the thumbnail-width field.
+	 */
+	private function thumbnail_width_effective_help(): string {
+		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
+		return __( 'The effective thumbnail width is the smaller of this and the effective full width.', 'kntnt-photo-drop' );
+	}
+
+	/**
 	 * Renders one positive-integer width field pre-filled from its default.
 	 *
 	 * Shared by the create form's full and thumbnail width rows. The field name is
-	 * the raw POST key the handler reads; the value carries the filter default.
+	 * the raw POST key the handler reads; the value carries the filter default. A
+	 * non-empty help string is rendered under the input as a description line — used
+	 * to state the effective-value cap (ADR-0013) for the full and thumbnail rows.
 	 *
 	 * @since 0.7.0
 	 *
-	 * @param string $name    The form field name (and id stem).
-	 * @param string $label   The translated field label.
+	 * @param string $name     The form field name (and id stem).
+	 * @param string $label    The translated field label.
 	 * @param int    $fallback The filter-resolved default width to pre-fill.
+	 * @param string $help     Optional help text shown under the input, or '' for none.
 	 */
-	private function render_width_field( string $name, string $label, int $fallback ): void {
+	private function render_width_field( string $name, string $label, int $fallback, string $help = '' ): void {
 
-		// A plain number input pre-filled with the default; the handler parses it as
-		// a positive integer.
+		// A plain number input pre-filled with the default, followed by its optional
+		// effective-value help; the handler parses the value as a positive integer.
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
 		printf(
@@ -1464,6 +1502,9 @@ final class Admin_Page {
 			esc_attr( (string) $fallback ),
 			esc_html__( 'pixels', 'kntnt-photo-drop' ),
 		);
+		if ( $help !== '' ) {
+			echo '<p class="description">' . esc_html( $help ) . '</p>';
+		}
 		echo '</td></tr>';
 
 	}
@@ -1783,6 +1824,7 @@ final class Admin_Page {
 			'full_width',
 			__( 'Full width', 'kntnt-photo-drop' ),
 			$descriptor->full_width,
+			$this->full_width_effective_help(),
 		);
 		$this->render_editable_quality_field(
 			'full_quality',
@@ -1793,6 +1835,7 @@ final class Admin_Page {
 			'thumbnail_width',
 			__( 'Thumbnail width', 'kntnt-photo-drop' ),
 			$descriptor->thumbnail_width,
+			$this->thumbnail_width_effective_help(),
 		);
 		$this->render_editable_quality_field(
 			'thumbnail_quality',
@@ -1823,18 +1866,28 @@ final class Admin_Page {
 	 * Shared by the regenerate section's full and thumbnail width rows. The field name
 	 * is the key the regenerate script reads; the field never POSTs to the update
 	 * handler (it sits outside the form), so the value reaches the server only through
-	 * the regenerate REST call.
+	 * the regenerate REST call. A non-empty help string is rendered under the input as
+	 * a description line — used to state the effective-value cap (ADR-0013), the same
+	 * wording the create form carries.
 	 *
 	 * @since 0.11.0
 	 *
 	 * @param string   $name    The form field name (and id stem).
 	 * @param string   $label   The translated field label.
 	 * @param int|null $current The stored width to pre-fill, or null to render the field empty (unset).
+	 * @param string   $help    Optional help text shown under the input, or '' for none.
 	 */
-	private function render_editable_width_field( string $name, string $label, ?int $current ): void {
+	private function render_editable_width_field(
+		string $name,
+		string $label,
+		?int $current,
+		string $help = '',
+	): void {
 
-		// A plain number input pre-filled with the stored width; an unset width renders
-		// the field empty so the builder sees the collapse-to-parent state (ADR-0013/#71).
+		// A plain number input pre-filled with the stored width (an unset width renders the
+		// field empty so the builder sees the collapse-to-parent state, ADR-0013/#71),
+		// followed by its optional effective-value help (#65); the regenerate script reads
+		// the value as the target full/thumbnail width.
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
 		printf(
@@ -1844,6 +1897,9 @@ final class Admin_Page {
 			esc_attr( $current === null ? '' : (string) $current ),
 			esc_html__( 'pixels', 'kntnt-photo-drop' ),
 		);
+		if ( $help !== '' ) {
+			echo '<p class="description">' . esc_html( $help ) . '</p>';
+		}
 		echo '</td></tr>';
 
 	}
