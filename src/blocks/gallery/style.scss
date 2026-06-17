@@ -409,13 +409,19 @@
 		}
 	}
 
-	// The legible default overlay colours live at zero specificity (`:where`), so
-	// both a panel's preset classname and a panel's inline declaration win over
-	// them — the breadcrumb reads on an unstyled image yet defers the moment the
-	// editor picks a colour.
-	:where(&__breadcrumbs) {
-		background: rgba(0, 0, 0, 0.5);
-		color: #fff;
+	// The legible default overlay colours, robust against ordinary theme
+	// `figcaption` styling. The breadcrumb is a `<figcaption>`, and a theme
+	// rule such as `div[class*="wp-block-"] figcaption` (specificity 0-2-1) beat
+	// the old zero-specificity `:where()` default, so the breadcrumb took the
+	// theme's caption colour (issue #60). The class is repeated three times to
+	// reach specificity 0-3-0 — above that theme rule, yet still below the inline
+	// declaration a custom Colour-panel value emits (1-0-0) and the `!important`
+	// rule a preset value emits, so a panel selection always wins. The shared
+	// overlay custom properties supply the value through the same fallback idiom
+	// the icons use, so a future projection onto the breadcrumb would flow here.
+	&__breadcrumbs#{&}__breadcrumbs#{&}__breadcrumbs {
+		color: var(--kntnt-photo-drop-overlay-fg, #fff);
+		background: var(--kntnt-photo-drop-overlay-bg, rgba(0, 0, 0, 0.5));
 	}
 }
 
