@@ -511,6 +511,35 @@ test( 'the edit form makes the re-derivable renditions editable and the upload c
 	admin_remove_tree( $basedir );
 } );
 
+test( 'the edit form renders the Display name field above the read-only Slug', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+	seed_admin_collection( $root, 'ordered', 'Ordered', 1440, 65 );
+
+	$_GET = [
+		'page'       => Admin_Page::MENU_SLUG,
+		'action'     => 'edit',
+		'collection' => 'ordered',
+	];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	$_GET = [];
+
+	// The two forms must agree on field order (Display name → Slug; docs/blocks.md):
+	// the editable Display name label must precede the read-only slug cell, so the
+	// editable identity-mirroring field is encountered before its permanent identity.
+	$name_position = strpos( $html, 'for="kntnt-photo-drop-name"' );
+	$slug_position = strpos( $html, '<code>ordered</code>' );
+	expect( $name_position )->not->toBeFalse();
+	expect( $slug_position )->not->toBeFalse();
+	expect( $name_position )->toBeLessThan( $slug_position );
+
+	admin_remove_tree( $basedir );
+} );
+
 test( 'the edit form carries the regenerate progress region and the collection slug', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_render_stubs( $basedir );
