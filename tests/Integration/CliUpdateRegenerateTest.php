@@ -40,9 +40,10 @@ require_once __DIR__ . '/helpers.php';
 /**
  * Seeds a collection with the 1500/1200/600 contract and imports the given mains.
  *
- * @param string             $slug    The collection slug to create.
- * @param string             $fixture A host fixture directory under the uploads bind mount.
- * @param array<int,string>  $names   The JPEG basenames to write and import as wide mains.
+ * @param string            $slug    The collection slug to create.
+ * @param string            $fixture A host fixture directory under the uploads bind mount.
+ * @param array<int,string> $names   The JPEG basenames to write and import as wide mains.
+ * @throws \RuntimeException When the collection cannot be created.
  */
 function seed_update_collection( string $slug, string $fixture, array $names ): void {
 

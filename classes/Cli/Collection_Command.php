@@ -30,6 +30,7 @@ use Kntnt\Photo_Drop\Doctor\Doctor_Report;
 use Kntnt\Photo_Drop\Doctor\Finding;
 use Kntnt\Photo_Drop\Doctor\Finding_Kind;
 use Kntnt\Photo_Drop\Doctor\Ignore_Matcher;
+use Kntnt\Photo_Drop\Imaging\Rendition_Regenerator;
 use Kntnt\Photo_Drop\Storage\Descriptor;
 use Kntnt\Photo_Drop\Storage\Rendition_Defaults;
 use WP_CLI;
@@ -194,61 +195,74 @@ final class Collection_Command {
 	}
 
 	/**
-	 * Updates a collection's mutable fields — the display name and placement template.
+	 * Updates a collection's mutable fields — name, placement, and the re-derivable renditions.
 	 *
 	 * The immutable upload contract (`upload-width`, `upload-quality`) is fixed at
-	 * establishment, so passing either is rejected rather than silently ignored —
-	 * the user must not believe a frozen value was changed (ADR-0013). The display
-	 * name is rewritten, and `--path-components` mutates the placement template (it
-	 * affects only future uploads, so it is safe to change; ADR-0014), normalised
-	 * and validated by the same gate the admin page uses — a stray `%` or an unsafe
-	 * template is rejected. An absent `--path-components` carries the current
-	 * template over. The re-derivable full/thumbnail settings carry over untouched
-	 * (their editable re-derive flow is a later issue).
+	 * establishment, so passing either is rejected rather than silently ignored — the
+	 * user must not believe a frozen value was changed (ADR-0013). Every other field is
+	 * mutable and optional: an absent flag carries the current value over, so a focused
+	 * `update <slug> --thumbnail-width=320` touches only that. `--name` renames (an
+	 * explicit blank is rejected — a collection must keep a display name);
+	 * `--path-components` mutates the placement template (future uploads only, ADR-0014),
+	 * normalised and validated by the same gate the admin page uses (a stray `%` or an
+	 * unsafe template is rejected).
+	 *
+	 * The re-derivable full/thumbnail width/quality flags are now editable (ADR-0013).
+	 * When one changes a value the command runs the admin path's regenerate-then-flip in
+	 * process — the CLI is a trusted, synchronous context, so it re-derives every main at
+	 * the new widths and flips the descriptor only after every image's new-width
+	 * renditions exist on disk (verify-then-flip), then prunes the retired width buckets.
+	 * A main that cannot be re-derived aborts the flip with nothing changed, so the
+	 * gallery is never pointed at renditions that were never written. A change that
+	 * touches no re-derivable value (a rename, a template edit, or nothing at all) just
+	 * rewrites the descriptor.
 	 *
 	 * ## OPTIONS
 	 *
 	 * <slug>
 	 * : The collection identity to update.
 	 *
-	 * --name=<name>
-	 * : The new human display name. Required.
+	 * [--name=<name>]
+	 * : The new human display name. Carried over when omitted; must be non-empty when given.
 	 *
 	 * [--path-components=<template>]
 	 * : The Drop Zone placement template. Mutates only future uploads. A stray "%"
 	 * or an unsafe ("..", absolute) template is rejected.
 	 *
+	 * [--full-width=<pixels>]
+	 * : The re-derivable full-image width. Changing it regenerates the full renditions.
+	 *
+	 * [--full-quality=<0-100>]
+	 * : The re-derivable full-image WebP quality. Changing it regenerates the full renditions.
+	 *
+	 * [--thumbnail-width=<pixels>]
+	 * : The re-derivable thumbnail width. Changing it regenerates the thumbnail renditions.
+	 *
+	 * [--thumbnail-quality=<0-100>]
+	 * : The re-derivable thumbnail WebP quality. Changing it regenerates the thumbnail renditions.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp kntnt-photo-drop collection update spring-2024 --name="Spring 2024 — Field Trip"
-	 *     wp kntnt-photo-drop collection update spring-2024 --name="Spring 2024" --path-components="%year%/%uploader%"
+	 *     wp kntnt-photo-drop collection update spring-2024 --path-components="%year%/%uploader%"
+	 *     wp kntnt-photo-drop collection update spring-2024 --thumbnail-width=320 --full-width=1600
 	 *
 	 * @since 0.2.0
 	 *
 	 * @param array<int,string>         $args       Positional arguments: the slug.
-	 * @param array<string,string|bool> $assoc_args Associative arguments: name, path-components (immutable rejected).
+	 * @param array<string,string|bool> $assoc_args Associative arguments: name, path-components, rendition flags.
 	 */
 	public function update( array $args, array $assoc_args ): void {
 
-		// Refuse any establishment-fixed flag before doing anything else: the user
-		// must not walk away believing a frozen value (the contract or the
-		// placement rule) was altered.
+		// Refuse any establishment-fixed flag before doing anything else: the user must
+		// not walk away believing the frozen, irreversible upload contract was altered.
 		$offending = $this->input->find_immutable_flag( $assoc_args );
 		if ( $offending !== null ) {
-			WP_CLI::error( "The --{$offending} flag is immutable and cannot be changed; only --name is mutable." );
+			WP_CLI::error( "The --{$offending} flag is immutable; the upload contract is fixed at creation." );
 			return;
 		}
 
-		// The new name is mandatory — update has nothing else to change. A `--name`
-		// always arrives as a string; coercing guards the string-typed rewrite below.
-		$name = isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : '';
-		if ( $name === '' ) {
-			WP_CLI::error( 'The --name flag is required and must be non-empty.' );
-			return;
-		}
-
-		// Resolve the slug to an existing collection; an unknown slug changes
-		// nothing.
+		// Resolve the slug to an existing collection; an unknown slug changes nothing.
 		$slug = $args[0] ?? '';
 		$path = $this->repository->resolve_slug( $slug );
 		if ( $path === null ) {
@@ -256,25 +270,61 @@ final class Collection_Command {
 			return;
 		}
 
-		// Read the current descriptor so the rewrite preserves the immutable
-		// contract values exactly and touches only the mutable fields.
+		// Read the current descriptor so the rewrite preserves the immutable contract
+		// exactly and carries every unspecified field over unchanged.
 		$current = Descriptor::read( $path );
 		if ( $current === null ) {
 			WP_CLI::error( "Cannot read the descriptor for '{$slug}'; refusing to overwrite it." );
 			return;
 		}
 
-		// Resolve the placement template: an explicit --path-components is normalised
-		// and validated (a rejected template halts here), while its absence carries
-		// the current template over so a plain rename never disturbs it (ADR-0014).
+		// Resolve the display name: an absent --name carries the current name over (a
+		// rename is optional), but an explicit blank is rejected — a collection must keep
+		// a name.
+		if ( isset( $assoc_args['name'] ) && (string) $assoc_args['name'] === '' ) {
+			WP_CLI::error( 'The --name flag, when given, must be non-empty.' );
+			return;
+		}
+		$name = isset( $assoc_args['name'] ) ? (string) $assoc_args['name'] : $current->name;
+
+		// Resolve the placement template: an explicit --path-components is normalised and
+		// validated (a rejected template halts here), while its absence carries the
+		// current template over so a plain rename never disturbs it (ADR-0014).
 		$path_components = isset( $assoc_args['path-components'] )
 			? $this->resolve_path_components( $assoc_args )
 			: $current->path_components;
 
-		// Rewrite the descriptor with the name and the (possibly mutated) placement
-		// template replaced; the immutable upload contract and the re-derivable
-		// full/thumbnail pairs carry over untouched (their editable re-derive flow is
-		// a later issue).
+		// Resolve each re-derivable rendition value: an absent flag carries the current
+		// value over, a present one is parsed and validated (a malformed value halts
+		// here, before anything is written).
+		$full_width  = $this->resolve_width( $assoc_args, 'full-width', $current->full_width );
+		$full_qual   = $this->resolve_quality( $assoc_args, 'full-quality', $current->full_quality );
+		$thumb_width = $this->resolve_width( $assoc_args, 'thumbnail-width', $current->thumbnail_width );
+		$thumb_qual  = $this->resolve_quality( $assoc_args, 'thumbnail-quality', $current->thumbnail_quality );
+
+		// A change to any re-derivable value must regenerate the derived renditions before
+		// the descriptor can switch to them; the new name and template ride the same flip.
+		$rederivable_changed = $full_width !== $current->full_width
+			|| $full_qual !== $current->full_quality
+			|| $thumb_width !== $current->thumbnail_width
+			|| $thumb_qual !== $current->thumbnail_quality;
+		if ( $rederivable_changed ) {
+			$base = new Descriptor(
+				$name,
+				$current->upload_width,
+				$current->upload_quality,
+				$current->full_width,
+				$current->full_quality,
+				$current->thumbnail_width,
+				$current->thumbnail_quality,
+				$path_components,
+			);
+			$this->regenerate_and_flip( $slug, $path, $base, $full_width, $full_qual, $thumb_width, $thumb_qual );
+			return;
+		}
+
+		// No re-derivable change: rewrite the descriptor with the (possibly new) name and
+		// template, carrying the immutable contract and the unchanged renditions over.
 		$updated = new Descriptor(
 			$name,
 			$current->upload_width,
@@ -291,6 +341,78 @@ final class Collection_Command {
 		}
 
 		WP_CLI::success( "Updated collection '{$slug}'." );
+
+	}
+
+	/**
+	 * Runs the regenerate-then-flip re-derive in process and flips on success.
+	 *
+	 * The CLI mirror of the admin Edit page's browser-driven re-derive (ADR-0013), run
+	 * synchronously here because the CLI is a trusted context with no per-request budget.
+	 * It re-derives every main at the target widths — writing the new-width buckets beside
+	 * the live old ones, so the gallery keeps serving the old renditions throughout — and
+	 * verifies each main's expected renditions landed on disk; the first main that cannot
+	 * be re-derived (undecodable, over the input ceiling, or an encode failure) halts the
+	 * command with nothing flipped or pruned. Only once every main is verified complete
+	 * does `finalise()` flip the descriptor to `$base`'s name and template plus the new
+	 * widths (the one instant the gallery switches over) and prune the retired buckets.
+	 *
+	 * @since 0.13.0
+	 *
+	 * @param string     $slug              The collection slug, for the operator-facing messages.
+	 * @param string     $path              Absolute path to the collection root.
+	 * @param Descriptor $base              The new name/template on the OLD renditions, flipped by finalise.
+	 * @param int        $full_width        The target full-image width.
+	 * @param int        $full_quality      The target full-image quality.
+	 * @param int        $thumbnail_width   The target thumbnail width.
+	 * @param int        $thumbnail_quality The target thumbnail quality.
+	 */
+	private function regenerate_and_flip(
+		string $slug,
+		string $path,
+		Descriptor $base,
+		int $full_width,
+		int $full_quality,
+		int $thumbnail_width,
+		int $thumbnail_quality,
+	): void {
+
+		// Build the regenerator over the base descriptor (new name/template, old
+		// renditions): the on-disk descriptor is untouched until the flip, so the gallery
+		// serves the old renditions throughout, and finalise applies the name, template,
+		// and new widths together.
+		$regenerator = new Rendition_Regenerator( $path, $base );
+
+		// Re-derive every main at the target widths in process. A main that cannot produce
+		// its new renditions aborts here — before the flip — so the descriptor is never
+		// pointed at files that were never written (verify-then-flip, ADR-0013).
+		$count = $regenerator->main_count();
+		for ( $index = 0; $index < $count; $index++ ) {
+			$regenerator->regenerate_main( $index, $full_width, $full_quality, $thumbnail_width, $thumbnail_quality );
+			$complete = $regenerator->main_complete(
+				$index,
+				$full_width,
+				$full_quality,
+				$thumbnail_width,
+				$thumbnail_quality,
+			);
+			if ( ! $complete ) {
+				$position = $index + 1;
+				WP_CLI::error( "Could not regenerate image {$position} of {$count} in '{$slug}'; nothing changed." );
+				return;
+			}
+		}
+
+		// Flip the descriptor to the new renditions and prune the retired width buckets —
+		// the one moment the gallery switches over. A false return means the completeness
+		// sweep or the descriptor write failed, leaving the old renditions live.
+		$pruned = $regenerator->finalise( $full_width, $full_quality, $thumbnail_width, $thumbnail_quality );
+		if ( $pruned === false ) {
+			WP_CLI::error( "Failed to finalise the re-derive for '{$slug}'; the previous renditions are kept." );
+			return;
+		}
+
+		WP_CLI::success( "Updated '{$slug}': regenerated {$count} image(s), pruned {$pruned} rendition(s)." );
 
 	}
 
