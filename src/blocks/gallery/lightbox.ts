@@ -49,6 +49,7 @@ import {
 	next,
 	open,
 	prev,
+	removeImageAt,
 	type LightboxState,
 } from './lightbox-index';
 import { actionForSwipe } from './lightbox-swipe';
@@ -320,34 +321,25 @@ export class GalleryLightbox {
 			return;
 		}
 
-		// Drop the image from both lists and shrink the navigable count to match, so
-		// the slide and anchor lists and the reducer state stay in step.
+		// Drop the image from both DOM-bound lists so they stay in step with the
+		// reducer state that shrinks alongside them.
 		this.#links.splice( removed, 1 );
 		this.#slides.splice( removed, 1 );
-		this.#state = { ...this.#state, count: this.#links.length };
 
-		// An emptied gallery closes the lightbox — there is nothing left to show.
-		if ( this.#links.length === 0 ) {
-			if ( this.#state.open ) {
+		// Realign the navigable state through the pure reducer: the count drops, the
+		// shown index follows the image that slid into the slot, and an emptied set
+		// is reported closed.
+		const wasOpen = this.#state.open;
+		this.#state = removeImageAt( this.#state, removed );
+
+		// An emptied gallery has nothing left to show: tear an open overlay down
+		// (scroll lock, keyboard listener, focus return) and stop.
+		if ( this.#state.count === 0 ) {
+			if ( wasOpen ) {
 				this.#close();
 			}
 			return;
 		}
-
-		// Realign the shown index to the shrunk list. Removing an image *before* the
-		// shown one shifts the shown image left by one, so the index decrements to keep
-		// the same image visible. Removing the shown image (or one after it) keeps the
-		// index, then clamps into range so it lands on the image that slid into the slot
-		// — the next image, or the new last when the removed one was last.
-		const shifted =
-			removed < this.#state.index
-				? this.#state.index - 1
-				: this.#state.index;
-		const clamped = Math.min(
-			Math.max( 0, shifted ),
-			this.#links.length - 1
-		);
-		this.#state = { ...this.#state, index: clamped };
 
 		// Re-render so the shown image, the counter total, and the paging controls
 		// reflect the shrunk set; harmless when the lightbox is shut (it stays hidden).

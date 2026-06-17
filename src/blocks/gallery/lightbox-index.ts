@@ -174,11 +174,25 @@ export function removeImageAt(
 	state: LightboxState,
 	removedIndex: number
 ): LightboxState {
+	// An index outside the current set removes nothing — a stale or foreign
+	// target leaves the state untouched.
+	if ( removedIndex < 0 || removedIndex >= state.count ) {
+		return state;
+	}
 
-	// STUB (RED): returns the state unchanged so the new assertions fail for a
-	// real reason; the implementation lands in the following commit.
-	return state;
+	// Emptying the set leaves nothing to show, so the lightbox closes at index 0.
+	const count = state.count - 1;
+	if ( count === 0 ) {
+		return { count: 0, index: 0, open: false };
+	}
 
+	// Realign the shown index: a removal before it shifts it left to keep the
+	// same image visible; a removal of it (or after it) keeps the index, then
+	// clamps onto the image that slid into the slot — the next one, or the new
+	// last when the removed image was last.
+	const shifted = removedIndex < state.index ? state.index - 1 : state.index;
+	const index = Math.min( Math.max( 0, shifted ), count - 1 );
+	return { ...state, count, index };
 }
 
 /**
