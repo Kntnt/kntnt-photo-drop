@@ -722,7 +722,7 @@ final class Collection_Command {
 		}
 		$parsed = $this->input->parse_upload_width( (string) $assoc_args['upload-width'] );
 		if ( $parsed === false ) {
-			WP_CLI::error( 'The --upload-width flag must be a positive integer or "none".' );
+			WP_CLI::error( 'The --upload-width flag must be at least 320 pixels or "none".' );
 			return null;
 		}
 
@@ -795,7 +795,7 @@ final class Collection_Command {
 		}
 		$parsed = $this->input->parse_width( $raw );
 		if ( $parsed === false ) {
-			WP_CLI::error( "The --{$flag} flag must be a positive integer, or empty to use the tier above." );
+			WP_CLI::error( "The --{$flag} flag must be at least 320 pixels, or empty to use the tier above." );
 			return $fallback;
 		}
 

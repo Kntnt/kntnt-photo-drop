@@ -84,30 +84,30 @@ test( 'collection update --thumbnail-width regenerates the renditions and flips 
 		expect( width_buckets( $slug ) )->toEqualCanonicalizing( [ 600, 1200 ] );
 
 		// Change only the thumbnail width: the CLI must regenerate in-process and flip.
-		$updated = run_cli( [ 'kntnt-photo-drop', 'collection', 'update', $slug, '--thumbnail-width=300' ] );
+		$updated = run_cli( [ 'kntnt-photo-drop', 'collection', 'update', $slug, '--thumbnail-width=320' ] );
 		expect( $updated['exit_code'] )->toBe( 0 );
 
 		// The descriptor flipped to the new thumbnail width; the full pair and the
 		// immutable upload contract are untouched.
 		$descriptor = read_descriptor( $slug );
-		expect( $descriptor['thumbnailWidth'] )->toBe( 300 );
+		expect( $descriptor['thumbnailWidth'] )->toBe( 320 );
 		expect( $descriptor['fullWidth'] )->toBe( 1200 );
 		expect( $descriptor['uploadWidth'] )->toBe( 1500 );
 		expect( $descriptor['uploadQuality'] )->toBe( 80 );
 
-		// On disk the new 300 bucket exists, the old 600 bucket is pruned, and the
+		// On disk the new 320 bucket exists, the old 600 bucket is pruned, and the
 		// still-configured 1200 full bucket survives.
 		$buckets = width_buckets( $slug );
-		expect( $buckets )->toContain( 300 );
+		expect( $buckets )->toContain( 320 );
 		expect( $buckets )->toContain( 1200 );
 		expect( $buckets )->not->toContain( 600 );
 
 		// The flipped thumbnail is a real WebP at the new width.
-		$thumb = collection_path( $slug ) . '/.kntnt-thumbnails/300/wide.jpg.webp';
+		$thumb = collection_path( $slug ) . '/.kntnt-thumbnails/320/wide.jpg.webp';
 		expect( is_file( $thumb ) )->toBeTrue();
 		$info = getimagesize( $thumb );
 		expect( $info['mime'] )->toBe( 'image/webp' );
-		expect( $info[0] )->toBe( 300 );
+		expect( $info[0] )->toBe( 320 );
 
 	} finally {
 		delete_collection( $slug );
@@ -130,7 +130,7 @@ test( 'collection update does not flip when a main cannot be re-derived', functi
 
 		// Change the thumbnail width: the in-process regenerate hits the corrupt main, so
 		// the command must exit non-zero and flip nothing.
-		$updated = run_cli( [ 'kntnt-photo-drop', 'collection', 'update', $slug, '--thumbnail-width=300' ] );
+		$updated = run_cli( [ 'kntnt-photo-drop', 'collection', 'update', $slug, '--thumbnail-width=320' ] );
 		expect( $updated['exit_code'] )->not->toBe( 0 );
 
 		// The descriptor still records the OLD widths — no flip happened.

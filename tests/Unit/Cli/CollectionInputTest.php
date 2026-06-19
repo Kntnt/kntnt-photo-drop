@@ -72,6 +72,29 @@ test( 'parse_width rejects non-positive and malformed values', function ( string
 	'empty'    => [ '' ],
 ] );
 
+test( 'parse_width rejects any value below the 320-pixel floor', function ( string $value ): void {
+	expect( ( new Collection_Input() )->parse_width( $value ) )->toBeFalse();
+} )->with( [
+	'one'        => [ '1' ],
+	'just below' => [ '319' ],
+] );
+
+test( 'parse_width accepts exactly the 320-pixel floor', function (): void {
+	expect( ( new Collection_Input() )->parse_width( '320' ) )->toBe( 320 );
+} );
+
+test( 'parse_upload_width rejects a value below the 320-pixel floor', function (): void {
+	expect( ( new Collection_Input() )->parse_upload_width( '200' ) )->toBeFalse();
+} );
+
+test( 'parse_upload_width accepts exactly the 320-pixel floor', function (): void {
+	expect( ( new Collection_Input() )->parse_upload_width( '320' ) )->toBe( 320 );
+} );
+
+test( 'parse_upload_width still maps none to null regardless of the floor', function (): void {
+	expect( ( new Collection_Input() )->parse_upload_width( 'none' ) )->toBeNull();
+} );
+
 // ---------------------------------------------------------------------------
 // parse_quality — 0–100 bound
 // ---------------------------------------------------------------------------

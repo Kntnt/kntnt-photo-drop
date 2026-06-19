@@ -530,7 +530,7 @@ test( 'update mutates the re-derivable full and thumbnail settings and flips the
 	$command->update( [ 'rederive' ], [
 		'full-width'        => '1000',
 		'full-quality'      => '70',
-		'thumbnail-width'   => '300',
+		'thumbnail-width'   => '320',
 		'thumbnail-quality' => '60',
 	] );
 	$after = Descriptor::read( $root . 'rederive' );
@@ -539,7 +539,7 @@ test( 'update mutates the re-derivable full and thumbnail settings and flips the
 	// over (no --name given) and the immutable upload contract is untouched.
 	expect( $after->full_width )->toBe( 1000 );
 	expect( $after->full_quality )->toBe( 70 );
-	expect( $after->thumbnail_width )->toBe( 300 );
+	expect( $after->thumbnail_width )->toBe( 320 );
 	expect( $after->thumbnail_quality )->toBe( 60 );
 	expect( $after->name )->toBe( 'Rederive' );
 	expect( $after->upload_quality )->toBe( 95 );

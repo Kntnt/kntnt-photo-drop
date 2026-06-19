@@ -761,7 +761,7 @@ final class Admin_Page {
 			if ( $upload_width === false ) {
 				$this->add_error(
 					// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
-					__( 'Upload width must be a positive integer, or left blank for the original dimensions.', 'kntnt-photo-drop' ),
+					__( 'Upload width must be at least 320 pixels, or left blank for the original dimensions.', 'kntnt-photo-drop' ),
 				);
 				return null;
 			}
@@ -791,7 +791,7 @@ final class Admin_Page {
 		// present value must still be a positive integer / 0–100; `false` flags malformed.
 		$full_width = $this->parse_optional_width_field(
 			$raw['full-width'] ?? '',
-			__( 'Full width must be a positive integer, or left empty.', 'kntnt-photo-drop' ),
+			__( 'Full width must be at least 320 pixels, or left empty.', 'kntnt-photo-drop' ),
 		);
 		$full_quality = $this->parse_optional_quality_field(
 			$raw['full-quality'] ?? '',
@@ -799,7 +799,7 @@ final class Admin_Page {
 		);
 		$thumb_width = $this->parse_optional_width_field(
 			$raw['thumbnail-width'] ?? '',
-			__( 'Thumbnail width must be a positive integer, or left empty.', 'kntnt-photo-drop' ),
+			__( 'Thumbnail width must be at least 320 pixels, or left empty.', 'kntnt-photo-drop' ),
 		);
 
 		// A `null` from an always-concrete quality field or a `false` from a collapsible
@@ -1375,7 +1375,7 @@ final class Admin_Page {
 		$this->render_permanence_marker( $upload_reason );
 		echo '</th><td>';
 		printf(
-			'<input name="upload_width" id="%s" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			'<input name="upload_width" id="%s" type="number" min="320" step="1" value="%s" class="small-text" /> %s',
 			esc_attr( $width_id ),
 			esc_attr( $this->prefill_width( Rendition_Defaults::upload_width() ) ),
 			esc_html__( 'pixels', 'kntnt-photo-drop' ),
@@ -1496,7 +1496,7 @@ final class Admin_Page {
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
 		printf(
-			'<input name="%s" id="%s" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			'<input name="%s" id="%s" type="number" min="320" step="1" value="%s" class="small-text" /> %s',
 			esc_attr( $name ),
 			esc_attr( $id ),
 			esc_attr( (string) $fallback ),
@@ -1891,7 +1891,7 @@ final class Admin_Page {
 		$id = 'kntnt-photo-drop-' . str_replace( '_', '-', $name );
 		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
 		printf(
-			'<input name="%s" id="%s" type="number" min="1" step="1" value="%s" class="small-text" /> %s',
+			'<input name="%s" id="%s" type="number" min="320" step="1" value="%s" class="small-text" /> %s',
 			esc_attr( $name ),
 			esc_attr( $id ),
 			esc_attr( $current === null ? '' : (string) $current ),

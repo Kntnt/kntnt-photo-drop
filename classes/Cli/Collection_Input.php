@@ -45,6 +45,20 @@ final class Collection_Input {
 	public const NO_LIMIT_KEYWORD = 'none';
 
 	/**
+	 * The smallest sensible rendition width in pixels.
+	 *
+	 * A width below this value produces a rendered image that is effectively
+	 * invisible in any reasonable gallery layout. Both the admin form and the
+	 * CLI enforce this floor on every *present* width value; a blank field (which
+	 * means "no limit" for upload-width, or "collapse to the tier above" for
+	 * full/thumbnail-width) is never coerced and is unaffected by this constant.
+	 *
+	 * @since 0.14.0
+	 * @var int
+	 */
+	public const MINIMUM_WIDTH = 320;
+
+	/**
 	 * The flags fixed at establishment and rejected on `update`.
 	 *
 	 * Only the upload pair (`upload-width`, `upload-quality`) is the immutable
@@ -62,15 +76,17 @@ final class Collection_Input {
 	 * Parses the `--upload-width` flag into the contract's nullable ceiling.
 	 *
 	 * Accepts the literal "none" (case-insensitive) as the explicit "source
-	 * dimensions" form, mapping it to `null`; otherwise the value must be a
-	 * strictly positive integer. Returns `false` for any other input so the caller
-	 * can report a precise error rather than freezing a contract from a malformed
+	 * dimensions" form, mapping it to `null` (unaffected by {@see MINIMUM_WIDTH});
+	 * otherwise the value must be a strictly positive integer at or above
+	 * {@see MINIMUM_WIDTH}. Returns `false` for any other input so the caller can
+	 * report a precise error rather than freezing a contract from a malformed
 	 * value.
 	 *
 	 * @since 0.2.0
 	 *
 	 * @param string $value The raw flag value.
-	 * @return int|null|false The pixel ceiling, null for "source dimensions", or false when invalid.
+	 * @return int|null|false The pixel ceiling (≥ MINIMUM_WIDTH), null for
+	 *                        "source dimensions", or false when invalid.
 	 */
 	public function parse_upload_width( string $value ): int|null|false {
 
@@ -90,13 +106,14 @@ final class Collection_Input {
 	 * Parses a `--full-width`/`--thumbnail-width` flag into a positive integer.
 	 *
 	 * Unlike the upload width, a derived-rendition width is never unbounded, so
-	 * there is no "none" form: the value must be a strictly positive integer.
-	 * Returns `false` for any non-positive or malformed value.
+	 * there is no "none" form: the value must be a strictly positive integer at
+	 * or above {@see MINIMUM_WIDTH}. Returns `false` for any non-positive,
+	 * below-floor, or malformed value.
 	 *
 	 * @since 0.7.0
 	 *
 	 * @param string $value The raw flag value.
-	 * @return int|false The positive pixel width, or false when invalid.
+	 * @return int|false The pixel width (≥ MINIMUM_WIDTH), or false when invalid.
 	 */
 	public function parse_width( string $value ): int|false {
 
@@ -106,7 +123,10 @@ final class Collection_Input {
 			return false;
 		}
 
-		return (int) $value;
+		// Reject any value below the floor — a smaller width renders an effectively
+		// invisible gallery in any real layout.
+		$width = (int) $value;
+		return $width >= self::MINIMUM_WIDTH ? $width : false;
 
 	}
 
