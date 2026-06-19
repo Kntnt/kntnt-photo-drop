@@ -1,15 +1,15 @@
 /**
- * The Create/Edit tier-width live clamp — the DOM shell over the pure clamp.
+ * The Create/Edit tier-width clamp — the DOM shell over the pure clamp.
  *
  * Wires the rendition width inputs on the collection-lifecycle admin page's Create
- * and Edit forms so the tier ladder stays self-consistent as the builder types: Full
- * may not exceed the upload limit (when one is set), and Thumbnail may not exceed
- * Full (ADR-0013 — each tier is skipped when the source is no wider). All value logic
- * — what clamps to what, the cascade, leaving blank/malformed fields alone — lives in
- * the Jest-tested `clampWidths` core; this module only reads the inputs, calls it on
- * every change, and writes the two lower tiers back. It is purely presentational: the
- * server re-validates every width at submit (blocks.md "Create"/"Edit"), so the page
- * works unchanged when this script is absent.
+ * and Edit forms so the tier ladder stays self-consistent when the builder commits a
+ * value: Full may not exceed the upload limit (when one is set), and Thumbnail may not
+ * exceed Full (ADR-0013 — each tier is skipped when the source is no wider). All value
+ * logic — what clamps to what, the cascade, leaving blank/malformed fields alone —
+ * lives in the Jest-tested `clampWidths` core; this module only reads the inputs,
+ * calls it when a field is committed (on `change`), and writes the two lower tiers
+ * back. It is purely presentational: the server re-validates every width at submit
+ * (blocks.md "Create"/"Edit"), so the page works unchanged when this script is absent.
  *
  * The Create form carries all three tiers; the upload width is a single blank-able
  * field (blank = the source's own dimensions, so no ceiling — #70 retired the
@@ -94,7 +94,7 @@ function applyClamp(
  * which case Full is left unconstrained from above and only the Thumbnail-to-Full rule
  * applies.
  */
-function init(): void {
+export function init(): void {
 	// Both lower tiers must be present for the ladder to mean anything; without them
 	// this is not a width form, so there is nothing to wire.
 	const root = document;
@@ -108,12 +108,14 @@ function init(): void {
 	// blank value means no ceiling, so a change to it re-runs the clamp too.
 	const upload = findInput( root, 'upload_width' );
 
-	// Re-clamp on any change to any tier: typing in a field fires `input`. Each listener
-	// is passive — the clamp never needs to cancel the event, only react to it.
+	// Re-clamp when any tier's value is committed: `change` fires on blur or Enter,
+	// after the final value is set, so a digit-by-digit sequence never strands the
+	// lower tiers at an intermediate value. Each listener is passive — the clamp
+	// never needs to cancel the event, only react to it.
 	const recompute = (): void => applyClamp( upload, full, thumbnail );
 	[ upload, full, thumbnail ].forEach(
 		( input ) =>
-			input?.addEventListener( 'input', recompute, { passive: true } )
+			input?.addEventListener( 'change', recompute, { passive: true } )
 	);
 }
 
