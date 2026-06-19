@@ -19,8 +19,22 @@
  * (#71). A non-integer or non-positive value is likewise passed through unchanged,
  * because clamping a value the server will reject anyway would only hide the error.
  *
+ * A ceiling below the server's minimum width floor is treated as no ceiling at all:
+ * it is not cascaded into lower tiers, so an out-of-range upload or full value never
+ * drags the dependent tiers below the minimum. The field that holds the sub-floor
+ * value is left for the HTML `min` attribute and the server to reject (@since 0.15.0).
+ *
  * @since 0.13.0
  */
+
+/**
+ * Minimum accepted width in pixels — mirrors the authoritative PHP constant
+ * `Kntnt\Photo_Drop\Cli\Collection_Input::MINIMUM_WIDTH`; the server is the source of
+ * truth, this is the client convenience that keeps the clamp consistent with it.
+ *
+ * @since 0.15.0
+ */
+const MINIMUM_WIDTH = 320;
 
 /**
  * How the Create form's upload width is expressed: a pixel ceiling or no limit.
@@ -86,6 +100,24 @@ function positiveInt( raw: string ): number | null {
 }
 
 /**
+ * Returns the positive-integer parse of `raw` only when it meets the minimum width
+ * floor, otherwise null.
+ *
+ * A sub-floor value is not a usable ceiling: cascading it would drag lower tiers below
+ * the server's accepted minimum. The sub-floor field itself is left for the HTML `min`
+ * attribute and the server to reject.
+ *
+ * @since 0.15.0
+ *
+ * @param raw - The raw field value.
+ * @return The positive integer at or above the minimum, or null.
+ */
+function usableCeiling( raw: string ): number | null {
+	const value = positiveInt( raw );
+	return value !== null && value >= MINIMUM_WIDTH ? value : null;
+}
+
+/**
  * Clamps one tier's value down to its ceiling, leaving everything else untouched.
  *
  * The value is lowered to the ceiling only when both are positive integers and the
@@ -116,6 +148,10 @@ function clampTo( raw: string, ceiling: number | null ): string {
  * Thumbnail down with it. Blank or malformed fields are passed through untouched, so
  * an empty "use the default" field is never coerced to a number.
  *
+ * A ceiling below `MINIMUM_WIDTH` is treated as no ceiling: it is not cascaded into
+ * lower tiers, so an out-of-range upload or full value never drags the dependent tiers
+ * below the server's accepted minimum (@since 0.15.0).
+ *
  * @since 0.13.0
  *
  * @param fields - The three width fields' raw values and the upload-width mode.
@@ -124,14 +160,15 @@ function clampTo( raw: string, ceiling: number | null ): string {
 export function clampWidths( fields: WidthFields ): ClampedWidths {
 	// Full's ceiling is the upload width, but only under an active pixel limit; an
 	// "Original dimensions" upload (or the Edit form's read-only contract) imposes no
-	// upper bound on Full.
+	// upper bound on Full. A sub-floor upload value is not a usable ceiling.
 	const uploadCeiling =
-		fields.uploadMode === 'limit' ? positiveInt( fields.upload ) : null;
+		fields.uploadMode === 'limit' ? usableCeiling( fields.upload ) : null;
 	const full = clampTo( fields.full, uploadCeiling );
 
 	// Thumbnail's ceiling is the already-clamped Full, so a lowered upload limit
-	// cascades through Full into Thumbnail in this one call.
-	const thumbnail = clampTo( fields.thumbnail, positiveInt( full ) );
+	// cascades through Full into Thumbnail in this one call. A sub-floor Full is not a
+	// usable ceiling for Thumbnail.
+	const thumbnail = clampTo( fields.thumbnail, usableCeiling( full ) );
 
 	return { full, thumbnail };
 }

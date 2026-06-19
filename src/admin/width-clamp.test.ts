@@ -56,8 +56,8 @@ describe( 'clampWidths', () => {
 	} );
 
 	it( 'cascades a lowered upload limit through Full into Thumbnail in one call', () => {
-		// The upload limit drops below both lower tiers: Full clamps to the upload
-		// width, and Thumbnail clamps to the *already-clamped* Full, not its old value.
+		// The upload limit (500) is above the 320 floor, so it is a valid ceiling: Full
+		// clamps to it, and Thumbnail clamps to the *already-clamped* Full in one call.
 		expect(
 			clampWidths( {
 				uploadMode: 'limit',
@@ -130,5 +130,56 @@ describe( 'clampWidths', () => {
 				thumbnail: '1280',
 			} )
 		).toEqual( { full: '1280', thumbnail: '1280' } );
+	} );
+
+	it( 'does not cascade a sub-floor upload value into Full or Thumbnail', () => {
+		// A sub-floor upload (200 < 320) is not a usable ceiling; Full and Thumbnail must
+		// not be dragged down to an out-of-range value the server would reject.
+		expect(
+			clampWidths( {
+				uploadMode: 'limit',
+				upload: '200',
+				full: '1920',
+				thumbnail: '640',
+			} )
+		).toEqual( { full: '1920', thumbnail: '640' } );
+	} );
+
+	it( 'treats the exact floor value (320) as a valid ceiling', () => {
+		// 320 is the minimum — it is at the floor, not below it, so it is a usable
+		// ceiling that clamps both Full and Thumbnail down to it.
+		expect(
+			clampWidths( {
+				uploadMode: 'limit',
+				upload: '320',
+				full: '1920',
+				thumbnail: '640',
+			} )
+		).toEqual( { full: '320', thumbnail: '320' } );
+	} );
+
+	it( 'does not cascade a sub-floor Full value into Thumbnail', () => {
+		// A sub-floor Full (200 < 320) under "none" uploadMode is not a usable ceiling
+		// for Thumbnail — Thumbnail must stay at its typed value.
+		expect(
+			clampWidths( {
+				uploadMode: 'none',
+				upload: '',
+				full: '200',
+				thumbnail: '640',
+			} )
+		).toEqual( { full: '200', thumbnail: '640' } );
+	} );
+
+	it( 'still clamps when the upload ceiling is valid (regression guard)', () => {
+		// Confirming the normal clamping path still works after the floor guard was added.
+		expect(
+			clampWidths( {
+				uploadMode: 'limit',
+				upload: '1600',
+				full: '1920',
+				thumbnail: '640',
+			} )
+		).toEqual( { full: '1600', thumbnail: '640' } );
 	} );
 } );
