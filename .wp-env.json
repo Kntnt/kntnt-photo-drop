@@ -3,6 +3,9 @@
 	"core": null,
 	"phpVersion": "8.4",
 	"plugins": [ "." ],
+	"mappings": {
+		"wp-content/mu-plugins": "./tests/Integration/mu-plugins"
+	},
 	"config": {
 		"WP_DEBUG": true,
 		"WP_DEBUG_LOG": true,

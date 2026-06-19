@@ -24,6 +24,7 @@ use function Tests\Integration\delete_collection;
 use function Tests\Integration\delete_user;
 use function Tests\Integration\login_session;
 use function Tests\Integration\rest_upload;
+use function Tests\Integration\run_cli;
 use function Tests\Integration\site_today_path;
 use function Tests\Integration\unique_slug;
 use function Tests\Integration\uploads_root;
@@ -96,6 +97,41 @@ test( 'a subscriber with a valid nonce is rejected with 403', function () use ( 
 		expect( $response['status'] )->toBe( 403 );
 		expect( is_file( collection_path( $slug ) . '/subscriber.jpg.webp' ) )->toBeFalse();
 	} finally {
+		delete_user( $username );
+	}
+
+} );
+
+test( 'the upload capability filter is honored end-to-end', function () use ( $slug, $fixture ): void {
+
+	// Create an Author: holds upload_files (so the default gate would pass) but
+	// not manage_options (so the filtered, stricter gate must reject). A unique
+	// name keeps concurrent suites and crashed leftovers apart.
+	$username = str_replace( '-', '', unique_slug() );
+	$email    = "{$username}@example.com";
+	run_cli( [ 'user', 'create', $username, $email, '--role=author', '--user_pass=it-secret-password' ] );
+
+	try {
+
+		// Re-gate the upload to manage_options through the option-driven mu-plugin
+		// filter, then upload as the Author: the live endpoint must honor the
+		// filtered capability the Author lacks and answer 403 with nothing written.
+		run_cli( [ 'option', 'update', 'kntnt_pd_test_upload_capability', 'manage_options' ] );
+		$session  = login_session( $username, 'it-secret-password' );
+		$response = rest_upload( $slug, $fixture, 'filtered.jpg', $session['jar'], $session['nonce'] );
+		expect( $response['status'] )->toBe( 403 );
+		expect( is_file( collection_path( $slug ) . '/filtered.jpg.webp' ) )->toBeFalse();
+
+		// Clear the override so the filter falls back to the default upload_files
+		// gate, then upload again as the same Author: the request now passes (200,
+		// re-encoded), which also proves the mu-plugin is genuinely option-gated.
+		run_cli( [ 'option', 'delete', 'kntnt_pd_test_upload_capability' ] );
+		$reupload = rest_upload( $slug, $fixture, 'filtered.jpg', $session['jar'], $session['nonce'] );
+		expect( $reupload['status'] )->toBe( 200 );
+		expect( $reupload['body']['outcome'] )->toBe( 'reencoded' );
+
+	} finally {
+		run_cli( [ 'option', 'delete', 'kntnt_pd_test_upload_capability' ] );
 		delete_user( $username );
 	}
 
