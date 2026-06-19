@@ -39,6 +39,9 @@ use Kntnt\Photo_Drop\Storage\Descriptor;
  */
 final class Collections_Controller {
 
+	// Shared request-reading and capability-resolution helpers.
+	use Request_Gate;
+
 	/**
 	 * The REST namespace under which the list route is registered.
 	 *
@@ -126,8 +129,7 @@ final class Collections_Controller {
 
 		// Resolve the required capability through the filter, hardening its
 		// return so a buggy filter can never disable the gate.
-		$filtered   = apply_filters( 'kntnt_photo_drop_list_capability', self::DEFAULT_CAPABILITY );
-		$capability = is_string( $filtered ) && $filtered !== '' ? $filtered : self::DEFAULT_CAPABILITY;
+		$capability = self::resolve_capability( 'kntnt_photo_drop_list_capability', self::DEFAULT_CAPABILITY );
 
 		return current_user_can( $capability );
 

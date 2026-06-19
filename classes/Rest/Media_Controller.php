@@ -50,6 +50,9 @@ use Kntnt\Photo_Drop\Storage\Index;
  */
 class Media_Controller {
 
+	// Shared request-reading and capability-resolution helpers.
+	use Request_Gate;
+
 	/**
 	 * The REST namespace under which the media route is registered.
 	 *
@@ -373,51 +376,7 @@ class Media_Controller {
 	 * @return string The capability string to check.
 	 */
 	public static function required_capability(): string {
-
-		// Apply the filter and harden its return: a non-string or empty result is
-		// rejected back to the default, so a buggy filter can never open the gate.
-		$filtered = apply_filters( 'kntnt_photo_drop_add_to_media_capability', self::DEFAULT_CAPABILITY );
-		return is_string( $filtered ) && $filtered !== '' ? $filtered : self::DEFAULT_CAPABILITY;
-
-	}
-
-	/**
-	 * Reads the `wp_rest` nonce from the request, header first.
-	 *
-	 * Prefers the canonical `X-WP-Nonce` header that `wp.apiFetch` and the gallery's
-	 * view module send, falling back to a `_wpnonce` parameter. The value is
-	 * sanitised before it reaches `wp_verify_nonce()`.
-	 *
-	 * @since 0.12.0
-	 *
-	 * @param \WP_REST_Request $request The incoming REST request.
-	 * @return string The nonce string, or '' when none was supplied.
-	 */
-	private function read_nonce( \WP_REST_Request $request ): string {
-
-		// Take the header value first, then the parameter fallback; sanitise either
-		// way so only a clean token string reaches the verifier.
-		$header = $request->get_header( 'X-WP-Nonce' );
-		$raw    = is_string( $header ) && $header !== '' ? $header : $request->get_param( '_wpnonce' );
-		return is_string( $raw ) ? sanitize_text_field( $raw ) : '';
-
-	}
-
-	/**
-	 * Reads and sanitises the addressed collection slug.
-	 *
-	 * The slug comes from the matched route segment; it is sanitised here as defence
-	 * in depth, though the `Repository` re-validates it strictly before any
-	 * filesystem access.
-	 *
-	 * @since 0.12.0
-	 *
-	 * @param \WP_REST_Request $request The incoming REST request.
-	 * @return string The sanitised slug, or '' when absent.
-	 */
-	private function read_slug( \WP_REST_Request $request ): string {
-		$raw = $request->get_param( 'slug' );
-		return is_string( $raw ) ? sanitize_text_field( $raw ) : '';
+		return self::resolve_capability( 'kntnt_photo_drop_add_to_media_capability', self::DEFAULT_CAPABILITY );
 	}
 
 	/**
