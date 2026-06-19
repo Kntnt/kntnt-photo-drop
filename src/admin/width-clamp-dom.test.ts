@@ -9,7 +9,7 @@
  * the lower tiers at the value that passed through during an intermediate
  * keystroke; only the final committed value should trigger the clamp.
  *
- * @since 0.14.0
+ * @since 0.15.0
  */
 
 import { init } from './width-clamp-dom';
