@@ -105,6 +105,16 @@ const RESIZE_DEBOUNCE = 200;
 const mountedGalleries = new WeakSet< Element >();
 
 /**
+ * Per-wrapper teardown for the justified resize listener; abort releases the
+ * window listener and the pending debounce. No Interactivity unmount hook
+ * exists yet, so this stays latent — it bounds the listener's lifetime and
+ * makes a future teardown a single abort() call.
+ *
+ * @since 0.15.0
+ */
+const galleryTeardowns = new WeakMap< Element, AbortController >();
+
+/**
  * The default fully-visible seconds per slide, used when the wrapper's seconds
  * flag is missing or malformed. Matches the `slideshowSeconds` attribute
  * default in `block.json`.
@@ -369,20 +379,37 @@ function correctLastRow( layout: HTMLElement ): void {
 /**
  * Runs the last-row correction now and again on a debounced window resize.
  *
- * The resize listener lives for the page's lifetime, like the gallery markup
- * it corrects; the debounce keeps a drag-resize from re-reading a
+ * The resize listener is owned by an {@link AbortSignal} so its lifetime is
+ * bounded and closeable: aborting the signal removes the window listener and
+ * clears the pending debounce in one call. No Interactivity unmount hook fires
+ * today, so the signal stays latent — the listener still lives for the page's
+ * lifetime in practice — but the resource ownership is now explicit and
+ * abort-ready. The debounce keeps a drag-resize from re-reading a
  * thousand-figure gallery on every frame.
  *
  * @since 0.2.0
+ * @since 0.15.0 Takes an AbortSignal so the listener and debounce are
+ *               releasable in one abort.
  *
  * @param layout - The justified layout container.
+ * @param signal - Aborting it removes the resize listener and clears the
+ *               pending debounce; nothing aborts it yet.
  */
-function wireLastRowCorrection( layout: HTMLElement ): void {
+function wireLastRowCorrection(
+	layout: HTMLElement,
+	signal: AbortSignal
+): void {
 	correctLastRow( layout );
 
 	// Re-run after the window settles at a new size; every resize event within
-	// the debounce window pushes the work further out.
+	// the debounce window pushes the work further out. Aborting the signal both
+	// detaches this listener and cancels any debounce already in flight.
 	let timer: ReturnType< typeof setTimeout > | null = null;
+	signal.addEventListener( 'abort', () => {
+		if ( timer !== null ) {
+			clearTimeout( timer );
+		}
+	} );
 	layout.ownerDocument.defaultView?.addEventListener(
 		'resize',
 		() => {
@@ -394,7 +421,7 @@ function wireLastRowCorrection( layout: HTMLElement ): void {
 				correctLastRow( layout );
 			}, RESIZE_DEBOUNCE );
 		},
-		{ passive: true }
+		{ passive: true, signal }
 	);
 }
 
@@ -436,7 +463,9 @@ store( 'kntnt-photo-drop/gallery', {
 				'.kntnt-photo-drop-gallery__layout--justified'
 			);
 			if ( justified ) {
-				wireLastRowCorrection( justified );
+				const controller = new AbortController();
+				galleryTeardowns.set( ref, controller );
+				wireLastRowCorrection( justified, controller.signal );
 			}
 
 			// Mount the slideshow when the wrapper asks for one — a third surface
