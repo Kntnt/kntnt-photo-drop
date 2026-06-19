@@ -17,7 +17,11 @@
  * ordinary, independent attachment — WordPress generates its own sub-sizes — a
  * **copy, never a link** (ADR-0015 rejects the Media-Library-backed mode that
  * would reintroduce a DB row plus an out-of-collection file backing a collection
- * image). Each confirmed click adds another copy; there is no dedup.
+ * image). Each copy is stamped with its source identity (collection slug +
+ * collection-relative path) as attachment post-meta, so a later add of the same
+ * image is detected: a re-add is a 409 carrying the existing id (the gallery
+ * raises an overwrite confirm), and a confirmed overwrite replaces that
+ * attachment's file in place, keeping its id (ADR-0015 amendment).
  *
  * @package Kntnt\Photo_Drop
  * @since   0.12.0
@@ -99,6 +103,35 @@ class Media_Controller {
 	private const PATH_PARAM = 'path';
 
 	/**
+	 * Attachment post-meta key recording the source collection slug.
+	 *
+	 * Half of the source identity an add-to-media copy is stamped with, so a later
+	 * add of the same image can be recognised and de-duplicated (ADR-0015 amendment).
+	 *
+	 * @since 0.15.0
+	 * @var string
+	 */
+	private const META_COLLECTION = '_kntnt_photo_drop_collection';
+
+	/**
+	 * Attachment post-meta key recording the source collection-relative path.
+	 *
+	 * The other half of the stamped source identity (see META_COLLECTION).
+	 *
+	 * @since 0.15.0
+	 * @var string
+	 */
+	private const META_PATH = '_kntnt_photo_drop_path';
+
+	/**
+	 * The JSON body flag asking to overwrite an existing copy in place.
+	 *
+	 * @since 0.15.0
+	 * @var string
+	 */
+	private const OVERWRITE_PARAM = 'overwrite';
+
+	/**
 	 * Constructs the controller with its collection repository.
 	 *
 	 * The repository is held `readonly` so a test can substitute one anchored at a
@@ -131,12 +164,12 @@ class Media_Controller {
 				'callback'            => [ $this, 'add_to_media' ],
 				'permission_callback' => [ $this, 'check_permission' ],
 				'args'                => [
-					'slug'           => [
+					'slug'                => [
 						'type'              => 'string',
 						'required'          => true,
 						'sanitize_callback' => 'sanitize_text_field',
 					],
-					self::PATH_PARAM => [
+					self::PATH_PARAM      => [
 						'type'              => 'string',
 						'required'          => true,
 						// A type gate only, deliberately not sanitize_text_field:
@@ -145,6 +178,12 @@ class Media_Controller {
 						// schemes and realpath-confines the target — ever saw the
 						// raw bytes.
 						'sanitize_callback' => static fn ( mixed $value ): string => is_string( $value ) ? $value : '',
+					],
+					self::OVERWRITE_PARAM => [
+						'type'              => 'boolean',
+						'required'          => false,
+						'default'           => false,
+						'sanitize_callback' => static fn ( mixed $value ): bool => (bool) $value,
 					],
 				],
 			]
@@ -201,16 +240,24 @@ class Media_Controller {
 	 * file on disk (404 when none is there), and verifies that file is a **main
 	 * image** rather than a derived thumbnail, the descriptor, or a foreign
 	 * in-collection file (404 when it is not — confinement alone would otherwise copy
-	 * `collection.json` or a thumbnail). Only then is the confined main sideloaded
-	 * into the Media Library as an ordinary, independent attachment with its own
-	 * sub-sizes — a copy, never a link (ADR-0015). A failed sideload is a 500 rather
-	 * than a phantom success. The reply is `201 { id }` carrying the created
-	 * attachment id.
+	 * `collection.json` or a thumbnail).
+	 *
+	 * De-duplication (ADR-0015 amendment): a copy is detected by its stamped source
+	 * identity (collection slug + collection-relative path). When this image is
+	 * already in the Library and the caller has not asked to overwrite, the reply is
+	 * `409` carrying the existing attachment id, with nothing copied — the gallery
+	 * raises its overwrite confirm. When the caller confirms overwrite, the existing
+	 * attachment's file is replaced in place (same id, so embeds keep working) and
+	 * the reply is `200 { id }`. Otherwise the confined main is sideloaded into the
+	 * Media Library as an ordinary, independent attachment with its own sub-sizes — a
+	 * copy, never a link (ADR-0015) — and stamped with its source identity, the reply
+	 * being `201 { id }`. A failed import or overwrite is a 500 rather than a phantom
+	 * success.
 	 *
 	 * @since 0.12.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
-	 * @return \WP_REST_Response|\WP_Error The created attachment, or a WP_Error for a failure.
+	 * @return \WP_REST_Response|\WP_Error The created/replaced attachment, or a WP_Error for a failure.
 	 */
 	public function add_to_media( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 
@@ -253,9 +300,44 @@ class Media_Controller {
 			return new \WP_Error( 'kntnt_photo_drop_not_a_main_image', $message, [ 'status' => 404 ] );
 		}
 
-		// Sideload the confined main into the Media Library as an independent copy;
-		// a WP_Error means the Library import itself failed, which is a 500 rather
-		// than a 201 over a copy that did not happen.
+		// Compute the canonical source identity (collection slug + collection-relative
+		// path) used both to detect a prior copy and to stamp a fresh one. The relative
+		// path is taken against the guard's canonical (realpath) root, a guaranteed
+		// prefix of the confined main — the descriptor-anchored collection path is not,
+		// since realpath may rewrite symlinked path segments.
+		$relative = ltrim( substr( $main_path, strlen( $guard->get_root() ) ), '/' );
+		$existing = $this->find_existing( $slug, $relative );
+
+		// A prior copy exists and the caller has not asked to overwrite: report 409
+		// with the existing id so the gallery can raise its overwrite confirm. Nothing
+		// is copied.
+		if ( $existing !== null && ! $this->read_overwrite( $request ) ) {
+			$message = __( 'This image is already in the Media Library.', 'kntnt-photo-drop' );
+			return new \WP_Error(
+				'kntnt_photo_drop_already_in_media',
+				$message,
+				[
+					'status' => 409,
+					'id'     => $existing,
+				]
+			);
+		}
+
+		// A prior copy exists and the caller confirmed overwrite: replace its file in
+		// place (same id, so embeds keep working). A WP_Error is a 500.
+		if ( $existing !== null ) {
+			$replaced = $this->replace( $existing, $main_path );
+			if ( $replaced instanceof \WP_Error ) {
+				$reason = $replaced->get_error_message();
+				Plugin::error( "Add-to-media overwrite failed for collection {$slug}: {$reason}" );
+				$message = __( 'The image could not be overwritten in the Media Library.', 'kntnt-photo-drop' );
+				return new \WP_Error( 'kntnt_photo_drop_overwrite_failed', $message, [ 'status' => 500 ] );
+			}
+			return new \WP_REST_Response( [ 'id' => $replaced ], 200 );
+		}
+
+		// No prior copy: sideload a fresh independent attachment, then stamp it with
+		// its source identity so a future add recognises it. A failed import is a 500.
 		$attachment_id = $this->sideload( $main_path );
 		if ( $attachment_id instanceof \WP_Error ) {
 			$reason = $attachment_id->get_error_message();
@@ -263,6 +345,8 @@ class Media_Controller {
 			$message = __( 'The image could not be added to the Media Library.', 'kntnt-photo-drop' );
 			return new \WP_Error( 'kntnt_photo_drop_sideload_failed', $message, [ 'status' => 500 ] );
 		}
+		update_post_meta( $attachment_id, self::META_COLLECTION, $slug );
+		update_post_meta( $attachment_id, self::META_PATH, $relative );
 
 		return new \WP_REST_Response( [ 'id' => $attachment_id ], 201 );
 
@@ -371,6 +455,120 @@ class Media_Controller {
 	}
 
 	/**
+	 * Finds an attachment previously copied from this exact collection image.
+	 *
+	 * Duplicate detection (ADR-0015 amendment): each add-to-media copy is stamped
+	 * with its source collection slug and collection-relative path as post-meta, so
+	 * a later add of the same image can be recognised. Returns the existing
+	 * attachment id, or null when this image is not yet in the Library. A protected
+	 * seam so a unit test can control the verdict without a real Media Library.
+	 *
+	 * @since 0.15.0
+	 *
+	 * @param string $slug     The collection slug.
+	 * @param string $relative The collection-relative path of the main image.
+	 * @return int|null The existing attachment id, or null when none.
+	 */
+	protected function find_existing( string $slug, string $relative ): ?int {
+
+		// Query attachments stamped with this exact source identity; the newest
+		// match (there should be at most one) is the existing copy.
+		$matches = get_posts(
+			[
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'fields'         => 'ids',
+				'posts_per_page' => 1,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- The source-identity lookup is inherently a meta query (two stamped keys), bounded to one row and run only on a deliberate add-to-media write, never on a read path.
+				'meta_query'     => [
+					'relation' => 'AND',
+					[
+						'key'   => self::META_COLLECTION,
+						'value' => $slug,
+					],
+					[
+						'key'   => self::META_PATH,
+						'value' => $relative,
+					],
+				],
+			]
+		);
+		return isset( $matches[0] ) ? (int) $matches[0] : null;
+
+	}
+
+	/**
+	 * Replaces an existing attachment's file in place from a collection main.
+	 *
+	 * Overwrite semantics (ADR-0015 amendment): the attachment id is preserved so
+	 * any post already embedding it keeps working. The current attached file is
+	 * overwritten with the confined main's bytes, stale sub-sizes are dropped, and
+	 * metadata is regenerated. Big-image scaling is disabled for the regeneration
+	 * so the replacement is full-resolution, not a `-scaled` master (see Plan 007).
+	 * A protected seam so a unit test can record the call without a real Library.
+	 *
+	 * @since 0.15.0
+	 *
+	 * @param int    $attachment_id The existing attachment to overwrite.
+	 * @param string $main_path     The absolute path to the confined main image.
+	 * @return int|\WP_Error The same attachment id on success, or a WP_Error.
+	 */
+	protected function replace( int $attachment_id, string $main_path ): int|\WP_Error {
+
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		// Resolve the attachment's current file; without it there is nothing to
+		// replace in place.
+		$current = get_attached_file( $attachment_id );
+		if ( $current === false || $current === '' ) {
+			return new \WP_Error( 'kntnt_photo_drop_replace_no_file', 'The attachment has no file to replace.' );
+		}
+
+		// Drop the existing generated sub-sizes so regeneration does not leave
+		// orphaned intermediate files behind, then overwrite the master bytes.
+		$old_meta = wp_get_attachment_metadata( $attachment_id );
+		$this->delete_subsizes( $current, is_array( $old_meta ) ? $old_meta : [] );
+		if ( ! copy( $main_path, $current ) ) {
+			return new \WP_Error( 'kntnt_photo_drop_replace_copy', 'Could not overwrite the attachment file.' );
+		}
+
+		// Regenerate metadata + sub-sizes for the new bytes at full resolution
+		// (big-image scaling disabled, matching the fresh-add path).
+		add_filter( 'big_image_size_threshold', '__return_false' );
+		$new_meta = wp_generate_attachment_metadata( $attachment_id, $current );
+		remove_filter( 'big_image_size_threshold', '__return_false' );
+		wp_update_attachment_metadata( $attachment_id, $new_meta );
+
+		return $attachment_id;
+
+	}
+
+	/**
+	 * Removes an attachment's generated sub-size files beside its master.
+	 *
+	 * @since 0.15.0
+	 *
+	 * @param string               $master_path The attachment's master file path.
+	 * @param array<string, mixed> $meta        The attachment metadata (may be empty).
+	 * @return void
+	 */
+	private function delete_subsizes( string $master_path, array $meta ): void {
+
+		// Each sub-size lives beside the master; unlink any that still exist so a
+		// regeneration cannot leave a stale intermediate behind.
+		$dir   = dirname( $master_path );
+		$sizes = is_array( $meta['sizes'] ?? null ) ? $meta['sizes'] : [];
+		foreach ( $sizes as $size ) {
+			$file = is_array( $size ) ? ( $size['file'] ?? '' ) : '';
+			if ( is_string( $file ) && $file !== '' && is_file( "{$dir}/{$file}" ) ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Removing a stale sub-size beside the master before regeneration.
+				unlink( "{$dir}/{$file}" );
+			}
+		}
+
+	}
+
+	/**
 	 * Resolves the capability required to copy into the Library, through the filter.
 	 *
 	 * Defaults to `upload_files` and is passed through
@@ -405,6 +603,18 @@ class Media_Controller {
 	private function read_path( \WP_REST_Request $request ): string {
 		$raw = $request->get_param( self::PATH_PARAM );
 		return is_string( $raw ) ? $raw : '';
+	}
+
+	/**
+	 * Reads the optional overwrite flag from the request.
+	 *
+	 * @since 0.15.0
+	 *
+	 * @param \WP_REST_Request $request The incoming REST request.
+	 * @return bool True when the caller asked to overwrite an existing copy.
+	 */
+	private function read_overwrite( \WP_REST_Request $request ): bool {
+		return (bool) $request->get_param( self::OVERWRITE_PARAM );
 	}
 
 }

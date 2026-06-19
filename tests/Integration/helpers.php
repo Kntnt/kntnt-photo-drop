@@ -1321,19 +1321,25 @@ function delete_user( string $username ): void {
  *
  * @since 0.12.0
  *
- * @param string      $slug  The target collection slug.
- * @param string      $path  The collection-relative path of the main image to copy.
- * @param string|null $jar   A cookie-jar path, or null for an anonymous request.
- * @param string|null $nonce A `wp_rest` nonce, or null to omit the header.
+ * @param string      $slug      The target collection slug.
+ * @param string      $path      The collection-relative path of the main image to copy.
+ * @param string|null $jar       A cookie-jar path, or null for an anonymous request.
+ * @param string|null $nonce     A `wp_rest` nonce, or null to omit the header.
+ * @param bool        $overwrite Whether to send `overwrite: true`, asking to replace an existing copy.
  * @return array{status:int,body:array<string,mixed>|null} The HTTP status and the decoded JSON body.
  */
-function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $nonce ): array {
+function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $nonce, bool $overwrite = false ): array {
 
-	// Build the JSON POST against the collection's media route.
+	// Build the JSON POST against the collection's media route; an overwrite request
+	// carries the optional flag the controller reads to replace an existing copy.
 	$url     = site_url() . '/wp-json/kntnt-photo-drop/v1/collections/' . rawurlencode( $slug ) . '/media';
 	$headers = [ 'Content-Type: application/json' ];
 	if ( $nonce !== null ) {
 		$headers[] = "X-WP-Nonce: {$nonce}";
+	}
+	$payload = [ 'path' => $path ];
+	if ( $overwrite ) {
+		$payload['overwrite'] = true;
 	}
 	$handle = curl_init( $url );
 	curl_setopt_array(
@@ -1341,7 +1347,7 @@ function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $n
 		[
 			CURLOPT_RETURNTRANSFER => true,
 			CURLOPT_POST           => true,
-			CURLOPT_POSTFIELDS     => (string) json_encode( [ 'path' => $path ] ),
+			CURLOPT_POSTFIELDS     => (string) json_encode( $payload ),
 			CURLOPT_HTTPHEADER     => $headers,
 			CURLOPT_TIMEOUT        => 30,
 		],

@@ -11,10 +11,13 @@
  * two security gates are exercised the same way the upload endpoint's are (a
  * `wp_rest` nonce minted via `admin-ajax.php?action=rest-nonce` plus the
  * `add_to_media` capability), and a `path` escaping the collection root is
- * rejected with no attachment created. A repeated confirm adds another copy (no
- * dedup). This is the load-bearing layer for #52: the attachment is really
- * created and `Path_Guard` really confines, so the sideload is never mocked into
- * a tautology.
+ * rejected with no attachment created. A re-add of an image already in the Library
+ * is de-duplicated: without overwrite it is a 409 that copies nothing, and with
+ * overwrite it replaces the existing attachment's file in place — same id, no new
+ * attachment (ADR-0015 amendment). This is the load-bearing layer for #52: the
+ * attachment is really created, the source-identity stamp and `get_posts` lookup
+ * really detect a duplicate, the in-place replacement really runs, and `Path_Guard`
+ * really confines, so the sideload is never mocked into a tautology.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.12.0
@@ -150,18 +153,60 @@ test( 'a confined path naming a non-main file copies nothing', function () use (
 
 } );
 
-test( 'each confirmed copy adds another attachment — no dedup', function () use ( $slug, $main_path ): void {
+test( 'a re-add without overwrite is a 409 that adds no attachment', function (): void {
 
-	// Two confirmed copies of the same main image create two separate attachments:
-	// add-to-media is a copy with no deduplication (ADR-0015).
-	$before  = attachment_count();
+	// A first confirmed copy creates one attachment and stamps it with its source
+	// identity. A second copy of the same main, without overwrite, is detected as a
+	// duplicate: the controller answers 409 carrying the existing id and copies
+	// nothing, so the Media Library count is unchanged after the second call
+	// (ADR-0015 amendment — single-click add de-duplicates instead of piling up copies).
+	$slug     = unique_slug();
+	$fixtures = make_fixture_dir();
+	create_collection( $slug, '1200', 70 );
+	write_jpeg( "{$fixtures}/dup.jpg", 1600, 900 );
+	$import = import_images( $slug, [ to_container_path( "{$fixtures}/dup.jpg" ) ] );
+	expect( $import['exit_code'] )->toBe( 0 );
+
 	$session = admin_session();
-	$first   = rest_add_to_media( $slug, $main_path, $session['jar'], $session['nonce'] );
-	$second  = rest_add_to_media( $slug, $main_path, $session['jar'], $session['nonce'] );
+	$first   = rest_add_to_media( $slug, 'dup.jpg.webp', $session['jar'], $session['nonce'] );
 	expect( $first['status'] )->toBe( 201 );
-	expect( $second['status'] )->toBe( 201 );
-	expect( $first['body']['id'] )->not->toBe( $second['body']['id'] );
-	expect( attachment_count() )->toBe( $before + 2 );
+	$after_first = attachment_count();
+
+	$second = rest_add_to_media( $slug, 'dup.jpg.webp', $session['jar'], $session['nonce'] );
+	expect( $second['status'] )->toBe( 409 );
+	expect( $second['body']['data']['id'] )->toBe( $first['body']['id'] );
+	expect( attachment_count() )->toBe( $after_first );
+
+	delete_collection( $slug );
+	remove_tree( $fixtures );
+
+} );
+
+test( 'a re-add with overwrite replaces in place — same id, no new attachment', function (): void {
+
+	// After a first 201 (id N), an add of the same path with overwrite returns 200
+	// with the same id N and adds no attachment: the existing attachment's file is
+	// replaced in place, so any post already embedding it keeps working (ADR-0015
+	// amendment).
+	$slug     = unique_slug();
+	$fixtures = make_fixture_dir();
+	create_collection( $slug, '1200', 70 );
+	write_jpeg( "{$fixtures}/over.jpg", 1600, 900 );
+	$import = import_images( $slug, [ to_container_path( "{$fixtures}/over.jpg" ) ] );
+	expect( $import['exit_code'] )->toBe( 0 );
+
+	$session = admin_session();
+	$first   = rest_add_to_media( $slug, 'over.jpg.webp', $session['jar'], $session['nonce'] );
+	expect( $first['status'] )->toBe( 201 );
+	$after_first = attachment_count();
+
+	$overwrite = rest_add_to_media( $slug, 'over.jpg.webp', $session['jar'], $session['nonce'], true );
+	expect( $overwrite['status'] )->toBe( 200 );
+	expect( $overwrite['body']['id'] )->toBe( $first['body']['id'] );
+	expect( attachment_count() )->toBe( $after_first );
+
+	delete_collection( $slug );
+	remove_tree( $fixtures );
 
 } );
 

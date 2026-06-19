@@ -1,21 +1,20 @@
 /**
- * Jest tests for the add-to-media copy request and its confirm gate.
+ * Jest tests for the add-to-media copy request.
  *
  * `addToMedia` is the gallery's one REST write call (ADR-0015): it POSTs the
  * image's collection-relative path to the media endpoint with the `wp_rest`
  * nonce, and reports a discriminated result the view module turns into success
- * feedback or a retry. These tests pin the request shape (URL, JSON body, nonce
- * header) and the three outcomes — a created attachment, a non-OK status
- * (forgery/capability/confinement rejection), and a transport failure — so the
- * view wiring above it can stay thin. `confirmGate` is pinned on the two-click
- * contract the confirm callout shares with the destructive trash action: a first
- * activation arms the action and a second within the armed window fires it, so a
- * copy never happens on a single stray click.
+ * feedback, an overwrite confirm, or a retry. These tests pin the request shape
+ * (URL, JSON body, nonce header, the optional `overwrite` field) and the four
+ * outcomes — a created attachment (201), a replaced one (200), an already-present
+ * one (409, carrying the existing id), and an error (any other status, or a
+ * transport failure) — plus the defensive branch where a success body lacks a
+ * numeric id, so the view wiring above it can stay thin.
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 
-import { addToMedia, confirmGate } from './add-to-media';
+import { addToMedia } from './add-to-media';
 
 /**
  * Builds a `fetch`-shaped stub returning one canned response.
@@ -55,7 +54,7 @@ describe( 'addToMedia', () => {
 			'https://example.test/wp-json/kntnt-photo-drop/v1/collections/photos/media',
 			'2026/06/15/jane/IMG.jpg.webp',
 			'abc123',
-			fetch
+			{ fetchImpl: fetch }
 		);
 
 		expect( calls ).toHaveLength( 1 );
@@ -72,59 +71,91 @@ describe( 'addToMedia', () => {
 		} );
 	} );
 
-	it( 'reports the created attachment id on a 201', async () => {
-		const { fetch } = fakeFetch( 201, { id: 42 } );
+	it( 'adds the overwrite flag to the body when asked to overwrite', async () => {
+		const { fetch, calls } = fakeFetch( 200, { id: 7 } );
 
-		const result = await addToMedia( '/media', 'a.webp', 'n', fetch );
+		await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+			overwrite: true,
+		} );
 
-		expect( result.ok ).toBe( true );
-		if ( result.ok ) {
-			expect( result.id ).toBe( 42 );
-		}
+		expect( JSON.parse( String( calls[ 0 ]!.init?.body ) ) ).toEqual( {
+			path: 'a.webp',
+			overwrite: true,
+		} );
 	} );
 
-	it( 'reports a non-OK status as a failure carrying that status', async () => {
+	it( 'reports a 201 as a created attachment', async () => {
+		const { fetch } = fakeFetch( 201, { id: 42 } );
+
+		const result = await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+		} );
+
+		expect( result ).toEqual( { outcome: 'created', id: 42 } );
+	} );
+
+	it( 'reports a 200 as a replaced attachment', async () => {
+		const { fetch } = fakeFetch( 200, { id: 42 } );
+
+		const result = await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+		} );
+
+		expect( result ).toEqual( { outcome: 'replaced', id: 42 } );
+	} );
+
+	it( 'reports a 409 as an existing attachment, reading the id from the error data', async () => {
+		const { fetch } = fakeFetch( 409, {
+			code: 'kntnt_photo_drop_already_in_media',
+			data: { status: 409, id: 99 },
+		} );
+
+		const result = await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+		} );
+
+		expect( result ).toEqual( { outcome: 'exists', id: 99 } );
+	} );
+
+	it( 'reports a malformed 409 (no numeric id) as a generic error', async () => {
+		const { fetch } = fakeFetch( 409, { code: 'something', data: {} } );
+
+		const result = await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+		} );
+
+		expect( result ).toEqual( { outcome: 'error', status: 409 } );
+	} );
+
+	it( 'reports a non-OK status as an error carrying that status', async () => {
 		const { fetch } = fakeFetch( 403, { code: 'forbidden' } );
 
-		const result = await addToMedia( '/media', 'a.webp', 'n', fetch );
+		const result = await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+		} );
 
-		expect( result.ok ).toBe( false );
-		if ( ! result.ok ) {
-			expect( result.status ).toBe( 403 );
-		}
+		expect( result ).toEqual( { outcome: 'error', status: 403 } );
 	} );
 
 	it( 'reports a transport failure as a zero status, never throwing', async () => {
 		const fetch = (): Promise< Response > =>
 			Promise.reject( new Error( 'network down' ) );
 
-		const result = await addToMedia( '/media', 'a.webp', 'n', fetch );
+		const result = await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+		} );
 
-		expect( result.ok ).toBe( false );
-		if ( ! result.ok ) {
-			expect( result.status ).toBe( 0 );
-		}
-	} );
-} );
-
-describe( 'confirmGate', () => {
-	it( 'arms on the first activation and does not fire', () => {
-		const gate = confirmGate();
-		expect( gate.activate() ).toBe( false );
-		expect( gate.armed ).toBe( true );
+		expect( result ).toEqual( { outcome: 'error', status: 0 } );
 	} );
 
-	it( 'fires on a second activation while armed', () => {
-		const gate = confirmGate();
-		gate.activate();
-		expect( gate.activate() ).toBe( true );
-	} );
+	it( 'reports a malformed success body (no numeric id) as an error carrying the status', async () => {
+		const { fetch } = fakeFetch( 201, { ok: true } );
 
-	it( 'disarms on cancel, so the next activation only re-arms', () => {
-		const gate = confirmGate();
-		gate.activate();
-		gate.cancel();
-		expect( gate.armed ).toBe( false );
-		expect( gate.activate() ).toBe( false );
+		const result = await addToMedia( '/media', 'a.webp', 'n', {
+			fetchImpl: fetch,
+		} );
+
+		expect( result ).toEqual( { outcome: 'error', status: 201 } );
 	} );
 } );

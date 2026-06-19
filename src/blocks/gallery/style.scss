@@ -375,6 +375,14 @@
 			color: #1e1e1e;
 			background: #f0f0f0;
 		}
+
+		&__button--overwrite {
+			// The add-to-media overwrite confirm's affirmative choice: additive, not
+			// destructive, so it carries the editor's neutral-blue accent rather
+			// than the trash popover's warning red.
+			color: #fff;
+			background: #3858e9;
+		}
 	}
 
 	&__slideshow-button {

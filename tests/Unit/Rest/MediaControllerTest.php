@@ -79,6 +79,18 @@ function wire_media_stubs(
 	// controller resolves through the filter.
 	Functions\when( 'current_user_can' )->justReturn( $cap_ok );
 
+	// Record the source-identity stamp the 201 path writes so a test can assert it,
+	// and keep get_posts harmless by default (the real find_existing is overridden
+	// by the recording controller; this guards any unmocked call).
+	$GLOBALS['kntnt_stamped_meta'] = [];
+	Functions\when( 'update_post_meta' )->alias(
+		static function ( int $id, string $key, mixed $value ): bool {
+			$GLOBALS['kntnt_stamped_meta'][ $key ] = $value;
+			return true;
+		}
+	);
+	Functions\when( 'get_posts' )->justReturn( [] );
+
 	// Pass filters through, except an optional capability override so the
 	// kntnt_photo_drop_add_to_media_capability filter can be exercised.
 	Functions\when( 'apply_filters' )->alias(
@@ -93,30 +105,43 @@ function wire_media_stubs(
 }
 
 /**
- * Builds a media controller whose sideload is a recording stub, not a real copy.
+ * Builds a media controller whose sideload and dedup seams are recording stubs.
  *
- * The real controller drives `media_handle_sideload`; the integration suite
- * exercises that for real. Here the protected `sideload()` seam is overridden to
- * record the absolute main-image path it was handed and return a fixed
- * attachment id, so a unit test can assert the controller resolves and confines
- * the path to the right main file without a Media Library — never mocking the
- * resolution-and-confinement under test into a no-op.
+ * The real controller drives `media_handle_sideload`, `get_posts`, and the
+ * in-place file replacement; the integration suite exercises those for real.
+ * Here the protected seams are overridden so a unit test can assert the
+ * controller's resolution, confinement, and dedup branching without a Media
+ * Library — never mocking the logic under test into a no-op. `sideload()` records
+ * the absolute main-image path it was handed and returns a fixed id; `find_existing()`
+ * returns a configurable id-or-null so a test can simulate "no duplicate" vs
+ * "duplicate exists"; `replace()` records the call and returns the same id.
  *
  * @param Repository $repository The collection read/resolve side.
- * @param int        $id         The attachment id the stub returns (default 4242).
- * @return Media_Controller A controller recording the sideloaded path in `$GLOBALS`.
+ * @param int        $id         The attachment id the sideload stub returns (default 4242).
+ * @param int|null   $existing   The verdict find_existing() returns (default null — no duplicate).
+ * @return Media_Controller A controller recording its seam calls in `$GLOBALS`.
  */
-function recording_media_controller( Repository $repository, int $id = 4242 ): Media_Controller {
+function recording_media_controller(
+	Repository $repository,
+	int $id = 4242,
+	?int $existing = null
+): Media_Controller {
 	$GLOBALS['kntnt_sideloaded_path'] = null;
-	return new class( $repository, $id ) extends Media_Controller {
+	$GLOBALS['kntnt_replaced']        = null;
+	return new class( $repository, $id, $existing ) extends Media_Controller {
 
 		/**
 		 * Constructs the recording controller.
 		 *
 		 * @param Repository $repository The collection read/resolve side.
-		 * @param int        $id         The attachment id to return from the stub.
+		 * @param int        $id         The attachment id to return from the sideload stub.
+		 * @param int|null   $existing   The verdict find_existing() returns.
 		 */
-		public function __construct( Repository $repository, private int $id ) {
+		public function __construct(
+			Repository $repository,
+			private int $id,
+			private ?int $existing
+		) {
 			parent::__construct( $repository );
 		}
 
@@ -129,6 +154,29 @@ function recording_media_controller( Repository $repository, int $id = 4242 ): M
 		protected function sideload( string $main_path ): int|\WP_Error {
 			$GLOBALS['kntnt_sideloaded_path'] = $main_path;
 			return $this->id;
+		}
+
+		/**
+		 * Returns the configured dedup verdict without touching a Media Library.
+		 *
+		 * @param string $slug     Ignored.
+		 * @param string $relative Ignored.
+		 * @return int|null The configured existing-attachment id, or null.
+		 */
+		protected function find_existing( string $slug, string $relative ): ?int {
+			return $this->existing;
+		}
+
+		/**
+		 * Records the overwrite call and returns the same attachment id.
+		 *
+		 * @param int    $attachment_id The existing attachment to overwrite.
+		 * @param string $main_path     The absolute path to the confined main image.
+		 * @return int|\WP_Error The same attachment id.
+		 */
+		protected function replace( int $attachment_id, string $main_path ): int|\WP_Error {
+			$GLOBALS['kntnt_replaced'] = [ $attachment_id, $main_path ];
+			return $attachment_id;
 		}
 	};
 }
@@ -183,16 +231,25 @@ function fresh_media_basedir(): string {
  * Mirrors the JSON shape the gallery view module POSTs: the `X-WP-Nonce` header,
  * the slug route param, and the collection-relative `path` of the image to copy.
  *
- * @param string $slug  The collection slug route param.
- * @param string $path  The collection-relative path body param.
- * @param string $nonce The nonce to put in the X-WP-Nonce header.
+ * @param string $slug      The collection slug route param.
+ * @param string $path      The collection-relative path body param.
+ * @param string $nonce     The nonce to put in the X-WP-Nonce header.
+ * @param bool   $overwrite Whether to set the overwrite body param.
  * @return WP_REST_Request The assembled request.
  */
-function media_request( string $slug, string $path, string $nonce = 'valid-nonce' ): WP_REST_Request {
+function media_request(
+	string $slug,
+	string $path,
+	string $nonce = 'valid-nonce',
+	bool $overwrite = false
+): WP_REST_Request {
 	$request = new WP_REST_Request();
 	$request->set_header( 'X-WP-Nonce', $nonce );
 	$request->set_param( 'slug', $slug );
 	$request->set_param( 'path', $path );
+	if ( $overwrite ) {
+		$request->set_param( 'overwrite', true );
+	}
 	return $request;
 }
 
@@ -522,6 +579,117 @@ test( 'a failed sideload surfaces as a 500 rather than a phantom success', funct
 	};
 
 	$response = $controller->add_to_media( media_request( 'photos', 'a.jpg.webp' ) );
+
+	expect( $response )->toBeInstanceOf( WP_Error::class );
+	expect( $response->get_error_data()['status'] )->toBe( 500 );
+
+	media_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
+// De-duplication and replace-in-place overwrite (ADR-0015 amendment)
+// ---------------------------------------------------------------------------
+
+test( 'a fresh add stamps the source identity and returns 201', function (): void {
+
+	// With no prior copy (find_existing → null), the controller sideloads and stamps
+	// the attachment with its source identity (collection slug + collection-relative
+	// path) so a future add of the same image can be recognised.
+	$basedir    = fresh_media_basedir();
+	wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
+	write_media_main( $path, '2026/06/15/jane/IMG.jpg.webp' );
+	$controller = recording_media_controller( new Repository(), id: 555, existing: null );
+
+	$response = $controller->add_to_media( media_request( 'photos', '2026/06/15/jane/IMG.jpg.webp' ) );
+
+	expect( $response->get_status() )->toBe( 201 );
+	expect( $response->get_data()['id'] )->toBe( 555 );
+	expect( $GLOBALS['kntnt_sideloaded_path'] )->not->toBeNull();
+	expect( $GLOBALS['kntnt_stamped_meta']['_kntnt_photo_drop_collection'] )->toBe( 'photos' );
+	expect( $GLOBALS['kntnt_stamped_meta']['_kntnt_photo_drop_path'] )->toBe( '2026/06/15/jane/IMG.jpg.webp' );
+
+	media_remove_tree( $basedir );
+} );
+
+test( 'a duplicate without overwrite is a 409 carrying the existing id, nothing sideloaded', function (): void {
+
+	// A prior copy exists (find_existing → 99) and the caller did not ask to
+	// overwrite: the controller answers 409 with the existing id in the error data
+	// so the gallery can raise its overwrite confirm, and copies nothing.
+	$basedir    = fresh_media_basedir();
+	wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
+	write_media_main( $path, 'a.jpg.webp' );
+	$controller = recording_media_controller( new Repository(), existing: 99 );
+
+	$response = $controller->add_to_media( media_request( 'photos', 'a.jpg.webp' ) );
+
+	expect( $response )->toBeInstanceOf( WP_Error::class );
+	expect( $response->get_error_data()['status'] )->toBe( 409 );
+	expect( $response->get_error_data()['id'] )->toBe( 99 );
+	expect( $GLOBALS['kntnt_sideloaded_path'] )->toBeNull();
+	expect( $GLOBALS['kntnt_replaced'] )->toBeNull();
+
+	media_remove_tree( $basedir );
+} );
+
+test( 'a duplicate with overwrite replaces in place and returns 200 with the same id', function (): void {
+
+	// A prior copy exists (find_existing → 99) and the caller confirmed overwrite:
+	// the controller replaces the existing attachment in place — same id — and
+	// answers 200, never sideloading a fresh copy.
+	$basedir    = fresh_media_basedir();
+	wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
+	$main       = write_media_main( $path, 'a.jpg.webp' );
+	$controller = recording_media_controller( new Repository(), existing: 99 );
+
+	$response = $controller->add_to_media( media_request( 'photos', 'a.jpg.webp', overwrite: true ) );
+
+	expect( $response->get_status() )->toBe( 200 );
+	expect( $response->get_data()['id'] )->toBe( 99 );
+	expect( $GLOBALS['kntnt_replaced'][0] )->toBe( 99 );
+	expect( realpath( $GLOBALS['kntnt_replaced'][1] ) )->toBe( realpath( $main ) );
+	expect( $GLOBALS['kntnt_sideloaded_path'] )->toBeNull();
+
+	media_remove_tree( $basedir );
+} );
+
+test( 'a failed overwrite surfaces as a 500', function (): void {
+
+	// When the in-place replacement itself fails (a WP_Error from replace()), the
+	// controller answers 500 — never a 200 over an overwrite that did not happen.
+	$basedir    = fresh_media_basedir();
+	wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
+	$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
+	write_media_main( $path, 'a.jpg.webp' );
+	$controller = new class( new Repository() ) extends Media_Controller {
+
+		/**
+		 * Reports a prior copy so the overwrite branch is taken.
+		 *
+		 * @param string $slug     Ignored.
+		 * @param string $relative Ignored.
+		 * @return int|null A fixed existing id.
+		 */
+		protected function find_existing( string $slug, string $relative ): ?int {
+			return 99;
+		}
+
+		/**
+		 * Returns the failure a broken in-place replacement would.
+		 *
+		 * @param int    $attachment_id Ignored.
+		 * @param string $main_path     Ignored.
+		 * @return int|\WP_Error Always a WP_Error.
+		 */
+		protected function replace( int $attachment_id, string $main_path ): int|\WP_Error {
+			return new \WP_Error( 'replace_failed', 'Boom.' );
+		}
+	};
+
+	$response = $controller->add_to_media( media_request( 'photos', 'a.jpg.webp', overwrite: true ) );
 
 	expect( $response )->toBeInstanceOf( WP_Error::class );
 	expect( $response->get_error_data()['status'] )->toBe( 500 );

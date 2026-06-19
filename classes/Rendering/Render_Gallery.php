@@ -694,6 +694,15 @@ final class Render_Gallery {
 			$wrapper_attrs['data-kntnt-photo-drop-media-url'] = rest_url(
 				sprintf( 'kntnt-photo-drop/v1/collections/%s/media', $slug ),
 			);
+			// Mirror the overwrite confirm-popover copy onto the wrapper: a view-script
+			// module cannot translate at runtime, so the duplicate prompt and its
+			// Overwrite/Cancel labels are translated here and read by the add-to-media
+			// view module (the same pattern the trash popover uses).
+			$wrapper_attrs['data-kntnt-photo-drop-overwrite-prompt']  =
+				__( 'This image is already in the Media Library. Overwrite it?', 'kntnt-photo-drop' );
+			$wrapper_attrs['data-kntnt-photo-drop-overwrite-confirm'] = __( 'Overwrite', 'kntnt-photo-drop' );
+			$wrapper_attrs['data-kntnt-photo-drop-overwrite-cancel']  = __( 'Cancel', 'kntnt-photo-drop' );
+			$wrapper_attrs['data-kntnt-photo-drop-overwrite-label']   = __( 'Confirm overwrite', 'kntnt-photo-drop' );
 		}
 		if ( ! $is_preview && $delete_visible ) {
 			$wrapper_attrs['data-kntnt-photo-drop-delete-url'] = rest_url(

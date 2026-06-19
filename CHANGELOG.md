@@ -26,6 +26,7 @@ The major redesign previously settled only in the specs is now **implemented in 
 - **The Full and Thumbnail width fields clamp live to the tier above** while you type on the Create/Edit forms: Full cannot exceed the upload width (when an upload limit is set) and Thumbnail cannot exceed Full, and lowering a tier pulls the ones below it down to match. Server-side validation remains the source of truth. (#69)
 - **The integration and end-to-end test harness is now worktree-portable** — `@wordpress/env` mounts the plugin under the checkout's own directory name and the e2e fixtures derive that slug, with a `WP_ENV_PORT` override, so the suites run from a git worktree (and several in parallel) without hand-editing paths. (contributor tooling)
 - **Add-to-media inserts at full resolution.** Copying a collection image into the Media Library no longer produces a downscaled `…-scaled` master for mains wider than WordPress's 2560px big-image threshold; the contract-bounded main is inserted as-is (sub-sizes still generate). (ADR-0015)
+- **Add-to-media is a single click and no longer duplicates.** Copying a collection image into the Media Library now takes one click instead of a two-click confirm; an image already copied is detected (by a stamped source identity) and, instead of silently adding a second copy, the gallery offers an inline **Overwrite** confirm that replaces the existing attachment's file in place (same attachment id). (ADR-0015 amendment)
 
 ### Removed
 
