@@ -8,8 +8,11 @@
  * the click into navigation — Firefox then opens the image in a new tab
  * alongside (or instead of) the download. Fetching the image and clicking a
  * same-document object-URL anchor downloads in every browser without any
- * navigation the environment could redirect. The icon anchor's own
- * `download` attribute remains the no-JS fallback.
+ * navigation the environment could redirect. The fetched bytes are re-typed to
+ * `application/octet-stream` before the hand-off so Firefox cannot render them
+ * inline (which, for renderable types such as WebP, would open a new tab even
+ * with the `download` attribute set). The icon anchor's own `download`
+ * attribute remains the no-JS fallback.
  *
  * When the fetch itself cannot run — a cross-origin uploads host without CORS,
  * an offline network, a non-OK response — there is no blob to hand over, so the
@@ -149,9 +152,11 @@ function clickDownloadAnchor( href: string, downloadName: string ): void {
 /**
  * Saves the image at `url` as a local file, without navigating anywhere.
  *
- * Fetches the image into a Blob and clicks a temporary anchor pointing at a
- * same-document object URL — a pure download no browser or link-rewriting
- * environment turns into a tab. When the fetch fails (network error, a non-OK
+ * Fetches the image into a Blob, re-types it to `application/octet-stream`, and
+ * clicks a temporary anchor pointing at a same-document object URL — a pure
+ * download no browser or link-rewriting environment turns into a tab, the
+ * octet-stream type being what stops Firefox rendering it inline. When the fetch
+ * fails (network error, a non-OK
  * response, or a cross-origin host without CORS) the fallback clicks a
  * same-document, same-tab `<a download>` at the remote URL — the no-JS fallback —
  * rather than navigating, so the gallery itself never sends its own tab away.
@@ -162,6 +167,7 @@ function clickDownloadAnchor( href: string, downloadName: string ): void {
  *
  * @since 0.5.0
  * @since 0.11.0 Fetch-failure fallback is a same-tab `<a download>`, not navigation (#59).
+ * @since 0.15.0 Re-type the blob to application/octet-stream so Firefox cannot open it in a tab.
  *
  * @param url - The image URL to save.
  */
@@ -176,9 +182,20 @@ export async function saveFile( url: string ): Promise< void > {
 		}
 		const blob = await response.blob();
 
+		// Re-wrap the bytes with a non-renderable MIME type before handing them
+		// to the download machinery. Firefox opens a `blob:` URL it can render
+		// inline (PDFs, and images such as WebP) in a new tab even with the
+		// `download` attribute set — so the fetched `image/webp` blob would both
+		// download AND open a tab. `application/octet-stream` is not renderable,
+		// so every browser downloads it; the `download` filename keeps the
+		// `.webp` extension, so the saved file is unchanged. (Firefox bug 1766420.)
+		const downloadBlob = new Blob( [ blob ], {
+			type: 'application/octet-stream',
+		} );
+
 		// Click a temporary object-URL anchor to hand the Blob to the browser's
 		// download machinery, then revoke the URL once the hand-off has settled.
-		const objectUrl = URL.createObjectURL( blob );
+		const objectUrl = URL.createObjectURL( downloadBlob );
 		clickDownloadAnchor( objectUrl, filenameFromUrl( url ) );
 		setTimeout( () => URL.revokeObjectURL( objectUrl ), REVOKE_DELAY );
 	} catch {

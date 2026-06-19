@@ -112,6 +112,28 @@ describe( 'saveFile', () => {
 		expect( clickedDownload ).toBe( 'sunrise.jpg.webp' );
 	} );
 
+	it( 'hands the download machinery a non-renderable blob so Firefox cannot open it in a tab', async () => {
+		// Firefox opens a renderable blob (image/webp) in a tab even with the
+		// download attribute; the save must re-type it to application/octet-stream.
+		const blob = new Blob( [ 'webp-bytes' ], { type: 'image/webp' } );
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: true,
+			blob: () => Promise.resolve( blob ),
+		} as unknown as Response );
+
+		let createdType = '';
+		( URL.createObjectURL as jest.Mock ).mockImplementation(
+			( b: Blob ) => {
+				createdType = b.type;
+				return objectUrl;
+			}
+		);
+
+		await saveFile( 'https://example.test/photos/sunrise.jpg.webp' );
+
+		expect( createdType ).toBe( 'application/octet-stream' );
+	} );
+
 	it( 'revokes the object URL after the hand-off delay', async () => {
 		global.fetch = jest.fn().mockResolvedValue( {
 			ok: true,
