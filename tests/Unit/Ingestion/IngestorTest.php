@@ -500,3 +500,30 @@ test( 'ingesting a re-encoded main decodes it exactly once across the whole path
 
 	ingest_remove_tree( $root );
 } );
+
+// ---------------------------------------------------------------------------
+// A directory-creation failure is a per-file rejection (ADR-0006)
+// ---------------------------------------------------------------------------
+
+test( 'a directory-creation failure is a per-file rejection with nothing written', function (): void {
+	wire_ingestor_stubs();
+	$root       = fresh_collection_root();
+	$descriptor = ingest_descriptor();
+
+	// Force the directory helper to fail, standing in for disk-full or revoked
+	// permissions while recreating the confined sub-tree; this replaces the
+	// beforeEach alias for this test only and reaches wp_mkdir_p() because the
+	// target's sub-directory does not yet exist (ensure_dir() would otherwise
+	// short-circuit on is_dir()).
+	Functions\when( 'wp_mkdir_p' )->justReturn( false );
+
+	$result = gd_ingestor( $root, $descriptor )->ingest( ingest_jpeg( 1000, 800 ), 'new-sub/photo.jpg' );
+
+	// The one file is rejected, no main is written at the would-be target, and no
+	// orphan sub-directory is left behind under the root (it holds nothing).
+	expect( $result->outcome )->toBe( Ingest_Outcome::Rejected );
+	expect( is_file( $root . '/new-sub/photo.jpg.webp' ) )->toBeFalse();
+	expect( glob( $root . '/*' ) )->toBe( [] );
+
+	ingest_remove_tree( $root );
+} );
