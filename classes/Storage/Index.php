@@ -3,8 +3,8 @@
  * The per-folder index value object — a folder's images, dimensions, subdirs,
  * and the directory mtime it was built against.
  *
- * Each content folder in a collection carries one hidden `index.json` (inside
- * `.kntnt-thumbnails/`). This immutable value object is its in-memory image:
+ * Each content folder in a collection carries one `index.json` (inside
+ * `kntnt-thumbnails/`). This immutable value object is its in-memory image:
  * the main images present (with the pixel dimensions the gallery needs for
  * `srcset` and `aspect-ratio`), the folder's sub-directories, and the
  * `dirMtime` that stamps which directory state the data reflects. The index is
@@ -33,20 +33,27 @@ namespace Kntnt\Photo_Drop\Storage;
 final readonly class Index {
 
 	/**
-	 * The hidden directory that corrals all regenerable artifacts in a folder.
+	 * The non-hidden, kntnt-namespaced directory that corrals all regenerable
+	 * artifacts in a folder.
 	 *
-	 * Thumbnails live at `<folder>/.kntnt-thumbnails/<width>/<name>.webp` and
-	 * the index at `<folder>/.kntnt-thumbnails/index.json`. The name is
-	 * dot-hidden but namespaced so a user's own `.thumbnails` is foreign to us
+	 * Thumbnails live at `<folder>/kntnt-thumbnails/<width>/<name>.webp` and
+	 * the index at `<folder>/kntnt-thumbnails/index.json`. The directory is
+	 * served directly by the web server — there is no PHP proxy (ADR-0001) —
+	 * so the former dot-prefix was dropped because nginx's standard
+	 * `location ~ /\.` rule (and equivalent hardened Apache configs) would
+	 * deny the rendition URLs with 403. The `kntnt-` prefix still ensures a
+	 * user's own bare `.thumbnails` (digiKam / gThumb cache) is foreign to us
 	 * (ADR-0003).
 	 *
 	 * @since 0.1.0
+	 * @since 0.15.0 Renamed from `.kntnt-thumbnails` to `kntnt-thumbnails`
+	 *               (ADR-0003 amendment — un-hidden corral).
 	 * @var string
 	 */
-	public const THUMBNAILS_DIRNAME = '.kntnt-thumbnails';
+	public const THUMBNAILS_DIRNAME = 'kntnt-thumbnails';
 
 	/**
-	 * The index filename inside the hidden thumbnails directory.
+	 * The index filename inside the thumbnails directory.
 	 *
 	 * @since 0.1.0
 	 * @var string

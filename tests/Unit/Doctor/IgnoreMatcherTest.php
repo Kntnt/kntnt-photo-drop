@@ -36,7 +36,7 @@ test( 'the built-in list ignores OS junk wherever it sits', function ( string $p
 
 test( "a user's own .thumbnails directory is foreign, not ignored", function (): void {
 
-	// Our artifacts live under the namespaced `.kntnt-thumbnails`; a bare
+	// Our artifacts live under the namespaced `kntnt-thumbnails`; a bare
 	// `.thumbnails` from another photo tool is foreign and must be warned about.
 	$matcher = new Ignore_Matcher( null );
 	expect( $matcher->matches( '.thumbnails' ) )->toBeFalse();

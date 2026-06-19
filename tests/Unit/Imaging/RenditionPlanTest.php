@@ -5,7 +5,7 @@
  *
  * `Rendition_Plan::derived()` answers, for one main image's width and a
  * collection's full/thumbnail width+quality settings, exactly which derived
- * files (under `.kntnt-thumbnails/<width>/`) should exist and at which quality.
+ * files (under `kntnt-thumbnails/<width>/`) should exist and at which quality.
  * Each tier is derived from the one above it (`main → full → thumbnail`) and
  * skipped when its source is no wider, and degenerate width orderings collapse a
  * tier rather than colliding (ADR-0013). This is a pure numeric function, so the
@@ -128,7 +128,7 @@ test(
 test( 'equal full and thumbnail widths produce one file at the full quality', function (): void {
 
 	// Full and thumbnail both want 800px; for a main wider than 800 only one file
-	// can live at .kntnt-thumbnails/800/, so the tiers collapse to a single file
+	// can live at kntnt-thumbnails/800/, so the tiers collapse to a single file
 	// generated at the larger tier's (full) quality — the thumbnail quality is
 	// simply unused (ADR-0013).
 	$plan = Rendition_Plan::derived( 2000, 800, 85, 800, 60 );

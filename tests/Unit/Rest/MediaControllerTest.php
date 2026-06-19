@@ -377,7 +377,7 @@ test(
 	'a confined path naming a thumbnail is rejected as not-a-main with nothing sideloaded',
 	function (): void {
 
-		// A thumbnail lives under the hidden `.kntnt-thumbnails/<width>/` tree and is a
+		// A thumbnail lives under the hidden `kntnt-thumbnails/<width>/` tree and is a
 		// derived artifact, not the main image (ADR-0013/0015). Its path confines fine
 		// and its basename ends in `.webp`, so only the thumbnails-segment guard stops
 		// it: the controller must reject it as 404 and never sideload a derived file.
@@ -385,10 +385,10 @@ test(
 		wire_media_stubs( $basedir, nonce_ok: true, cap_ok: true );
 		$path       = seed_media_collection( $basedir, 'photos', media_descriptor() );
 		write_media_main( $path, 'a.jpg.webp' );
-		write_media_main( $path, '.kntnt-thumbnails/320/a.jpg.webp' );
+		write_media_main( $path, 'kntnt-thumbnails/320/a.jpg.webp' );
 		$controller = recording_media_controller( new Repository() );
 
-		$response = $controller->add_to_media( media_request( 'photos', '.kntnt-thumbnails/320/a.jpg.webp' ) );
+		$response = $controller->add_to_media( media_request( 'photos', 'kntnt-thumbnails/320/a.jpg.webp' ) );
 
 		expect( $response )->toBeInstanceOf( WP_Error::class );
 		expect( $response->get_error_data()['status'] )->toBe( 404 );

@@ -8,7 +8,7 @@
  * helper is the single place that arithmetic lives: given the collection's base
  * URL and an image's collection-root-relative path, it returns the main image
  * URL and, for any thumbnail width, the URL of that width's rendition inside the
- * hidden `.kntnt-thumbnails/<width>/` directory.
+ * `kntnt-thumbnails/<width>/` directory.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.6.0
@@ -52,11 +52,11 @@ final class Image_Url {
 	/**
 	 * Returns the thumbnail URL for a relative path at a given width.
 	 *
-	 * A thumbnail sits beside its main image inside that folder's hidden
-	 * `.kntnt-thumbnails/<width>/` directory under the same filename, so the URL
-	 * is built from the image's directory, the hidden directory, the width, and
-	 * the filename. A root-level image's thumbnails live directly under the
-	 * collection root's hidden directory.
+	 * A thumbnail sits beside its main image inside that folder's
+	 * `kntnt-thumbnails/<width>/` directory under the same filename, so the URL
+	 * is built from the image's directory, the thumbnails directory, the width,
+	 * and the filename. A root-level image's thumbnails live directly under the
+	 * collection root's `kntnt-thumbnails/` directory.
 	 *
 	 * @since 0.6.0
 	 *
@@ -67,13 +67,13 @@ final class Image_Url {
 	 */
 	public static function thumbnail( string $base_url, string $relative_path, int $width ): string {
 
-		// Split the relative path into its directory and filename so the hidden
-		// thumbnails directory can be spliced in between them.
+		// Split the relative path into its directory and filename so the thumbnails
+		// directory can be spliced in between them.
 		$slash     = strrpos( $relative_path, '/' );
 		$directory = $slash === false ? '' : substr( $relative_path, 0, $slash );
 		$file      = $slash === false ? $relative_path : substr( $relative_path, $slash + 1 );
 
-		// Assemble the thumbnail's relative path: <dir>/.kntnt-thumbnails/<width>/<file>,
+		// Assemble the thumbnail's relative path: <dir>/kntnt-thumbnails/<width>/<file>,
 		// dropping the empty directory segment for a root-level image.
 		$thumb_dir  = Index::THUMBNAILS_DIRNAME . '/' . $width;
 		$thumb_path = $directory === '' ? $thumb_dir . '/' . $file : $directory . '/' . $thumb_dir . '/' . $file;

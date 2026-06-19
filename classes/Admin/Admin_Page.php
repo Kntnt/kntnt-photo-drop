@@ -2132,7 +2132,7 @@ final class Admin_Page {
 	 * Counts the main images stored in a collection.
 	 *
 	 * A main is a `<original>.webp` file anywhere under the collection root,
-	 * excluding the hidden `.kntnt-thumbnails/` directories (which hold derived
+	 * excluding the hidden `kntnt-thumbnails/` directories (which hold derived
 	 * thumbnails and the index, not mains). Walks the tree once; a collection with
 	 * no mains counts zero. The count is read live from disk, so it reflects the
 	 * current filesystem rather than any cached tally. An unopenable

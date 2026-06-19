@@ -209,7 +209,7 @@ class Images_Controller {
 	 * file on disk (404 when none is there), and verifies that file is a **main
 	 * image** rather than a derived thumbnail, the descriptor, or a foreign
 	 * in-collection file (404 when it is not — confinement alone would otherwise let
-	 * a `.kntnt-thumbnails/<width>/…` thumbnail or `collection.json` be deleted). Only
+	 * a `kntnt-thumbnails/<width>/…` thumbnail or `collection.json` be deleted). Only
 	 * then is the confined main and every derived artifact slaved to it removed via
 	 * the shared `Image_Deleter` (the same routine the CLI `image delete` uses); the
 	 * per-folder index self-heals on the next render. A failed removal is a 500 rather
@@ -254,7 +254,7 @@ class Images_Controller {
 
 		// The confined file must be a *main image*, not a derived artifact, the
 		// descriptor, or a foreign in-collection file: confinement and is_file() alone
-		// would let collection.json or a .kntnt-thumbnails/<width>/<name>.webp thumbnail
+		// would let collection.json or a kntnt-thumbnails/<width>/<name>.webp thumbnail
 		// be deleted directly. ADR-0015 deletes only the main (its derived artifacts
 		// follow from it), so a confined non-main is a 404 with nothing deleted.
 		if ( ! $this->is_main_image( $main_path ) ) {
@@ -285,7 +285,7 @@ class Images_Controller {
 	 * controller so the two write-paths stay decoupled while the *authoritative*
 	 * naming rule (`Image_Name::is_stored_main()`) lives in one place. A main is a file
 	 * whose basename is a stored main name (a `<original>.webp` ending in `.webp`),
-	 * that does **not** live under any folder's hidden `.kntnt-thumbnails/` artifacts
+	 * that does **not** live under any folder's hidden `kntnt-thumbnails/` artifacts
 	 * directory (which would make it a derived thumbnail or full rendition), and that
 	 * is not the `collection.json` descriptor. The thumbnail and descriptor checks are
 	 * redundant-by-construction defence in depth — a derived artifact shares the main's
@@ -299,7 +299,7 @@ class Images_Controller {
 	 */
 	private function is_main_image( string $path ): bool {
 
-		// A path under any `.kntnt-thumbnails/` segment is a derived artifact (a
+		// A path under any `kntnt-thumbnails/` segment is a derived artifact (a
 		// thumbnail or the full rendition), not a main — reject it before the cheaper
 		// basename checks.
 		if ( str_contains( $path, '/' . Index::THUMBNAILS_DIRNAME . '/' ) ) {

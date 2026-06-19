@@ -96,9 +96,9 @@ test( 'delete_collection removes the whole tree', function (): void {
 	// A collection with a nested content folder, a thumbnail dir, and a descriptor
 	// — the entire tree must be gone after deletion.
 	seed_collection( $root, 'album' );
-	mkdir( $root . 'album/2024/.kntnt-thumbnails/640', 0700, true );
+	mkdir( $root . 'album/2024/kntnt-thumbnails/640', 0700, true );
 	file_put_contents( $root . 'album/2024/photo.jpg.webp', 'main' );
-	file_put_contents( $root . 'album/2024/.kntnt-thumbnails/640/photo.jpg.webp', 'thumb' );
+	file_put_contents( $root . 'album/2024/kntnt-thumbnails/640/photo.jpg.webp', 'thumb' );
 
 	expect( ( new Repository() )->delete_collection( 'album' ) )->toBeTrue();
 	expect( is_dir( $root . 'album' ) )->toBeFalse();

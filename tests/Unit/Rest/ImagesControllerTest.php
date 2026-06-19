@@ -395,7 +395,7 @@ test(
 	'a confined path naming a thumbnail is rejected as not-a-main with nothing deleted',
 	function (): void {
 
-		// A thumbnail lives under the hidden `.kntnt-thumbnails/<width>/` tree and is a
+		// A thumbnail lives under the hidden `kntnt-thumbnails/<width>/` tree and is a
 		// derived artifact, not the main image (ADR-0013/0015). Its path confines fine
 		// and its basename ends in `.webp`, so only the thumbnails-segment guard stops
 		// it: the controller must reject it as 404 and never delete a derived file —

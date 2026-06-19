@@ -53,7 +53,7 @@ The fifteen ADRs (`docs/adr/0001`–`0015`) own the decisions with real trade-of
 - **A collection owns an immutable output contract** (max width + quality; format is always WebP). Blocks are *select-only consumers*; they never create or reconfigure a collection. Lifecycle (create/update-name/delete) lives on the admin page and the CLI only.
 - **Everything inside a collection is conforming by construction** — all ingestion passes through the optimisation boundary (`image import` or the Drop Zone REST endpoint, which re-enforces the contract server-side), so non-conforming files cannot enter through the plugin.
 - **Derived artifacts are slaved to the main image.** The main image is the unit of truth; thumbnails and index entries are regenerated from it and removed when it is gone.
-- **Plugin files live with the images as JSON** — `collection.json` (the visible descriptor, at a collection root; the one irreplaceable file) and `index.json` (a per-folder cache, hidden inside `.kntnt-thumbnails/`). The index is regenerable and validated by directory mtime, never authoritative. (Earlier drafts called the index "manifest"; ADR-0003 renamed it. Use **index**.)
+- **Plugin files live with the images as JSON** — `collection.json` (the visible descriptor, at a collection root; the one irreplaceable file) and `index.json` (a per-folder cache, hidden inside `kntnt-thumbnails/`). The index is regenerable and validated by directory mtime, never authoritative. (Earlier drafts called the index "manifest"; ADR-0003 renamed it. Use **index**.)
 
 ## Pre-1.0 policy — no backwards compatibility
 

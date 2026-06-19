@@ -43,7 +43,7 @@ use Kntnt\Photo_Drop\Storage\Index_Store;
  * Constructed once per collection with its root and descriptor, then driven by a
  * single deep method, `run()`, that returns a `Doctor_Report`. The codec (for
  * the cheap header probe that detects a contract violation), the thumbnailer
- * (which already owns the `.kntnt-thumbnails/<width>/<name>.webp` convention and
+ * (which already owns the `kntnt-thumbnails/<width>/<name>.webp` convention and
  * the at-or-below-width skip rule), and the index store (whose `rebuild()`
  * refreshes a folder's index) are all injected so production binds the GD-backed
  * production engine while a test drives the real codec end to end. The diagnosis
@@ -389,7 +389,7 @@ final class Doctor {
 	/**
 	 * Filters out widths whose thumbnail write would pass through a symlink.
 	 *
-	 * The doctor never writes through a link: a symlinked `.kntnt-thumbnails/`, a
+	 * The doctor never writes through a link: a symlinked `kntnt-thumbnails/`, a
 	 * symlinked `<width>/` bucket, or a planted (possibly dangling) symlink at the
 	 * thumbnail path itself would all route the write outside the collection.
 	 * Both the diagnosis (`missing_thumbnails()`) and the repair paths filter
@@ -427,7 +427,7 @@ final class Doctor {
 	/**
 	 * Finds orphan thumbnails — those whose main no longer exists.
 	 *
-	 * Walks every `<width>/` sub-directory under the folder's `.kntnt-thumbnails/`
+	 * Walks every `<width>/` sub-directory under the folder's `kntnt-thumbnails/`
 	 * and flags each thumbnail whose stored name is not among the folder's surviving
 	 * mains. A stale index entry (a name in the index with no main) is healed by the
 	 * rebuild rather than flagged here, so this pass concerns thumbnail files only.
@@ -826,7 +826,7 @@ final class Doctor {
 	/**
 	 * Maps a finding's relative path back to the content folder that owns it.
 	 *
-	 * A thumbnail or index path lives under `<folder>/.kntnt-thumbnails/...`, so the
+	 * A thumbnail or index path lives under `<folder>/kntnt-thumbnails/...`, so the
 	 * content folder is the part before that segment; a plain main path's folder is
 	 * just its directory. The result is the absolute content-folder path.
 	 *
@@ -856,7 +856,7 @@ final class Doctor {
 	 * Returns the absolute paths of every content folder in the collection.
 	 *
 	 * The root counts as a content folder; the walk descends into real
-	 * sub-directories but never into our hidden `.kntnt-thumbnails/`, which holds
+	 * sub-directories but never into our hidden `kntnt-thumbnails/`, which holds
 	 * artifacts, not content. The list is depth-first and stable, so diagnosis and
 	 * repair visit folders in the same order.
 	 *
@@ -1001,7 +1001,7 @@ final class Doctor {
 	 * Returns the thumbnail width a missing-derived finding names, or null.
 	 *
 	 * A missing-derived finding is either a thumbnail (path
-	 * `…/.kntnt-thumbnails/<width>/<name>.webp`) or an index entry (a plain main
+	 * `…/kntnt-thumbnails/<width>/<name>.webp`) or an index entry (a plain main
 	 * path with no artifacts segment). The width is read from the path's
 	 * `<width>/` directory segment — the authoritative source — so it never
 	 * depends on the human detail wording; a finding with no artifacts segment is
@@ -1043,7 +1043,7 @@ final class Doctor {
 	/**
 	 * Maps a thumbnail's relative path to its main's absolute path.
 	 *
-	 * A thumbnail lives at `<folder>/.kntnt-thumbnails/<width>/<name>.webp`, and the
+	 * A thumbnail lives at `<folder>/kntnt-thumbnails/<width>/<name>.webp`, and the
 	 * main it derives from is `<folder>/<name>.webp`, so the content folder and the
 	 * thumbnail's own basename together name the main.
 	 *
@@ -1059,13 +1059,13 @@ final class Doctor {
 	/**
 	 * Returns the absolute `<width>/` sub-directories under a thumbnails root.
 	 *
-	 * A symlinked entry is never returned: a planted `.kntnt-thumbnails/320` link
+	 * A symlinked entry is never returned: a planted `kntnt-thumbnails/320` link
 	 * pointing outside the collection would otherwise expose the *target's* files
 	 * to the orphan scan — and `--repair` would delete them through the link.
 	 *
 	 * @since 0.4.0
 	 *
-	 * @param string $thumbs_root Absolute path to a folder's `.kntnt-thumbnails/`.
+	 * @param string $thumbs_root Absolute path to a folder's `kntnt-thumbnails/`.
 	 * @return array<int,string> The absolute width sub-directory paths.
 	 */
 	private function width_dirs( string $thumbs_root ): array {

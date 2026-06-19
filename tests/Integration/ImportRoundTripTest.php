@@ -65,7 +65,7 @@ test( 'import stores a JPEG as a conforming <name>.jpg.webp main', function () u
 
 } );
 
-test( 'import generates the thumbnail under .kntnt-thumbnails/<width>/', function () use ( $slug, &$fixtures ): void {
+test( 'import generates the thumbnail under kntnt-thumbnails/<width>/', function () use ( $slug, &$fixtures ): void {
 
 	// Import a fresh fixture, then demand the thumbnail at the width recorded in
 	// the descriptor (the width defaults from its filter, so read, not assumed).
@@ -76,7 +76,7 @@ test( 'import generates the thumbnail under .kntnt-thumbnails/<width>/', functio
 	expect( $result['exit_code'] )->toBe( 0 );
 	$width = read_descriptor( $slug )['thumbnailWidth'];
 	expect( $width )->toBeGreaterThan( 0 );
-	$thumbnail = collection_path( $slug ) . "/.kntnt-thumbnails/{$width}/thumbed.jpg.webp";
+	$thumbnail = collection_path( $slug ) . "/kntnt-thumbnails/{$width}/thumbed.jpg.webp";
 	expect( is_file( $thumbnail ) )->toBeTrue();
 	expect( getimagesize( $thumbnail )[0] )->toBe( $width );
 

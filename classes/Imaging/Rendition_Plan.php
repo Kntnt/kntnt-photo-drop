@@ -4,7 +4,7 @@
  *
  * Given one main image's pixel width and a collection's full/thumbnail width and
  * quality settings, this pure helper computes the *derived* renditions that
- * should exist on disk under `.kntnt-thumbnails/<width>/` — the **full image**
+ * should exist on disk under `kntnt-thumbnails/<width>/` — the **full image**
  * and the **thumbnail**, each derived from the tier above it (`main → full →
  * thumbnail`) and skipped when its source is no wider (ADR-0013). Degenerate
  * width orderings collapse a tier into a single file rather than colliding, with

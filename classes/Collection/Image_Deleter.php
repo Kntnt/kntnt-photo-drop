@@ -7,7 +7,7 @@
  * so it lives here once rather than in either. The main image is the unit of
  * truth: deleting it removes the main and every derived artifact slaved to it
  * (the full rendition and the thumbnail, both living under the hidden
- * `.kntnt-thumbnails/<width>/` corral), and the per-folder index is left to
+ * `kntnt-thumbnails/<width>/` corral), and the per-folder index is left to
  * self-heal on the next gallery render — unlinking the main bumps the folder
  * mtime, which is exactly the signal the mtime-validated index distrusts
  * (ADR-0003). There is no recycle bin; collection images are plain files, not
@@ -88,7 +88,7 @@ final class Image_Deleter {
 	 * Deletes a main image and every derived artifact slaved to it.
 	 *
 	 * Removes the main first, then every derived file the main produced (the full
-	 * rendition and the thumbnail, each at `.kntnt-thumbnails/<width>/<name>.webp`).
+	 * rendition and the thumbnail, each at `kntnt-thumbnails/<width>/<name>.webp`).
 	 * The per-folder index is deliberately not touched: unlinking the main bumps the
 	 * folder mtime, so the mtime-validated index regenerates on the next gallery
 	 * render (ADR-0003) without this routine writing it. Returns whether the main
@@ -121,7 +121,7 @@ final class Image_Deleter {
 	 * Removes every derived artifact derived from a main, returning how many were removed.
 	 *
 	 * The full rendition and the thumbnail both live at
-	 * `.kntnt-thumbnails/<width>/<name>.webp`; the configured widths may have changed
+	 * `kntnt-thumbnails/<width>/<name>.webp`; the configured widths may have changed
 	 * since the main was imported, so this scans every width sub-directory present and
 	 * removes the one named for this main rather than trusting the current descriptor.
 	 * It never recurses or deletes anything but this main's own derived files, so a

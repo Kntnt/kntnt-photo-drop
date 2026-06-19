@@ -82,7 +82,7 @@ Every write REST endpoint defends two different things and needs both — a vali
 
 ## Index self-heal via `dirMtime` (ADR-0003)
 
-The per-folder `index.json` (inside `.kntnt-thumbnails/`) is a regenerable cache validated by the content folder's directory `mtime`:
+The per-folder `index.json` (inside `kntnt-thumbnails/`) is a regenerable cache validated by the content folder's directory `mtime`:
 
 - Stored `dirMtime` matches the folder `mtime` → the index is trusted; no image is re-read for dimensions.
 - A file added, removed, renamed, or moved bumps the folder `mtime` → the index is regenerated on the next gallery view (dimensions read once, written back, images stored sorted ascending).

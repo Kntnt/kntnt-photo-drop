@@ -1,7 +1,7 @@
 <?php
 /**
  * Tests for derived-rendition generation — the full and thumbnail files written
- * under `.kntnt-thumbnails/<width>/<name>.webp` (ADR-0013).
+ * under `kntnt-thumbnails/<width>/<name>.webp` (ADR-0013).
  *
  * Each test writes a real WebP main into a temp folder and drives the real GD
  * codec, then asserts which derived files appear and at what width. It covers the
@@ -180,7 +180,7 @@ test( 'equal full and thumbnail widths write one file at the full quality', func
 	$folder = fresh_thumb_dir();
 	$main   = write_main_image( $folder, 'photo.jpg.webp', 2000, 1200 );
 
-	// Full and thumbnail both at 800: only one file lives at .kntnt-thumbnails/800/,
+	// Full and thumbnail both at 800: only one file lives at kntnt-thumbnails/800/,
 	// and the contrasting qualities (90 vs 40) must collapse to the larger tier's
 	// — the full — so the single file is the higher-quality one (ADR-0013).
 	$collapsed = gd_thumbnailer()->generate( $main, 'photo.jpg.webp', 800, 90, 800, 40 );

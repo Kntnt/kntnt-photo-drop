@@ -644,9 +644,9 @@ function read_descriptor( string $slug ): ?array {
  */
 function read_index( string $slug, string $folder = '' ): ?array {
 
-	// The index hides inside the folder's .kntnt-thumbnails directory.
+	// The index hides inside the folder's kntnt-thumbnails directory.
 	$base = collection_path( $slug ) . ( $folder === '' ? '' : "/{$folder}" );
-	$file = $base . '/.kntnt-thumbnails/index.json';
+	$file = $base . '/kntnt-thumbnails/index.json';
 	$raw  = is_file( $file ) ? file_get_contents( $file ) : false;
 	if ( $raw === false ) {
 		return null;
@@ -1165,7 +1165,7 @@ function rest_regenerate( string $slug, array $body, ?string $jar, ?string $nonc
 /**
  * Returns the numeric width-bucket directory names under a collection's root folder.
  *
- * The derived renditions live at `<root>/.kntnt-thumbnails/<width>/`, so the set of
+ * The derived renditions live at `<root>/kntnt-thumbnails/<width>/`, so the set of
  * numeric sub-directories there is exactly the set of derived widths present for the
  * root folder's mains. A regenerate-then-flip test asserts on this set to prove the
  * new widths were written and the old ones pruned. Only the root folder is
@@ -1180,7 +1180,7 @@ function width_buckets( string $slug ): array {
 
 	// Enumerate the hidden corral's immediate sub-directories and keep the numeric
 	// ones; a missing corral yields an empty set.
-	$corral  = collection_path( $slug ) . '/.kntnt-thumbnails';
+	$corral  = collection_path( $slug ) . '/kntnt-thumbnails';
 	$entries = is_dir( $corral ) ? scandir( $corral ) : false;
 	$widths  = [];
 	foreach ( $entries === false ? [] : $entries as $entry ) {

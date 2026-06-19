@@ -9,7 +9,7 @@
  * comma-separated globs). This matcher holds that decision, pure and testable:
  * it never touches the filesystem and answers from the path alone. A user's own
  * `.thumbnails` directory is deliberately *not* on the list — it is foreign, not
- * ours, because our artifacts live under the namespaced `.kntnt-thumbnails`.
+ * ours, because our artifacts live under the namespaced `kntnt-thumbnails`.
  *
  * @package Kntnt\Photo_Drop
  * @since   0.4.0

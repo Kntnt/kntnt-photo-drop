@@ -156,7 +156,7 @@ test( 'a full regenerate then finalise flips the descriptor and prunes old bucke
 	expect( $buckets )->not->toContain( 600 );
 
 	// The flipped renditions are real WebP files at the new widths.
-	$full = collection_path( $slug ) . '/.kntnt-thumbnails/800/wide.jpg.webp';
+	$full = collection_path( $slug ) . '/kntnt-thumbnails/800/wide.jpg.webp';
 	expect( is_file( $full ) )->toBeTrue();
 	$info = getimagesize( $full );
 	expect( $info['mime'] )->toBe( 'image/webp' );

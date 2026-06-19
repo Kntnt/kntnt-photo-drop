@@ -188,7 +188,7 @@ test( 'report-only lists a missing thumbnail for a present main and changes noth
 	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	$missing = finding_paths( $report, Finding_Kind::Missing_Derived );
-	expect( $missing )->toContain( '.kntnt-thumbnails/320/photo.jpg.webp' );
+	expect( $missing )->toContain( 'kntnt-thumbnails/320/photo.jpg.webp' );
 	expect( $missing )->toContain( 'photo.jpg.webp' );
 	expect( $report->repaired )->toBeFalse();
 
@@ -210,8 +210,8 @@ test( 'report-only lists a missing full and thumbnail for a wide main', function
 	$report = make_doctor( $root, doctor_descriptor( 1280, 320, null ) )->run( false, false );
 
 	$missing = finding_paths( $report, Finding_Kind::Missing_Derived );
-	expect( $missing )->toContain( '.kntnt-thumbnails/320/wide.jpg.webp' );
-	expect( $missing )->toContain( '.kntnt-thumbnails/1280/wide.jpg.webp' );
+	expect( $missing )->toContain( 'kntnt-thumbnails/320/wide.jpg.webp' );
+	expect( $missing )->toContain( 'kntnt-thumbnails/1280/wide.jpg.webp' );
 
 	doctor_remove_tree( $root );
 } );
@@ -228,7 +228,7 @@ test( 'report-only lists an orphan derived file whose main is gone', function ()
 	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Orphan_Derived ) )
-		->toBe( [ '.kntnt-thumbnails/320/ghost.jpg.webp' ] );
+		->toBe( [ 'kntnt-thumbnails/320/ghost.jpg.webp' ] );
 	expect( is_file( $orphan_dir . '/ghost.jpg.webp' ) )->toBeTrue();
 
 	doctor_remove_tree( $root );
@@ -310,11 +310,11 @@ test( 'an unset full width demands no separate full and the doctor and srcset ag
 
 	// The thumbnail (derived from the main) is demanded; no full bucket of any width
 	// appears among the findings, so the doctor never asks for a separate full.
-	expect( $missing )->toContain( '.kntnt-thumbnails/320/wide.jpg.webp' );
+	expect( $missing )->toContain( 'kntnt-thumbnails/320/wide.jpg.webp' );
 	$full_findings = array_filter(
 		$missing,
-		static fn ( string $path ): bool => str_contains( $path, '.kntnt-thumbnails/' )
-			&& ! str_contains( $path, '.kntnt-thumbnails/320/' ),
+		static fn ( string $path ): bool => str_contains( $path, 'kntnt-thumbnails/' )
+			&& ! str_contains( $path, 'kntnt-thumbnails/320/' ),
 	);
 	expect( $full_findings )->toBe( [] );
 
@@ -416,8 +416,8 @@ test( 'an image at or below a derived width needs no separate file there', funct
 	$report = make_doctor( $root, doctor_descriptor( 640, 320 ) )->run( false, false );
 
 	$missing = finding_paths( $report, Finding_Kind::Missing_Derived );
-	expect( $missing )->toContain( '.kntnt-thumbnails/320/small.jpg.webp' );
-	expect( $missing )->not->toContain( '.kntnt-thumbnails/640/small.jpg.webp' );
+	expect( $missing )->toContain( 'kntnt-thumbnails/320/small.jpg.webp' );
+	expect( $missing )->not->toContain( 'kntnt-thumbnails/640/small.jpg.webp' );
 
 	doctor_remove_tree( $root );
 } );
@@ -526,7 +526,7 @@ test( "a user's own .thumbnails directory is treated as foreign", function (): v
 	$root = doctor_fresh_root();
 	doctor_descriptor()->write( $root );
 
-	// A bare `.thumbnails` (not our namespaced `.kntnt-thumbnails`) is a foreign
+	// A bare `.thumbnails` (not our namespaced `kntnt-thumbnails`) is a foreign
 	// directory's content, warned about, not skipped.
 	mkdir( $root . '/.thumbnails', 0700, true );
 	file_put_contents( $root . '/.thumbnails/cache.dat', 'x' );
@@ -794,11 +794,11 @@ test( 'mains in a sub-folder are reconciled like the root', function (): void {
 	$report = make_doctor( $root, doctor_descriptor() )->run( false, false );
 
 	expect( finding_paths( $report, Finding_Kind::Missing_Derived ) )
-		->toContain( '2024/.kntnt-thumbnails/320/trip.jpg.webp' );
+		->toContain( '2024/kntnt-thumbnails/320/trip.jpg.webp' );
 
 	// And a repair derives the sub-folder thumbnail at its conventional path.
 	make_doctor( $root, doctor_descriptor() )->run( true, false );
-	expect( is_file( $root . '/2024/.kntnt-thumbnails/320/trip.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $root . '/2024/kntnt-thumbnails/320/trip.jpg.webp' ) )->toBeTrue();
 
 	doctor_remove_tree( $root );
 } );

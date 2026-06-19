@@ -21,7 +21,7 @@ namespace Kntnt\Photo_Drop\Doctor;
  * An immutable `{ kind, path, detail }` doctor finding.
  *
  * The `path` is always relative to the collection root (POSIX separators, e.g.
- * `sub/IMG.jpg.webp` or `.kntnt-thumbnails/320/IMG.jpg.webp`), so the report
+ * `sub/IMG.jpg.webp` or `kntnt-thumbnails/320/IMG.jpg.webp`), so the report
  * reads cleanly regardless of where the collection lives on disk and a test can
  * assert against stable strings. The `detail` is presentational only — it never
  * carries machine state the repairer needs, which travels in the kind and path.

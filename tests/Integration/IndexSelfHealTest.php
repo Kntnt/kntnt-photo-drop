@@ -3,7 +3,7 @@
  * Integration test for the per-folder index self-heal on a real directory
  * mtime bump (ADR-0003).
  *
- * A gallery view writes `index.json` inside `.kntnt-thumbnails/`; a file that
+ * A gallery view writes `index.json` inside `kntnt-thumbnails/`; a file that
  * arrives out-of-band (copied straight onto the filesystem, bypassing every
  * plugin ingestion path) bumps the content folder's mtime, so the next view
  * must distrust the cache, rescan the folder, and rewrite the index — making

@@ -7,7 +7,7 @@
  * caller-supplied relative path to the collection root, resolves it to a stored
  * `<original>.webp` main, and — when that main really exists — removes it and
  * every derived artifact (the full rendition and the thumbnail, both living
- * under the hidden `.kntnt-thumbnails/<width>/` corral), leaving the per-folder
+ * under the hidden `kntnt-thumbnails/<width>/` corral), leaving the per-folder
  * index to self-heal on the next render. The suite drives the real service
  * against a real temp-dir collection so the confinement and the on-disk removal
  * are exercised for real, never mocked: it proves a confined main and all its
@@ -149,7 +149,7 @@ test( 'delete removes the main, the full rendition, and the thumbnail', function
 
 	// A main with both a full rendition and a thumbnail under the hidden corral:
 	// deleting the main removes the main and every derived width, since both the
-	// full and the thumbnail live under `.kntnt-thumbnails/<width>/` (ADR-0013).
+	// full and the thumbnail live under `kntnt-thumbnails/<width>/` (ADR-0013).
 	$root  = fresh_deleter_root();
 	$main  = write_deleter_webp( $root, 'photo.jpg.webp' );
 	$full  = write_deleter_webp( $root, Index::THUMBNAILS_DIRNAME . '/1920/photo.jpg.webp' );

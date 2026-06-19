@@ -8,7 +8,7 @@
  * pins); and a full-visibility download icon with the lightbox on — the icon
  * lives inside the lightbox, a click on the enlarged image does nothing, and
  * only the icon click saves the current slide. On both surfaces the saved file
- * is the main image (ADR-0013), never a `.kntnt-thumbnails/` derivative, so the
+ * is the main image (ADR-0013), never a `kntnt-thumbnails/` derivative, so the
  * download is always the highest-fidelity rendition.
  *
  * @since 0.5.0
@@ -105,7 +105,7 @@ test.describe( 'Gallery download', () => {
 		expect( page.context().pages() ).toHaveLength( 1 );
 
 		// The icon targets the main image (ADR-0013): its href is the image at the
-		// collection root, never a `.kntnt-thumbnails/` derivative.
+		// collection root, never a `kntnt-thumbnails/` derivative.
 		const icon = page
 			.locator( '.kntnt-photo-drop-gallery__icon--download' )
 			.first();
@@ -114,7 +114,7 @@ test.describe( 'Gallery download', () => {
 			/\/kntnt-photo-drop\/[^?#]*\.webp$/
 		);
 		expect( await icon.getAttribute( 'href' ) ).not.toContain(
-			'.kntnt-thumbnails/'
+			'kntnt-thumbnails/'
 		);
 
 		// A click on the overlay icon saves the image — and only saves it: the
@@ -159,14 +159,14 @@ test.describe( 'Gallery download', () => {
 
 		// The in-lightbox icon points at the current slide's main image (ADR-0013):
 		// the view module set its href to the main on open, never a
-		// `.kntnt-thumbnails/` derivative.
+		// `kntnt-thumbnails/` derivative.
 		const icon = page.locator( '.kntnt-photo-drop-lightbox__download' );
 		await expect( icon ).toHaveAttribute(
 			'href',
 			/\/kntnt-photo-drop\/[^?#]*\.webp$/
 		);
 		expect( await icon.getAttribute( 'href' ) ).not.toContain(
-			'.kntnt-thumbnails/'
+			'kntnt-thumbnails/'
 		);
 
 		// A click on the icon saves the current slide; the dialog stays open and

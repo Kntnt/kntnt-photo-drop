@@ -3,7 +3,7 @@
  * Derives a main image's full and thumbnail renditions into the hidden corral.
  *
  * For each derived rendition the tier-skip matrix calls for, the deriver
- * downscales the stored main and writes `<folder>/.kntnt-thumbnails/<width>/<name>.webp`,
+ * downscales the stored main and writes `<folder>/kntnt-thumbnails/<width>/<name>.webp`,
  * the path convention the index and gallery already assume — the **full image**
  * and the **thumbnail** are each "just another width" there (ADR-0013). The
  * derived renditions are losslessly re-derivable from the main, so this is pure
@@ -72,7 +72,7 @@ final class Thumbnailer {
 	 * thumbnail only when the full rendition is wider than the thumbnail width, and
 	 * degenerate equal widths collapsed to one file at the larger tier's quality.
 	 * Each planned rendition is scaled to its width and encoded at its quality into
-	 * `.kntnt-thumbnails/<width>/<name>.webp`. A main no wider than every tier has
+	 * `kntnt-thumbnails/<width>/<name>.webp`. A main no wider than every tier has
 	 * an empty plan and writes nothing — it serves every role itself. Returns the
 	 * absolute paths actually written, so a caller (the doctor) can reconcile
 	 * against them. An unreadable or undecodable main — including one whose declared
@@ -350,7 +350,7 @@ final class Thumbnailer {
 	 * Returns the absolute derived-file path for a main name at a given width.
 	 *
 	 * Exposed so the doctor and any caller that must locate or remove a derived
-	 * rendition computes the same `.kntnt-thumbnails/<width>/<name>.webp` path this
+	 * rendition computes the same `kntnt-thumbnails/<width>/<name>.webp` path this
 	 * class writes, keeping the convention in one place. The full image and the
 	 * thumbnail share this convention — both are "just another width".
 	 *
@@ -433,7 +433,7 @@ final class Thumbnailer {
 	 * Reports whether writing the rendition would pass through any symlink.
 	 *
 	 * Checks the three points on the path a planted link could redirect the write
-	 * outside the collection: the hidden corral (`.kntnt-thumbnails`), the
+	 * outside the collection: the hidden corral (`kntnt-thumbnails`), the
 	 * `<width>/` bucket directory, and the target file itself (a dangling or
 	 * planted file link). A `true` here means the deriver must refuse the write —
 	 * the plugin never writes through a link it does not own.

@@ -24,7 +24,7 @@ On disk, per content folder:
 
 - main images as `<original-filename>.webp` (original name preserved, `.webp` appended; an already-`.webp` input is not doubled) — collision-free on the case-sensitive Linux server; the main is bounded by the collection's **upload width** and is the unit of truth;
 - one **visible `collection.json`** at the collection root (the descriptor — the one irreplaceable file);
-- one **hidden `.kntnt-thumbnails/`** holding all regenerable artifacts: the **full image** and the **thumbnail**, each stored as just another width at `.kntnt-thumbnails/<width>/<name>.webp`, plus that folder's `index.json` ([ADR-0013](adr/0013-three-rendition-model.md)).
+- one **hidden `kntnt-thumbnails/`** holding all regenerable artifacts: the **full image** and the **thumbnail**, each stored as just another width at `kntnt-thumbnails/<width>/<name>.webp`, plus that folder's `index.json` ([ADR-0013](adr/0013-three-rendition-model.md)).
 
 `collection.json` = `{ schema, name, uploadWidth, uploadQuality, fullWidth, fullQuality, thumbnailWidth, thumbnailQuality, pathComponents }` ([ADR-0013](adr/0013-three-rendition-model.md), [ADR-0014](adr/0014-path-components-template.md)). `index.json` = `{ schema, dirMtime, subdirs, images: [{ file, width, height }] }` (the main's dimensions), with images stored sorted ascending.
 
@@ -58,7 +58,7 @@ Collection discovery is a **directory scan**: a collection is any directory unde
 
 ## Index design — see ADR-0003
 
-Per-folder `index.json` (hidden inside `.kntnt-thumbnails/`) gives locality and is validated by the folder's directory **mtime** — one `stat` tells whether anything was added, removed, renamed, or moved (a move bumps both folders). If the stored `dirMtime` matches, trust the index; otherwise regenerate (scan, read dimensions once, write back). Because mtime has one-second granularity, a rebuild whose stamped `dirMtime` is still the current second is **not persisted** (the in-memory index is served and the next read rebuilds again) — otherwise an image written later within the same second would be invisible behind a cache hit forever. The index is a regenerable cache; the directory is the truth. Dimensions needed for `srcset` and to avoid layout shift are stored in the index, computed once at build. `subdirs` is listed for completeness (recursive gallery walks the tree); symlinked entries are skipped by the walk, mirroring the delete path's treat-as-leaf stance.
+Per-folder `index.json` (hidden inside `kntnt-thumbnails/`) gives locality and is validated by the folder's directory **mtime** — one `stat` tells whether anything was added, removed, renamed, or moved (a move bumps both folders). If the stored `dirMtime` matches, trust the index; otherwise regenerate (scan, read dimensions once, write back). Because mtime has one-second granularity, a rebuild whose stamped `dirMtime` is still the current second is **not persisted** (the in-memory index is served and the next read rebuilds again) — otherwise an image written later within the same second would be invisible behind a cache hit forever. The index is a regenerable cache; the directory is the truth. Dimensions needed for `srcset` and to avoid layout shift are stored in the index, computed once at build. `subdirs` is listed for completeness (recursive gallery walks the tree); symlinked entries are skipped by the walk, mirroring the delete path's treat-as-leaf stance.
 
 ## Doctor
 
@@ -111,7 +111,7 @@ CSS Grid, native `loading="lazy"`, and `srcset` (the **thumbnail and full rendit
 3. **Filesystem collections, no database rows, no Media Library backend** (ADR-0001).
 4. **Per-folder `index` (hidden, regenerable) validated by directory mtime** (ADR-0003); rejected a central manifest and inode keys.
 5. **Immutable WebP output contract = upload width + quality; a re-derived full tier and the thumbnail are admin-editable; blocks select-only; lifecycle on the admin page** (ADR-0002, ADR-0013).
-6. **Slug-as-identity; `<original>.webp` mains; hidden `.kntnt-thumbnails/`** (ADR-0003).
+6. **Slug-as-identity; `<original>.webp` mains; hidden `kntnt-thumbnails/`** (ADR-0003).
 7. **Dropped folders preserve hierarchy (drop ≡ "Select folder" picker); placement set by a mutable `pathComponents` template** (ADR-0008, ADR-0014).
 8. **CLI = grouped `collection {create,update,delete,doctor}` + `image {import,delete}`; `import` is a pure consumer** (ADR-0004).
 9. **Downscaling at ingestion is lossy** — the stored main is the ceiling; no later upscaling (ADR-0002).

@@ -50,8 +50,8 @@ require_once __DIR__ . '/helpers.php';
 // The hidden artifacts directory and the two derived widths a seeded import
 // produces: the full rendition (the upload-width 2400 main is wider than the
 // default 1920 full ceiling) and the thumbnail (default 640). Both are
-// `.kntnt-thumbnails/<width>/<stored-name>.webp` alongside the index.
-const THUMBS_DIR  = '.kntnt-thumbnails';
+// `kntnt-thumbnails/<width>/<stored-name>.webp` alongside the index.
+const THUMBS_DIR  = 'kntnt-thumbnails';
 const FULL_WIDTH  = 1920;
 const THUMB_WIDTH = 640;
 const STORED_NAME = 'photo.jpg.webp';
@@ -250,7 +250,7 @@ test( 'a confined path naming a non-main file is rejected and deletes nothing', 
 
 test( 'a confined path naming a thumbnail is rejected and deletes nothing', function (): void {
 
-	// A thumbnail under the hidden `.kntnt-thumbnails/<width>/` tree is a derived
+	// A thumbnail under the hidden `kntnt-thumbnails/<width>/` tree is a derived
 	// artifact, not the main image. Its path confines fine and ends in `.webp`, so
 	// only the thumbnails-segment guard stops it: the endpoint must reject it as 404
 	// with the thumbnail (and the main) untouched, so a confined-but-non-main path

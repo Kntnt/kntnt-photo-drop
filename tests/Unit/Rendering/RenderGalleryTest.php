@@ -414,8 +414,8 @@ test( 'the srcset lists the thumbnail and the bounded full, not the wider main',
 	expect( $html )->toContain( '320w' );
 	expect( $html )->toContain( '1280w' );
 	expect( $html )->not->toContain( '4000w' );
-	expect( $html )->toContain( '/.kntnt-thumbnails/320/' );
-	expect( $html )->toContain( '/.kntnt-thumbnails/1280/' );
+	expect( $html )->toContain( '/kntnt-thumbnails/320/' );
+	expect( $html )->toContain( '/kntnt-thumbnails/1280/' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -445,8 +445,8 @@ test( 'a main no wider than the full is the full candidate, served from the main
 
 	expect( $html )->toContain( '320w' );
 	expect( $html )->toContain( '900w' );
-	expect( $html )->toContain( '/.kntnt-thumbnails/320/' );
-	expect( $html )->not->toContain( '/.kntnt-thumbnails/900/' );
+	expect( $html )->toContain( '/kntnt-thumbnails/320/' );
+	expect( $html )->not->toContain( '/kntnt-thumbnails/900/' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -478,8 +478,8 @@ test( 'an unset full width makes the wide main the full candidate at its own wid
 
 	expect( $html )->toContain( '320w' );
 	expect( $html )->toContain( '4000w' );
-	expect( $html )->toContain( '/.kntnt-thumbnails/320/' );
-	expect( $html )->not->toContain( '/.kntnt-thumbnails/4000/' );
+	expect( $html )->toContain( '/kntnt-thumbnails/320/' );
+	expect( $html )->not->toContain( '/kntnt-thumbnails/4000/' );
 
 	gallery_remove_tree( $basedir );
 } );
@@ -632,7 +632,7 @@ test( 'every image is wrapped in an anchor to its full main image', function ():
 	expect( $html )->toContain( 'data-kntnt-photo-drop-full=' );
 	expect( $html )->toContain(
 		'data-kntnt-photo-drop-srcset="'
-			. 'https://example.test/uploads/kntnt-photo-drop/photos/.kntnt-thumbnails/320/a.jpg.webp 320w, '
+			. 'https://example.test/uploads/kntnt-photo-drop/photos/kntnt-thumbnails/320/a.jpg.webp 320w, '
 			. 'https://example.test/uploads/kntnt-photo-drop/photos/a.jpg.webp 800w"'
 	);
 

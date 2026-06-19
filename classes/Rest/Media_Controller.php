@@ -242,7 +242,7 @@ class Media_Controller {
 
 		// The confined file must be a *main image*, not a derived artifact, the
 		// descriptor, or a foreign in-collection file: confinement and is_file()
-		// alone would copy collection.json or a .kntnt-thumbnails/<width>/<name>.webp
+		// alone would copy collection.json or a kntnt-thumbnails/<width>/<name>.webp
 		// thumbnail into the Library. ADR-0015 sideloads only the main, so a confined
 		// non-main is a 404 with nothing copied.
 		if ( ! $this->is_main_image( $main_path ) ) {
@@ -274,7 +274,7 @@ class Media_Controller {
 	 * main is a file whose basename is a stored main name (the shared
 	 * `Image_Name::is_stored_main()` rule the doctor's classification uses too — a
 	 * `<original>.webp` ending in `.webp`), that does **not** live under any folder's
-	 * hidden `.kntnt-thumbnails/` artifacts directory (which would make it a derived
+	 * hidden `kntnt-thumbnails/` artifacts directory (which would make it a derived
 	 * thumbnail), and that is not the `collection.json` descriptor. The thumbnail and
 	 * descriptor checks are redundant-by-construction defence in depth — a thumbnail
 	 * shares the main's `<name>.webp` form, and the descriptor is excluded by the
@@ -288,7 +288,7 @@ class Media_Controller {
 	 */
 	private function is_main_image( string $path ): bool {
 
-		// A path under any `.kntnt-thumbnails/` segment is a derived thumbnail, not a
+		// A path under any `kntnt-thumbnails/` segment is a derived thumbnail, not a
 		// main — reject it before the cheaper basename checks.
 		if ( str_contains( $path, '/' . Index::THUMBNAILS_DIRNAME . '/' ) ) {
 			return false;

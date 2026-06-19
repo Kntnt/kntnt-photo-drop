@@ -103,7 +103,7 @@ test( 'collection update --thumbnail-width regenerates the renditions and flips 
 		expect( $buckets )->not->toContain( 600 );
 
 		// The flipped thumbnail is a real WebP at the new width.
-		$thumb = collection_path( $slug ) . '/.kntnt-thumbnails/320/wide.jpg.webp';
+		$thumb = collection_path( $slug ) . '/kntnt-thumbnails/320/wide.jpg.webp';
 		expect( is_file( $thumb ) )->toBeTrue();
 		$info = getimagesize( $thumb );
 		expect( $info['mime'] )->toBe( 'image/webp' );

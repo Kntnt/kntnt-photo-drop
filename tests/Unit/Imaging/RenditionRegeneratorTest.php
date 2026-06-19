@@ -9,7 +9,7 @@
  * prunes the now-stale width buckets. The filesystem walk and the prune are
  * covered end to end by the integration suite against a real wp-env; what is
  * unit-tested here is the pure, total decision the prune rests on — which
- * `.kntnt-thumbnails/<width>/` buckets are stale once the descriptor flips, given
+ * `kntnt-thumbnails/<width>/` buckets are stale once the descriptor flips, given
  * the old and new rendition widths — plus the safety invariant that the flip and
  * the prune happen *only when every main's expected new-width renditions are
  * present on disk*. A re-derive that silently wrote fewer renditions than its main

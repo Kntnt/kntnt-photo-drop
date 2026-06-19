@@ -43,7 +43,7 @@ enum Finding_Kind: string {
 	/**
 	 * A derived artifact is present but its main is gone.
 	 *
-	 * An orphan thumbnail under `.kntnt-thumbnails/<width>/` whose main no longer
+	 * An orphan thumbnail under `kntnt-thumbnails/<width>/` whose main no longer
 	 * exists, or a stale index entry. `--repair` removes the orphan thumbnail; the
 	 * index self-heals on its next rebuild.
 	 *
@@ -68,7 +68,7 @@ enum Finding_Kind: string {
 	 *
 	 * Warned about but never deleted, even with `--repair`. A user's own
 	 * `.thumbnails` directory (from another photo tool) is foreign — it is not our
-	 * namespaced `.kntnt-thumbnails`.
+	 * namespaced `kntnt-thumbnails`.
 	 *
 	 * @since 0.4.0
 	 */

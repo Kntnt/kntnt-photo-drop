@@ -193,10 +193,10 @@ test( 'the main URL appends the relative path with each segment encoded', functi
 
 test( 'a nested thumbnail URL splices the hidden directory and width before the file', function (): void {
 	$url = Image_Url::thumbnail( 'https://x/photos', 'morning/sunrise.jpg.webp', 320 );
-	expect( $url )->toBe( 'https://x/photos/morning/.kntnt-thumbnails/320/sunrise.jpg.webp' );
+	expect( $url )->toBe( 'https://x/photos/morning/kntnt-thumbnails/320/sunrise.jpg.webp' );
 } );
 
 test( 'a root-level thumbnail URL puts the hidden directory directly under the root', function (): void {
 	$url = Image_Url::thumbnail( 'https://x/photos', 'top.jpg.webp', 640 );
-	expect( $url )->toBe( 'https://x/photos/.kntnt-thumbnails/640/top.jpg.webp' );
+	expect( $url )->toBe( 'https://x/photos/kntnt-thumbnails/640/top.jpg.webp' );
 } );

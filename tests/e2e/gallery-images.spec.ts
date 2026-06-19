@@ -4,13 +4,14 @@
  * Guards that every image the gallery grid renders is actually served: each
  * `<img>` must decode in the browser (naturalWidth > 0) and its `src` URL must
  * return HTTP 2xx with an `image/` content-type. At least one resolved `src`
- * must pass through the hidden `.kntnt-thumbnails/` renditions directory —
- * confirming the spec actually exercises the derived-rendition path, not just
- * collapsed mains.
+ * must pass through the `kntnt-thumbnails/` renditions directory — confirming
+ * the spec actually exercises the derived-rendition path, not just collapsed
+ * mains.
  *
- * `@wordpress/env` boots Apache, which serves dot-directories, so this spec
- * covers the "images actually load" invariant rather than any particular web
- * server's dot-path policy.
+ * `@wordpress/env` boots Apache, which serves this non-hidden directory fine.
+ * The rename from `.kntnt-thumbnails` to `kntnt-thumbnails` (ADR-0003
+ * amendment) is what makes nginx's `location ~ /\.` and equivalent hardened
+ * configs stop denying the rendition URLs.
  *
  * @since 0.15.0
  */
@@ -30,7 +31,7 @@ let pageId = 0;
 
 test.describe( 'Gallery image reachability', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
-		// An explicit 320px thumbnail width forces a real .kntnt-thumbnails/320/
+		// An explicit 320px thumbnail width forces a real kntnt-thumbnails/320/
 		// rendition for these ≤640px fixtures; the default 640px width would
 		// collapse to the main image and make the rendition assertion vacuous.
 		wpCli( [
@@ -99,9 +100,9 @@ test.describe( 'Gallery image reachability', () => {
 			expect( res.ok() ).toBe( true );
 			expect( res.headers()[ 'content-type' ] ).toContain( 'image/' );
 
-			// Check whether the src passes through the hidden renditions directory
-			// rather than collapsing to the main image.
-			if ( src.includes( '.kntnt-thumbnails/' ) ) {
+			// Check whether the src passes through the renditions directory rather
+			// than collapsing to the main image.
+			if ( src.includes( 'kntnt-thumbnails/' ) ) {
 				renditionSeen = true;
 			}
 		}

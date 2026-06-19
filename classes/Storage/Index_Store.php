@@ -2,7 +2,7 @@
 /**
  * The self-healing read/write engine for per-folder indexes.
  *
- * Reads, validates, and rebuilds a content folder's hidden `index.json`. The
+ * Reads, validates, and rebuilds a content folder's `index.json`. The
  * index is a regenerable cache validated by the content folder's `mtime`: one
  * `stat` decides whether the cache can be trusted. When the stored `dirMtime`
  * still matches the folder, the cached index is returned with no image measured
@@ -56,7 +56,7 @@ final class Index_Store {
 	 * The stored extension every main image carries (see Image_Name).
 	 *
 	 * The rebuild scan treats a top-level `*.webp` in the content folder as a
-	 * main image; thumbnails live under the hidden directory and never in the
+	 * main image; thumbnails live under the artifacts directory and never in the
 	 * content folder, so the extension alone classifies a main image here.
 	 *
 	 * @since 0.1.0
@@ -164,11 +164,11 @@ final class Index_Store {
 	 * that second without a visible mtime bump, so caching it would be unsafe
 	 * (see the class description and ADR-0003).
 	 *
-	 * The hidden `.kntnt-thumbnails/` directory is created *before* the folder
-	 * mtime is stamped, because creating that sub-directory itself bumps the
-	 * content folder's mtime. Stamping after creation means a freshly built index
-	 * records the folder's settled mtime, so the very next read is a stable cache
-	 * hit instead of a spurious second rebuild. Once the directory exists, writing
+	 * The `kntnt-thumbnails/` directory is created *before* the folder mtime is
+	 * stamped, because creating that sub-directory itself bumps the content
+	 * folder's mtime. Stamping after creation means a freshly built index records
+	 * the folder's settled mtime, so the very next read is a stable cache hit
+	 * instead of a spurious second rebuild. Once the directory exists, writing
 	 * `index.json` inside it touches only the thumbnails dir, never the content
 	 * folder, so the stamp stays valid.
 	 *
@@ -301,7 +301,7 @@ final class Index_Store {
 	/**
 	 * Writes an index to a folder as stable, pretty JSON.
 	 *
-	 * Ensures the hidden `.kntnt-thumbnails/` directory exists, then writes
+	 * Ensures the `kntnt-thumbnails/` directory exists, then writes
 	 * `index.json` pretty-printed in the value object's fixed key order, so a
 	 * re-write with unchanged data is byte-identical. Returns whether the write
 	 * succeeded; a failure is a warning, not a hard error, since the folder will
@@ -430,7 +430,7 @@ final class Index_Store {
 	 *
 	 * A main image is a top-level `*.webp` in the content folder, matched
 	 * case-insensitively on the extension. Thumbnails never live here (they are
-	 * under the hidden directory), so the extension alone classifies a main.
+	 * under the artifacts directory), so the extension alone classifies a main.
 	 *
 	 * @since 0.1.0
 	 *
@@ -483,7 +483,7 @@ final class Index_Store {
 	}
 
 	/**
-	 * Ensures the hidden `.kntnt-thumbnails/` directory exists in a folder.
+	 * Ensures the `kntnt-thumbnails/` directory exists in a folder.
 	 *
 	 * Creating this sub-directory bumps the content folder's mtime, so the
 	 * rebuild calls this *before* stamping the index, keeping the stamped mtime

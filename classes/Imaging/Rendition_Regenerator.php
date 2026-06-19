@@ -142,7 +142,7 @@ final class Rendition_Regenerator {
 	 * Realises one main's new full and thumbnail renditions through the shared
 	 * `Thumbnailer`, which computes the tier-skip plan from the main's own width and
 	 * refuses any symlinked write itself, so the new-width files land in their
-	 * `.kntnt-thumbnails/<width>/` buckets *alongside* the live old-width ones — the
+	 * `kntnt-thumbnails/<width>/` buckets *alongside* the live old-width ones — the
 	 * gallery keeps serving the old renditions throughout. An index past the end of
 	 * the current main list (the list shrank between requests) is a no-op returning
 	 * zero, never an error. Returns the count of derived files written for that main.
@@ -244,7 +244,7 @@ final class Rendition_Regenerator {
 	 * re-derived at the target widths: it rewrites `collection.json` with the new
 	 * full and thumbnail pairs (the immutable upload contract carried over via
 	 * `Descriptor::with_renditions()`), which is the single instant the gallery
-	 * switches to the new renditions, then prunes every old `.kntnt-thumbnails/<width>/`
+	 * switches to the new renditions, then prunes every old `kntnt-thumbnails/<width>/`
 	 * bucket the new configuration no longer uses so the collection does not grow
 	 * forever. The flip is ordered before the prune so a crash between them leaves
 	 * extra (harmless) buckets, never a missing one. Returns the number of stale

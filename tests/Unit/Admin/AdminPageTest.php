@@ -1956,7 +1956,7 @@ test( 'delete removes the whole collection directory', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_stubs( $basedir );
 	seed_admin_collection( $root, 'gone', 'Gone', 1920, 80 );
-	mkdir( $root . 'gone/2024/.kntnt-thumbnails/640', 0700, true );
+	mkdir( $root . 'gone/2024/kntnt-thumbnails/640', 0700, true );
 	file_put_contents( $root . 'gone/2024/photo.jpg.webp', 'main' );
 	$page = new Admin_Page( new Repository() );
 

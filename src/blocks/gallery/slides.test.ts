@@ -44,7 +44,7 @@ describe( 'readSlides', () => {
 				'data-kntnt-photo-drop-main':
 					'https://example.test/photos/a.jpg.webp',
 				'data-kntnt-photo-drop-full':
-					'https://example.test/photos/.kntnt-thumbnails/1600/a.jpg.webp',
+					'https://example.test/photos/kntnt-thumbnails/1600/a.jpg.webp',
 			} ),
 		] );
 
@@ -52,7 +52,7 @@ describe( 'readSlides', () => {
 			'https://example.test/photos/a.jpg.webp'
 		);
 		expect( slides[ 0 ]?.url ).toBe(
-			'https://example.test/photos/.kntnt-thumbnails/1600/a.jpg.webp'
+			'https://example.test/photos/kntnt-thumbnails/1600/a.jpg.webp'
 		);
 	} );
 
