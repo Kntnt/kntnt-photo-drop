@@ -12,13 +12,13 @@
  * still share a position with one another (they auto-cluster), so only the
  * breadcrumb-vs-icon bands are ever excluded — never icon-vs-icon.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 /**
  * The nine-point overlay positions, in row-major order.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export type OverlayPosition =
 	| 'top-left'
@@ -34,7 +34,7 @@ export type OverlayPosition =
 /**
  * The three horizontal bands an overlay position falls into.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export type OverlayBand = 'top' | 'middle' | 'bottom';
 
@@ -45,7 +45,7 @@ export type OverlayBand = 'top' | 'middle' | 'bottom';
  * `disabledPositions` stay consistent and the emitted order is deterministic
  * (top → middle → bottom, left → centre → right).
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const BANDS: readonly {
 	readonly band: OverlayBand;
@@ -67,7 +67,7 @@ const BANDS: readonly {
  *
  * The band is the position's vertical half — the prefix before the hyphen.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param position - The nine-point overlay position.
  * @return The band the position occupies.
@@ -83,7 +83,7 @@ export function bandOf( position: OverlayPosition ): OverlayBand {
  * canonical top→bottom, left→right order, so the same band repeated across two
  * icons contributes its three positions once.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param occupiedBands - The bands occupied by the other overlays.
  * @return The nine-point positions to disable, in canonical order.

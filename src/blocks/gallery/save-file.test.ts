@@ -4,14 +4,16 @@
  * `filenameFromUrl` is pinned across the URL shapes a collection produces —
  * nested paths, percent-encoded names, query strings — plus the degenerate
  * inputs that must fall back to a neutral name instead of throwing
- * mid-download. `saveFile` is pinned on its load-bearing promise: the saved
- * click goes to a same-document object-URL anchor (never the remote URL, which
- * an environment could turn into navigation) and carries the derived filename.
- * When the fetch cannot run (a cross-origin host without CORS, an offline
- * network, a non-OK response) the save must still never navigate the current tab
- * nor open a new one: it falls back to clicking a same-document, same-tab
- * `<a download>` at the remote URL — the documented no-JS fallback — rather than
- * the old current-tab navigation.
+ * mid-download. `saveFile` is pinned on its load-bearing promise: a same-origin
+ * image (the default) saves through a direct same-document `<a download>` with
+ * no fetch and no blob — the path that avoids Firefox's new-tab behaviour; a
+ * cross-origin image takes the blob path, where the saved click goes to a
+ * same-document object-URL anchor (never the remote URL, which an environment
+ * could turn into navigation) and carries the derived filename. When the
+ * cross-origin fetch cannot run (no CORS, an offline network, a non-OK response)
+ * the save must still never navigate the current tab nor open a new one: it falls
+ * back to clicking a same-document, same-tab `<a download>` at the remote URL —
+ * the documented no-JS fallback — rather than the old current-tab navigation.
  * `shouldInterceptClick` is pinned on the modified-click contract every download
  * trigger shares: a plain primary click is intercepted (and saved
  * programmatically), every modified or non-primary click passes through to the
@@ -87,9 +89,36 @@ describe( 'saveFile', () => {
 		clickSpy.mockRestore();
 	} );
 
+	it( 'downloads a same-origin image with a direct <a download>, no fetch or blob', async () => {
+		// Same-origin is the common case (renditions served from the site's own
+		// uploads dir). A direct same-document <a download> downloads in every
+		// browser without the new tab Firefox opens for a blob: URL it renders
+		// inline — so the save never fetches and never builds a blob here.
+		global.fetch = jest.fn();
+
+		let clickedHref = '';
+		let clickedDownload = '';
+		let clickedTarget = '';
+		clickSpy.mockImplementation( function ( this: HTMLAnchorElement ) {
+			clickedHref = this.href;
+			clickedDownload = this.download;
+			clickedTarget = this.target;
+		} );
+
+		const url = `${ window.location.origin }/uploads/kntnt-photo-drop/photos/sunrise.jpg.webp`;
+		await saveFile( url );
+
+		expect( global.fetch ).not.toHaveBeenCalled();
+		expect( URL.createObjectURL ).not.toHaveBeenCalled();
+		expect( clickedHref ).toBe( url );
+		expect( clickedDownload ).toBe( 'sunrise.jpg.webp' );
+		expect( clickedTarget ).not.toBe( '_blank' );
+	} );
+
 	it( 'clicks a same-document object-URL anchor named after the image', async () => {
-		// A successful fetch must hand the blob to the download machinery via a
-		// temporary anchor pointing at the object URL — never at the remote URL.
+		// A successful cross-origin fetch must hand the blob to the download
+		// machinery via a temporary anchor pointing at the object URL — never at
+		// the remote URL.
 		const blob = new Blob( [ 'webp-bytes' ] );
 		global.fetch = jest.fn().mockResolvedValue( {
 			ok: true,
@@ -112,9 +141,10 @@ describe( 'saveFile', () => {
 		expect( clickedDownload ).toBe( 'sunrise.jpg.webp' );
 	} );
 
-	it( 'hands the download machinery a non-renderable blob so Firefox cannot open it in a tab', async () => {
-		// Firefox opens a renderable blob (image/webp) in a tab even with the
-		// download attribute; the save must re-type it to application/octet-stream.
+	it( 'hands the cross-origin download machinery a non-renderable blob', async () => {
+		// On the cross-origin blob path the bytes are best-effort re-typed to
+		// application/octet-stream rather than handed over as the sniffable
+		// image/webp the response carried.
 		const blob = new Blob( [ 'webp-bytes' ], { type: 'image/webp' } );
 		global.fetch = jest.fn().mockResolvedValue( {
 			ok: true,

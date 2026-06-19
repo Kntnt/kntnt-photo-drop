@@ -22,9 +22,9 @@
  * A ceiling below the server's minimum width floor is treated as no ceiling at all:
  * it is not cascaded into lower tiers, so an out-of-range upload or full value never
  * drags the dependent tiers below the minimum. The field that holds the sub-floor
- * value is left for the HTML `min` attribute and the server to reject (@since 0.15.0).
+ * value is left for the HTML `min` attribute and the server to reject (@since 0.11.0).
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 /**
@@ -32,7 +32,7 @@
  * `Kntnt\Photo_Drop\Cli\Collection_Input::MINIMUM_WIDTH`; the server is the source of
  * truth, this is the client convenience that keeps the clamp consistent with it.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const MINIMUM_WIDTH = 320;
 
@@ -46,7 +46,7 @@ const MINIMUM_WIDTH = 320;
  * width at all (it is the immutable contract, shown read-only), which the caller
  * models as `none` — there is no live upload ceiling to clamp against there.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export type UploadWidthMode = 'limit' | 'none';
 
@@ -58,7 +58,7 @@ export type UploadWidthMode = 'limit' | 'none';
  * reject is passed through rather than silently coerced. `uploadMode` selects
  * whether `upload` is an active ceiling for `full`.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface WidthFields {
 	readonly uploadMode: UploadWidthMode;
@@ -74,7 +74,7 @@ export interface WidthFields {
  * and is never lowered by this rule. Each value is the original string when it was
  * left untouched, or the ceiling's string when it was clamped down.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ClampedWidths {
 	readonly full: string;
@@ -107,7 +107,7 @@ function positiveInt( raw: string ): number | null {
  * the server's accepted minimum. The sub-floor field itself is left for the HTML `min`
  * attribute and the server to reject.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param raw - The raw field value.
  * @return The positive integer at or above the minimum, or null.
@@ -150,9 +150,9 @@ function clampTo( raw: string, ceiling: number | null ): string {
  *
  * A ceiling below `MINIMUM_WIDTH` is treated as no ceiling: it is not cascaded into
  * lower tiers, so an out-of-range upload or full value never drags the dependent tiers
- * below the server's accepted minimum (@since 0.15.0).
+ * below the server's accepted minimum (@since 0.11.0).
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param fields - The three width fields' raw values and the upload-width mode.
  * @return The clamped Full and Thumbnail width strings.

@@ -17,7 +17,7 @@
  * the inherited alignment, and asserting on the committed build also keeps the build
  * in lock-step with the source.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { readFileSync } from 'node:fs';

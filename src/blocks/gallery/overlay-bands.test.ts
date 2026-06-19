@@ -9,7 +9,7 @@
  * shell wiring is exercised by e2e; this is the decision core (docs/testing.md,
  * "#47 Pure core + non-unit shell").
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { bandOf, disabledPositions } from './overlay-bands';

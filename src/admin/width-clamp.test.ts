@@ -12,7 +12,7 @@
  * both lower tiers, leave a within-bounds value alone, and never coerce a blank or
  * malformed field (#71).
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { clampWidths } from './width-clamp';

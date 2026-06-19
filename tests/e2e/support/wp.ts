@@ -21,7 +21,7 @@ import { CONTAINER_FIXTURES_DIR } from './fixture-images';
  * Shared so `globalSetup` installs exactly the pack the spec later switches to;
  * a single source of truth keeps the install and the switch from drifting.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export const RTL_LOCALE = 'he_IL';
 
@@ -167,7 +167,7 @@ export function deleteImage( slug: string, storedName: string ): void {
  * suite. `wp language core install` is a no-op when the pack is already present,
  * so a re-run is harmless. The `en_US` baseline needs no pack and is skipped.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param locale - A WordPress locale such as `he_IL`. `en_US` is a no-op.
  */
@@ -190,7 +190,7 @@ export function installSiteLanguage( locale: string ): void {
  * locale the suite uses via `installSiteLanguage()`, since a fresh wp-env
  * instance ships only `en_US`.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param locale - A WordPress locale such as `he_IL`, or `''` for the default.
  */

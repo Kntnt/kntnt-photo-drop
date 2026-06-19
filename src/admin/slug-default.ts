@@ -13,7 +13,7 @@
  * that slugifies to nothing yields `''`, leaving the placeholder empty so the
  * builder must type a slug.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 /**

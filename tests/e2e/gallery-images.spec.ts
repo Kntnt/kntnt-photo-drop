@@ -13,7 +13,7 @@
  * amendment) is what makes nginx's `location ~ /\.` and equivalent hardened
  * configs stop denying the rendition URLs.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';

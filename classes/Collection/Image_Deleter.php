@@ -39,7 +39,7 @@ use Kntnt\Photo_Drop\Storage\Index;
  * and its derived family — because both callers must name and remove files
  * identically for "derived artifacts are slaved to the main" to hold uniformly.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 final class Image_Deleter {
 
@@ -60,7 +60,7 @@ final class Image_Deleter {
 	 * top — the trash controller does, via the shared `Image_Name::is_stored_main()`
 	 * rule plus the thumbnails-segment check (ADR-0015).
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $collection_path The absolute collection root.
 	 * @param string $relative        The caller-supplied relative path.
@@ -96,7 +96,7 @@ final class Image_Deleter {
 	 * stray), so a present-but-unremovable derived file does not fail the delete, but
 	 * a main that could not be removed reports `false` so the caller can surface it.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $main_path The absolute path to the main image to remove.
 	 * @return bool True when the main image was removed.
@@ -127,7 +127,7 @@ final class Image_Deleter {
 	 * It never recurses or deletes anything but this main's own derived files, so a
 	 * sibling main's artifacts and any foreign file are never touched.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $main_path Absolute path to the main image being deleted.
 	 * @return int The number of derived files removed.
@@ -170,7 +170,7 @@ final class Image_Deleter {
 	 * best-effort derived-artifact sweep over a partially-removed set raises no
 	 * warning on the missing entries.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $path Absolute path to the file to remove.
 	 * @return bool True when the file was removed.

@@ -20,7 +20,7 @@
  * The model owns no DOM and no upload state and takes no collaborators, so it
  * is a deep, narrow seam that Jest covers entirely over plain values.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 /**
@@ -30,7 +30,7 @@
  * is excluded from `processed`; the three terminal states are counted.
  * `skipped` covers both server-side duplicates and the client type pre-filter.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export type FileState = 'pending' | 'uploaded' | 'skipped' | 'failed';
 
@@ -40,7 +40,7 @@ export type FileState = 'pending' | 'uploaded' | 'skipped' | 'failed';
  * The `key` is the file's relative path (what the upload queue dedupes and
  * keys by); the `fileName` is the latest display name for the row.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface FailedFile {
 	readonly key: string;
@@ -50,7 +50,7 @@ export interface FailedFile {
 /**
  * An immutable read of the accounting at one moment.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ProgressSnapshot {
 	/** Distinct files currently tracked. */
@@ -70,7 +70,7 @@ export interface ProgressSnapshot {
 /**
  * The model's external interface — record transitions, finalise, read.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ProgressModel {
 	/**
@@ -102,7 +102,7 @@ export interface ProgressModel {
 /**
  * One tracked file's mutable entry.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 interface Entry {
 	fileName: string;
@@ -115,7 +115,7 @@ interface Entry {
  * The entry map preserves first-seen insertion order, which the skipped and
  * failed lists inherit, so the summary reads in the order files were queued.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @return The progress model handle.
  */

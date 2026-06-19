@@ -3,7 +3,7 @@
  * Shared request-reading and capability-resolution helpers for REST controllers.
  *
  * @package Kntnt\Photo_Drop
- * @since   0.15.0
+ * @since   0.11.0
  */
 
 declare( strict_types = 1 );
@@ -22,7 +22,7 @@ namespace Kntnt\Photo_Drop\Rest;
  * only factors out duplicated leaf logic, so the controllers' deep external
  * interface (their two callbacks) is unchanged.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 trait Request_Gate {
 
@@ -33,7 +33,7 @@ trait Request_Gate {
 	 * plugin's fetch paths send, falling back to a `_wpnonce` parameter. The
 	 * value is sanitised before it reaches `wp_verify_nonce()`.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return string The nonce string, or '' when none was supplied.
@@ -55,7 +55,7 @@ trait Request_Gate {
 	 * defence in depth, though the `Repository` re-validates it strictly before
 	 * any filesystem access.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return string The sanitised slug, or '' when absent.
@@ -72,7 +72,7 @@ trait Request_Gate {
 	 * and rejects any non-string or empty return back to the default, so a buggy
 	 * filter can never open the gate.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param non-empty-string $filter             The capability filter name.
 	 * @param string           $default_capability The default capability when the filter is unused or misused.

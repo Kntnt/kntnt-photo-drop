@@ -10,7 +10,7 @@
  * distinguishes empty (unset) from present-but-garbage (malformed) from concrete, in
  * jsdom over a real fields fragment.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { readTarget } from './regenerate-target';

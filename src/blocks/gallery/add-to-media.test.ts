@@ -11,7 +11,7 @@
  * transport failure) — plus the defensive branch where a success body lacks a
  * numeric id, so the view wiring above it can stay thin.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { addToMedia } from './add-to-media';

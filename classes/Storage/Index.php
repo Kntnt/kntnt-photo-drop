@@ -46,7 +46,7 @@ final readonly class Index {
 	 * (ADR-0003).
 	 *
 	 * @since 0.1.0
-	 * @since 0.15.0 Renamed from `.kntnt-thumbnails` to `kntnt-thumbnails`
+	 * @since 0.11.0 Renamed from `.kntnt-thumbnails` to `kntnt-thumbnails`
 	 *               (ADR-0003 amendment — un-hidden corral).
 	 * @var string
 	 */

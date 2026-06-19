@@ -30,7 +30,7 @@ namespace Tests\Integration;
  * worktrees can run their suites at once without colliding on a single host
  * port. A `const` cannot consult the environment, hence a function.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @return string The site's base URL, e.g. `http://localhost:8888`.
  */
@@ -744,7 +744,7 @@ function write_jpeg( string $path, int $width = 1600, int $height = 900 ): void 
  * written at maximum quality so the source itself does not pre-quantise the
  * detail away before the plugin re-encodes it to WebP.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param string $path   The absolute target path.
  * @param int    $width  The pixel width.
@@ -825,7 +825,7 @@ function paint_fixture( int $width, int $height ): \GdImage {
  * cell (rather than per-pixel) keeps the paint loop cheap on a 1500-px canvas
  * while leaving the result effectively incompressible.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param int $width  The pixel width.
  * @param int $height The pixel height.
@@ -1117,7 +1117,7 @@ function admin_post( array $fields, string $jar ): array {
  * a test can model the forgery-gate rejection (no nonce). Returns the HTTP status
  * and the decoded JSON body.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param string              $slug  The target collection slug.
  * @param array<string,mixed> $body  The JSON body fields (target widths, index, finalize).
@@ -1171,7 +1171,7 @@ function rest_regenerate( string $slug, array $body, ?string $jar, ?string $nonc
  * new widths were written and the old ones pruned. Only the root folder is
  * inspected, which is where the integration fixture imports its single image.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param string $slug The collection slug.
  * @return array<int,int> The numeric width-bucket names, unsorted.
@@ -1319,7 +1319,7 @@ function delete_user( string $username ): void {
  * present (the happy path), no nonce (forgery rejection), or a low-privilege
  * session (capability rejection).
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param string      $slug      The target collection slug.
  * @param string      $path      The collection-relative path of the main image to copy.
@@ -1381,7 +1381,7 @@ function rest_add_to_media( string $slug, string $path, ?string $jar, ?string $n
  * in the JSON body (matching the add-to-media write-path) rather than the query
  * string, so an encoded traversal reaches `Path_Guard` as raw bytes.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param string      $slug  The target collection slug.
  * @param string      $path  The collection-relative path of the main image to delete.
@@ -1432,7 +1432,7 @@ function rest_delete_image( string $slug, string $path, ?string $jar, ?string $n
  * count read from inside the container — never the host filesystem — is the
  * proof a real, independent attachment was (or was not) created.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @return int The number of `attachment` posts.
  * @throws \RuntimeException When the count cannot be read from the container.
@@ -1458,7 +1458,7 @@ function attachment_count(): int {
  * sideloaded a genuine copy rather than registering a bare file (ADR-0015). This
  * reads that metadata from inside the container and counts the generated sizes.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param int $attachment_id The attachment id to inspect.
  * @return int The number of generated sub-sizes.
@@ -1490,7 +1490,7 @@ function attachment_subsize_count( int $attachment_id ): int {
  * original file. The add-to-media full-resolution test asserts the absence of
  * the `-scaled` master here.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param int $attachment_id The attachment to inspect.
  * @return string The stored file path relative to the uploads basedir.

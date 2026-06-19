@@ -8,7 +8,7 @@
  * skipped and failed filename lists, the retry move-between-buckets rule, and
  * the cancel-finalises-pending rule — over plain values.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { createProgressModel } from './progress-model';

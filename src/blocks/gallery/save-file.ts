@@ -1,31 +1,34 @@
 /**
- * Programmatic image download — fetch the image into a Blob and save it
- * through a temporary object-URL anchor.
+ * Programmatic image download — save the image without navigating anywhere and
+ * without Firefox opening it in a new tab.
  *
- * A plain `<a download>` is at the mercy of its environment: a theme or
- * plugin that rewrites content links with `target="_blank"`, or a media host
- * on another origin (where browsers ignore the `download` attribute), turns
- * the click into navigation — Firefox then opens the image in a new tab
- * alongside (or instead of) the download. Fetching the image and clicking a
- * same-document object-URL anchor downloads in every browser without any
- * navigation the environment could redirect. The fetched bytes are re-typed to
- * `application/octet-stream` before the hand-off so Firefox cannot render them
- * inline (which, for renderable types such as WebP, would open a new tab even
- * with the `download` attribute set). The icon anchor's own `download`
- * attribute remains the no-JS fallback.
+ * The common case is a **same-origin** image: the gallery serves its renditions
+ * from the site's own uploads directory (ADR-0001). There, a direct
+ * same-document `<a download>` is the whole solution — every browser honours the
+ * `download` attribute for a same-origin resource and saves the file in the
+ * current tab, with no navigation and no new tab. This is the platform feature
+ * working as designed; there is no `blob:` URL for Firefox to render inline, so
+ * the new-tab problem (Firefox bug 1766420 — it opens a `blob:` URL it can
+ * sniff as a renderable image such as WebP in a tab even with `download` set,
+ * and re-typing the blob to `application/octet-stream` does not reliably stop
+ * it) never arises. The earlier design fetched *every* image into a blob, which
+ * is precisely what triggered that Firefox tab; going direct for same-origin
+ * removes the cause rather than fighting the symptom.
  *
- * When the fetch itself cannot run — a cross-origin uploads host without CORS,
- * an offline network, a non-OK response — there is no blob to hand over, so the
- * save falls back to clicking a *same-document, same-tab* `<a download>` at the
- * remote URL: the documented no-JS fallback. This downloads in place wherever
- * the browser honours `download` (same-origin uploads, the default), and where
- * it cannot (a cross-origin host without CORS, where browsers ignore `download`)
- * the browser decides the outcome — Safari, notably, opens the image in a new
- * tab. The gallery never *forces* a current-tab navigation, and never opens a
- * new tab of its own; what it cannot do is stop a browser that turns a
- * cross-origin `<a download>` into one. The earlier fallback was
- * `window.location.assign`, which always navigated the tab away from the gallery;
- * this one never does.
+ * Only a **cross-origin** image (an offloaded-media / CDN host that rewrites the
+ * uploads base URL) still needs the blob path: the browser ignores `download` on
+ * a direct cross-origin anchor, so the bytes are fetched (CORS permitting) and
+ * handed over as a blob, best-effort re-typed to `application/octet-stream`.
+ * Firefox may still open a tab for a cross-origin blob it sniffs as an image —
+ * that residual is inherent to the cross-origin case, which same-origin
+ * deployments never hit. When the fetch itself cannot run — a cross-origin host
+ * without CORS, an offline network, a non-OK response — there is no blob, so the
+ * save falls back to a *same-document, same-tab* `<a download>` at the remote
+ * URL. Where the browser honours `download` that still saves in place; where it
+ * cannot (cross-origin without CORS) the browser decides the outcome — Safari,
+ * notably, opens the image in a new tab. The gallery never *forces* a current-tab
+ * navigation and never opens a new tab of its own; what it cannot do is stop a
+ * browser that turns a cross-origin `<a download>` into one.
  *
  * @since 0.5.0
  */
@@ -55,7 +58,7 @@ const FALLBACK_FILENAME = 'image';
  * a plain object and reused across every download trigger and the navigation
  * suppression without coupling to the full DOM event.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ClickModifiers {
 	/** The pressed button: `0` is the primary (left) button. */
@@ -80,7 +83,7 @@ export interface ClickModifiers {
  * menu — so it passes through untouched, leaving the `<a download>`/`<a href>`
  * semantics as the fallback.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param event - The click's modifier and button state.
  * @return True for a plain primary click, false for any modified or non-primary click.
@@ -135,7 +138,7 @@ export function filenameFromUrl( url: string, base?: string ): string {
  * `download` attribute and decides the outcome itself (Safari, for one, then
  * opens the image in a new tab regardless of `target`) — see `saveFile`.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param href         - The href to click (an object URL, or the remote image URL).
  * @param downloadName - The value of the `download` attribute, the saved file name.
@@ -150,30 +153,59 @@ function clickDownloadAnchor( href: string, downloadName: string ): void {
 }
 
 /**
+ * Whether `url` resolves to the same origin as the current document.
+ *
+ * Relative URLs resolve against the document base, so they are same-origin by
+ * construction. A URL that cannot be parsed is treated as cross-origin: the
+ * blob path it then takes ends in the same-tab `<a download>` fallback, which is
+ * the safe outcome for an unparseable input.
+ *
+ * @since 0.11.0
+ *
+ * @param url - The image URL, absolute or relative.
+ * @return True when the resolved origin matches the document's.
+ */
+function isSameOrigin( url: string ): boolean {
+	try {
+		return (
+			new URL( url, document.baseURI ).origin === window.location.origin
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Saves the image at `url` as a local file, without navigating anywhere.
  *
- * Fetches the image into a Blob, re-types it to `application/octet-stream`, and
- * clicks a temporary anchor pointing at a same-document object URL — a pure
- * download no browser or link-rewriting environment turns into a tab, the
- * octet-stream type being what stops Firefox rendering it inline. When the fetch
- * fails (network error, a non-OK
- * response, or a cross-origin host without CORS) the fallback clicks a
- * same-document, same-tab `<a download>` at the remote URL — the no-JS fallback —
- * rather than navigating, so the gallery itself never sends its own tab away.
- * Where the browser honours `download` (same-origin, or cross-origin with CORS)
- * the image still saves in place; where it cannot (cross-origin without CORS,
- * where browsers ignore `download`) the browser decides the outcome — Safari, for
- * one, opens the image in a new tab — and the gallery cannot override that.
+ * Same-origin images — the default, served from the site's own uploads dir —
+ * download through a direct same-document `<a download>`: every browser honours
+ * the attribute and saves in the current tab, and because there is no `blob:`
+ * URL there is nothing for Firefox to render inline in a new tab. Only a
+ * cross-origin image takes the blob path: the bytes are fetched (CORS
+ * permitting), best-effort re-typed to `application/octet-stream`, and handed
+ * over via an object-URL anchor; if the fetch cannot run (no CORS, offline, a
+ * non-OK response) the fallback clicks a same-document, same-tab `<a download>`
+ * at the remote URL rather than navigating. The gallery never forces a current-
+ * tab navigation and never opens a new tab of its own. See the file docblock for
+ * the full rationale (Firefox bug 1766420).
  *
  * @since 0.5.0
- * @since 0.15.0 Fetch-failure fallback is a same-tab `<a download>`, not navigation (#59).
- * @since 0.15.0 Re-type the blob to application/octet-stream so Firefox cannot open it in a tab.
+ * @since 0.11.0 Fetch-failure fallback is a same-tab `<a download>`, not navigation (#59).
+ * @since 0.11.0 Same-origin images download via a direct `<a download>`, skipping the blob path that made Firefox open a tab.
  *
  * @param url - The image URL to save.
  */
 export async function saveFile( url: string ): Promise< void > {
+	// Same-origin: a direct same-document `<a download>` saves in place in every
+	// browser, with no blob for Firefox to render inline in a new tab.
+	if ( isSameOrigin( url ) ) {
+		clickDownloadAnchor( url, filenameFromUrl( url ) );
+		return;
+	}
+
 	try {
-		// Fetch the image into a Blob; a non-OK response is a failure.
+		// Fetch the cross-origin image into a Blob; a non-OK response is a failure.
 		const response = await fetch( url );
 		if ( ! response.ok ) {
 			throw new Error(
@@ -183,12 +215,10 @@ export async function saveFile( url: string ): Promise< void > {
 		const blob = await response.blob();
 
 		// Re-wrap the bytes with a non-renderable MIME type before handing them
-		// to the download machinery. Firefox opens a `blob:` URL it can render
-		// inline (PDFs, and images such as WebP) in a new tab even with the
-		// `download` attribute set — so the fetched `image/webp` blob would both
-		// download AND open a tab. `application/octet-stream` is not renderable,
-		// so every browser downloads it; the `download` filename keeps the
-		// `.webp` extension, so the saved file is unchanged. (Firefox bug 1766420.)
+		// to the download machinery — a best effort to discourage inline
+		// rendering. (Firefox may still open a tab for a cross-origin blob it
+		// sniffs as an image; that residual is inherent to the cross-origin case,
+		// which the same-origin path above never reaches. Firefox bug 1766420.)
 		const downloadBlob = new Blob( [ blob ], {
 			type: 'application/octet-stream',
 		} );

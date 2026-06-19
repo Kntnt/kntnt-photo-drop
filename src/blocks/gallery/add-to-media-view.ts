@@ -26,8 +26,8 @@
  * The copy request lives in the pure {@link addToMedia} module; this module is the
  * thin DOM wiring — the single-click flow and the overwrite popover — around it.
  *
- * @since 0.15.0
- * @since 0.15.0 Single click adds; a duplicate raises an overwrite confirm.
+ * @since 0.11.0
+ * @since 0.11.0 Single click adds; a duplicate raises an overwrite confirm.
  */
 
 import { addToMedia } from './add-to-media';
@@ -42,7 +42,7 @@ import { shouldInterceptClick } from './save-file';
  * string is absent, so a stripped attribute degrades to a working (if untranslated)
  * popover rather than an empty one.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 interface OverwriteCopy {
 	/** The duplicate-stating prompt above the buttons. */
@@ -58,35 +58,35 @@ interface OverwriteCopy {
 /**
  * The icon class that marks an add-to-media control on any surface.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const ADD_TO_MEDIA_SELECTOR = '.kntnt-photo-drop-gallery__icon--add-to-media';
 
 /**
  * The class on the inline confirm popover this module creates (shared with trash).
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const POPOVER_CLASS = 'kntnt-photo-drop-gallery__confirm';
 
 /**
  * The modifier toggled on an icon while its overwrite popover is open.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const ARMED_CLASS = 'kntnt-photo-drop-gallery__icon--armed';
 
 /**
  * The modifier toggled while the copy POST is in flight.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const BUSY_CLASS = 'kntnt-photo-drop-gallery__icon--busy';
 
 /**
  * The modifier toggled briefly on a successful copy (the checkmark glyph).
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const DONE_CLASS = 'kntnt-photo-drop-gallery__icon--done';
 
@@ -94,7 +94,7 @@ const DONE_CLASS = 'kntnt-photo-drop-gallery__icon--done';
  * How long the success checkmark stays before the icon returns to the plus, in
  * milliseconds.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const DONE_DURATION = 1500;
 
@@ -110,7 +110,7 @@ const DONE_DURATION = 1500;
  * popover is open at a time, tracked here so a click elsewhere or a new one
  * dismisses the prior.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param wrapper - The gallery wrapper the add-to-media icons live in.
  */
@@ -197,7 +197,7 @@ export function wireAddToMedia( wrapper: HTMLElement ): void {
  * raise its overwrite popover; any error silently returns the icon to plain so the
  * visitor can retry.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param icon              - The add-to-media icon that was clicked.
  * @param mediaUrl          - The collection's media endpoint URL.
@@ -248,7 +248,7 @@ async function runCopy(
  * or a click elsewhere dismisses it. Returns a handle carrying the icon and a
  * dismiss function that removes the popover and unarms the icon.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param icon      - The add-to-media icon the popover anchors to.
  * @param copy      - The translatable popover copy (mirrored from the wrapper).

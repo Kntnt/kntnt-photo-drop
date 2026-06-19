@@ -19,7 +19,7 @@
  * a deep, narrow seam Jest covers with a controllable fake (the live wiring in
  * `view.ts` supplies the real `XMLHttpRequest`-based processor).
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 /**
@@ -28,7 +28,7 @@
  * The relative path is the file's dedup key and the field the server recreates
  * sub-directories from; a loose file's path is its plain name.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface QueuedFile {
 	readonly file: File;
@@ -43,7 +43,7 @@ export interface QueuedFile {
  * resolves on an aborted upload too, so a cancelled batch still drains the
  * in-flight count to zero and the queue can report idle.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface UploadHandle {
 	readonly abort: () => void;
@@ -53,7 +53,7 @@ export interface UploadHandle {
 /**
  * The queue's external interface — enqueue a batch, retry a failed set, cancel.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface UploadQueue {
 	/**
@@ -89,7 +89,7 @@ export interface UploadQueue {
  * overlap. Four keeps a fast link busy through the per-file convert→encode
  * latency without opening a socket per file in a several-hundred-file batch.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const MAX_CONCURRENT_UPLOADS = 4;
 
@@ -102,7 +102,7 @@ const MAX_CONCURRENT_UPLOADS = 4;
  * a batch starts and false once the queue empties (including after a cancel),
  * so the caller can arm and disarm the `beforeunload` guard.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param process - Starts one upload and returns its abortable handle.
  * @param onBusy  - Called with the busy state as the queue starts and empties.

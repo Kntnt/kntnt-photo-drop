@@ -9,7 +9,7 @@
  * successful delete, a non-OK status (forgery/capability/confinement rejection),
  * and a transport failure — so the view wiring above it can stay thin.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { deleteImage } from './delete-image';

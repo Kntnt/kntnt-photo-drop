@@ -29,7 +29,7 @@
  * kept inside the right padding) and proves the RTLCSS mirror did not flip the
  * crumb back to LTR.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';

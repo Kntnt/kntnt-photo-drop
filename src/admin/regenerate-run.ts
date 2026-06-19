@@ -12,7 +12,7 @@
  * a transport failure stops the loop *before* the finalise, so a partial run never
  * flips the descriptor.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 /**
@@ -23,7 +23,7 @@
  * cursor reached the last main); a finalise reply carries `finalized`. The driver
  * reads only these fields, so the dispatcher may include others freely.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface RegenerateResponse {
 	readonly ok: boolean;
@@ -41,7 +41,7 @@ export interface RegenerateResponse {
  * thumbnail quality is always concrete. The dispatcher serialises these verbatim, so a
  * `null` reaches the REST endpoint as JSON null, which it reads as unset.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface RegenerateTarget {
 	readonly fullWidth: number | null;
@@ -57,7 +57,7 @@ export interface RegenerateTarget {
  * against the collection's REST route with the nonce, while a test binds a fake
  * that records calls and returns canned replies.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export type RegenerateDispatcher = (
 	body: Record< string, unknown >
@@ -69,14 +69,14 @@ export type RegenerateDispatcher = (
  * Called once per settled batch with the number of mains processed so far and the
  * collection's total, so the caller can drive the shared "N / total" progress bar.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export type RegenerateProgress = ( processed: number, total: number ) => void;
 
 /**
  * The outcome of a whole regenerate run.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface RegenerateOutcome {
 	readonly ok: boolean;
@@ -86,7 +86,7 @@ export interface RegenerateOutcome {
  * The upper bound on batch iterations, a guard against a server that never
  * reports `done` (a bug or a hostile reply) spinning the loop forever.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const MAX_BATCHES = 100_000;
 
@@ -102,7 +102,7 @@ const MAX_BATCHES = 100_000;
  * descriptor active and is safely re-runnable. An empty collection (`total` 0)
  * still finalises, since a no-image collection is a valid flip target.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param dispatch   - The request dispatcher.
  * @param target     - The four target rendition values.

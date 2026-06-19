@@ -23,7 +23,7 @@
  *
  * Independently of the lightbox, any download-overlay icon present on the
  * figures is wired so a plain click saves its image programmatically
- * ({@link saveFile} — a blob download no environment can turn into a new tab),
+ * ({@link saveFile} — a direct same-origin download that opens no new tab),
  * leaving the `<a download>` semantics as the no-JS fallback.
  *
  * For the justified layout, `init` additionally corrects the server's last-row
@@ -110,7 +110,7 @@ const mountedGalleries = new WeakSet< Element >();
  * exists yet, so this stays latent — it bounds the listener's lifetime and
  * makes a future teardown a single abort() call.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const galleryTeardowns = new WeakMap< Element, AbortController >();
 
@@ -388,7 +388,7 @@ function correctLastRow( layout: HTMLElement ): void {
  * thousand-figure gallery on every frame.
  *
  * @since 0.2.0
- * @since 0.15.0 Takes an AbortSignal so the listener and debounce are
+ * @since 0.11.0 Takes an AbortSignal so the listener and debounce are
  *               releasable in one abort.
  *
  * @param layout - The justified layout container.
@@ -444,7 +444,7 @@ store( 'kntnt-photo-drop/gallery', {
 		 *
 		 * @since 0.7.0
 		 * @since 0.4.0 Branches on the lightbox click; the overlays are per-figure.
-		 * @since 0.15.0 Wires the download-overlay icons independent of the lightbox.
+		 * @since 0.11.0 Wires the download-overlay icons independent of the lightbox.
 		 */
 		init(): void {
 			// Resolve the wrapper and guard against a double-init re-hydration.

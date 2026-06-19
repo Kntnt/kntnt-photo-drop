@@ -16,7 +16,7 @@
  * box, never flush to it). A sibling case sets an explicit padding and asserts
  * the same insetting holds, so the fix never regresses the explicit path.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import * as path from 'path';

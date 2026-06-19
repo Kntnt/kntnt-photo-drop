@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-19
+
 The major redesign previously settled only in the specs is now **implemented in code** (#42–#53, plus follow-ups #54).
 
 ### Added
@@ -27,6 +29,7 @@ The major redesign previously settled only in the specs is now **implemented in 
 - **The integration and end-to-end test harness is now worktree-portable** — `@wordpress/env` mounts the plugin under the checkout's own directory name and the e2e fixtures derive that slug, with a `WP_ENV_PORT` override, so the suites run from a git worktree (and several in parallel) without hand-editing paths. (contributor tooling)
 - **Add-to-media inserts at full resolution.** Copying a collection image into the Media Library no longer produces a downscaled `…-scaled` master for mains wider than WordPress's 2560px big-image threshold; the contract-bounded main is inserted as-is (sub-sizes still generate). (ADR-0015)
 - **Add-to-media is a single click and no longer duplicates.** Copying a collection image into the Media Library now takes one click instead of a two-click confirm; an image already copied is detected (by a stamped source identity) and, instead of silently adding a second copy, the gallery offers an inline **Overwrite** confirm that replaces the existing attachment's file in place (same attachment id). (ADR-0015 amendment)
+- **Rendition widths have a 320px floor.** The Create/Edit forms and the `collection create` / `collection update` CLI reject an upload, full, or thumbnail width below 320px; blank fields (which fall back to the source dimensions, or collapse to the tier above) are unaffected.
 
 ### Removed
 
@@ -41,6 +44,7 @@ The major redesign previously settled only in the specs is now **implemented in 
 - **The trash confirmation popover text is left-aligned** (start-aligned in RTL) regardless of a centred gallery or theme context. (#61)
 - **The Edit collection form lists Display name above Slug**, matching the Create form; the Slug stays read-only. (#63)
 - **Saving a collection with the default path-components template no longer fails.** The default `%year%/%month%/%day%/%uploader%` was false-rejected as "Invalid path components" because `sanitize_text_field` mangled `%day%`; the `%`-placeholders now survive submission intact, while genuinely invalid templates (stray `%`, `..`, absolute paths, backslashes, NUL) are still rejected. (#64)
+- **Downloading a gallery image no longer opens a stray browser tab or navigates the page away.** The download icon now saves a same-origin image — the default — through a direct same-document `<a download>` instead of fetching it into a blob: Firefox opens a `blob:` URL it can render inline (such as WebP) in a new tab even with the `download` attribute set, so the previous blob-based save downloaded the file *and* opened a tab. Only a cross-origin (offloaded-media) host still uses the blob path. The fetch-failure fallback was also corrected to a same-tab `<a download>` rather than a current-tab navigation, so a failed download never sends the gallery's own tab away. (#59, ADR-0015)
 
 ### Security
 
@@ -245,7 +249,8 @@ The major redesign previously settled only in the specs is now **implemented in 
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.11.0
 [0.10.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.1
 [0.10.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.9.0

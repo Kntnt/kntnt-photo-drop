@@ -23,14 +23,14 @@ use Kntnt\Photo_Drop\Imaging\Webp_Codec;
 /**
  * Delegates to GD for everything and counts how many times `decode()` is called.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 final class Counting_Codec implements Webp_Codec {
 
 	/**
 	 * The number of times `decode()` has been called on this instance.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 * @var int
 	 */
 	public int $decodes = 0;
@@ -38,7 +38,7 @@ final class Counting_Codec implements Webp_Codec {
 	/**
 	 * The real GD codec every call is delegated to.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 * @var Gd_Webp_Codec
 	 */
 	private Gd_Webp_Codec $gd;
@@ -46,7 +46,7 @@ final class Counting_Codec implements Webp_Codec {
 	/**
 	 * Constructs the double with a real GD codec to delegate to.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 */
 	public function __construct() {
 		$this->gd = new Gd_Webp_Codec();
@@ -55,7 +55,7 @@ final class Counting_Codec implements Webp_Codec {
 	/**
 	 * Reports WebP support as available, delegating to the real GD codec.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @return bool Whether GD can handle WebP on this host.
 	 */
@@ -66,7 +66,7 @@ final class Counting_Codec implements Webp_Codec {
 	/**
 	 * Delegates the format/width probe to the real GD codec.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $bytes The raw source bytes.
 	 * @return array{width:int,height:int,is_webp:bool}|null The GD probe result.
@@ -81,7 +81,7 @@ final class Counting_Codec implements Webp_Codec {
 	 * The single instrumented method: each call increments the tally so a test can
 	 * assert a width-only code path performed no full decode.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $bytes The raw source bytes.
 	 * @return object|null The decoded GD handle.
@@ -94,7 +94,7 @@ final class Counting_Codec implements Webp_Codec {
 	/**
 	 * Delegates the width query to the real GD codec.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param object $image The GD handle.
 	 * @return int The handle width.
@@ -106,7 +106,7 @@ final class Counting_Codec implements Webp_Codec {
 	/**
 	 * Delegates scaling to the real GD codec.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param object $image        The GD handle.
 	 * @param int    $target_width The target width.
@@ -119,7 +119,7 @@ final class Counting_Codec implements Webp_Codec {
 	/**
 	 * Delegates encoding to the real GD codec.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param object $image   The GD handle.
 	 * @param int    $quality The WebP quality.

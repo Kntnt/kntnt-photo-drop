@@ -18,7 +18,7 @@
  * hostile filename cannot inject markup. The view owns no upload state and takes
  * plain elements and callbacks, so Jest covers it in jsdom alone.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import type { FailedFile, ProgressSnapshot } from './progress-model';
@@ -31,7 +31,7 @@ import type { FailedFile, ProgressSnapshot } from './progress-model';
  * `summaryTemplate` carries `{processed}`/`{total}` tokens; `bucketUploaded`
  * carries an `{uploaded}` token.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ProgressStrings {
 	readonly cancel: string;
@@ -49,7 +49,7 @@ export interface ProgressStrings {
  * holds the final three-bucket summary and Retry; the `summary` region is the
  * single `aria-live` announcer.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ProgressElements {
 	readonly progress: HTMLElement;
@@ -60,7 +60,7 @@ export interface ProgressElements {
 /**
  * The callbacks the view fires from its Cancel and Retry controls.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ProgressCallbacks {
 	readonly onCancel: () => void;
@@ -70,7 +70,7 @@ export interface ProgressCallbacks {
 /**
  * The view's external interface — render the live bar, finalise the summary.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 export interface ProgressView {
 	/**
@@ -96,7 +96,7 @@ export interface ProgressView {
  * (`kntnt-photo-drop-regenerate`) so the same view drives a second surface without
  * the logic being duplicated (ADR-0013).
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 const DEFAULT_BLOCK = 'kntnt-photo-drop-drop-zone';
 
@@ -163,7 +163,7 @@ function bucketSection(
  * the read-out, the buckets, and the buttons carry that surface's classes instead
  * (ADR-0013).
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param elements   - The three regions the view writes into.
  * @param strings    - The pre-translated strings.

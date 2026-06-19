@@ -118,7 +118,7 @@ final class Image_Name {
 	 * the single authoritative source the doctor's classification and the
 	 * gallery's add-to-media gate both read, so the two never drift (ADR-0013).
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $name The basename to inspect, without any path.
 	 * @return bool True when the basename is a stored main image's filename.

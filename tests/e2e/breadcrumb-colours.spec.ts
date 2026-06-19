@@ -28,7 +28,7 @@
  * the preset path's cascade differently from the custom path, so the preset path
  * gets its own browser-resolved assertion rather than riding on the custom one.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';

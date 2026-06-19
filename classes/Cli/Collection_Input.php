@@ -53,7 +53,7 @@ final class Collection_Input {
 	 * means "no limit" for upload-width, or "collapse to the tier above" for
 	 * full/thumbnail-width) is never coerced and is unaffected by this constant.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 * @var int
 	 */
 	public const MINIMUM_WIDTH = 320;

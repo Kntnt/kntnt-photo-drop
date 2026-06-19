@@ -26,8 +26,8 @@
  * a download-icon anchor. The controller points its `href` at the current slide's
  * main image — the highest-fidelity download target (ADR-0013), distinct from the
  * full rendition the lightbox displays — and intercepts a plain click to save the
- * slide programmatically ({@link saveFile} — a blob download no link-rewriting
- * theme or cross-origin host can turn into a new tab); a click on the enlarged
+ * slide programmatically ({@link saveFile} — a direct same-origin download that
+ * opens no new tab); a click on the enlarged
  * image outside the icon does nothing. When the breadcrumb overlay reaches the
  * lightbox, the controller mirrors each slide's breadcrumb text onto the
  * lightbox's breadcrumb figcaption (the same overlay element, anchor, and styling
@@ -287,7 +287,7 @@ export class GalleryLightbox {
 	 * delete fired from the lightbox surface must advance or close the open viewer,
 	 * while one fired from a grid thumbnail (lightbox shut) only removes the tile.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @return True when the lightbox overlay is open.
 	 */
@@ -309,7 +309,7 @@ export class GalleryLightbox {
 	 * counter total updates. A removal of an anchor the lightbox does not own is a
 	 * no-op.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param link - The thumbnail anchor of the deleted image.
 	 */

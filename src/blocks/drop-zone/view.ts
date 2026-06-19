@@ -135,7 +135,7 @@ interface UploadSession {
  * summary once it settles. The model, view, and queue are the three pieces the
  * `init` callback assembles and every upload path closes over.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 interface Progress {
 	readonly model: ProgressModel;
@@ -387,7 +387,7 @@ async function refreshNonce( ajaxUrl: string ): Promise< string | null > {
  * outcome — `stored` or `reencoded` — is an upload. The display name prefers
  * the server's canonical name over the client's relative-path-derived one.
  *
- * @since 0.15.0
+ * @since 0.11.0
  *
  * @param outcome - The validated outcome from the REST response.
  * @return The file state for the bucket model.

@@ -54,7 +54,7 @@ use Kntnt\Photo_Drop\Storage\Index;
  * gallery write-paths read the same anchor `path`, confine it the same way, and
  * apply the same main-image gate, differing only in capability and effect.
  *
- * @since 0.15.0
+ * @since 0.11.0
  */
 class Images_Controller {
 
@@ -67,7 +67,7 @@ class Images_Controller {
 	 * Shared with the upload, list, and media endpoints so the whole plugin surface
 	 * lives under one versioned namespace.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 * @var string
 	 */
 	private const NAMESPACE = 'kntnt-photo-drop/v1';
@@ -83,7 +83,7 @@ class Images_Controller {
 	 * path, so a syntactically matched-but-invalid slug simply fails to resolve and
 	 * yields a 404.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 * @var string
 	 */
 	private const ROUTE = '/collections/(?P<slug>[a-zA-Z0-9._-]+)/images';
@@ -95,7 +95,7 @@ class Images_Controller {
 	 * others' media in the Library". The `kntnt_photo_drop_delete_capability` filter
 	 * lets a site narrow or widen it.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 * @var string
 	 */
 	private const DEFAULT_CAPABILITY = 'delete_others_posts';
@@ -103,7 +103,7 @@ class Images_Controller {
 	/**
 	 * The JSON body field carrying the image's collection-relative path.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 * @var string
 	 */
 	private const PATH_PARAM = 'path';
@@ -114,7 +114,7 @@ class Images_Controller {
 	 * The repository is held `readonly` so a test can substitute one anchored at a
 	 * temp root at construction and production code cannot swap it afterwards.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param Repository $repository The collection read/resolve side.
 	 */
@@ -128,7 +128,7 @@ class Images_Controller {
 	 * check, and dispatches to `delete_image()`. It shares the `/images` resource path
 	 * with the Drop Zone upload (POST), distinguished by the HTTP method.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @return void
 	 */
@@ -175,7 +175,7 @@ class Images_Controller {
 	 * un-capable user (an uploader who can add but not delete others' media) is a 403.
 	 * Only when both pass does WordPress invoke `delete_image()`.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return true|\WP_Error True when both gates pass, or a WP_Error carrying 401/403.
@@ -218,7 +218,7 @@ class Images_Controller {
 	 * per-folder index self-heals on the next render. A failed removal is a 500 rather
 	 * than a phantom success. The reply is `200 { deleted: true }`.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return \WP_REST_Response|\WP_Error The deletion outcome, or a WP_Error for a failure.
@@ -295,7 +295,7 @@ class Images_Controller {
 	 * `<name>.webp` form, and the descriptor is excluded by the stored-main rule anyway
 	 * — but both are stated so the gate reads as the full ADR-0015 contract.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $path The confined absolute path returned by `Path_Guard`.
 	 * @return bool True when the path is a collection main image.
@@ -328,7 +328,7 @@ class Images_Controller {
 	 * without touching disk; production always runs the real removal (covered by the
 	 * `Image_Deleter` unit suite and the integration suite).
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param string $main_path The absolute path to the confined main image.
 	 * @return bool True when the main image was removed.
@@ -347,7 +347,7 @@ class Images_Controller {
 	 * Static so both the controller's gate and the gallery's capability-gated render
 	 * resolve the identical value through one place.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @return string The capability string to check.
 	 */
@@ -364,7 +364,7 @@ class Images_Controller {
 	 * `Path_Guard`'s job, and that guard must see the raw bytes (including any encoded
 	 * traversal) to reject them.
 	 *
-	 * @since 0.15.0
+	 * @since 0.11.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return string The raw relative path, or '' when absent.
