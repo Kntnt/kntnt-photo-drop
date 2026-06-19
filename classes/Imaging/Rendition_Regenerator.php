@@ -47,14 +47,14 @@ use Kntnt\Photo_Drop\Storage\Index_Store;
  * buckets a flip retires — is the static `stale_widths()`, kept dependency-free so
  * it is unit-testable in isolation.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 final class Rendition_Regenerator {
 
 	/**
 	 * The deriver that re-writes each main's full and thumbnail renditions.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var Thumbnailer
 	 */
 	private readonly Thumbnailer $thumbnailer;
@@ -62,7 +62,7 @@ final class Rendition_Regenerator {
 	/**
 	 * The self-healing index store the completeness sweep reads main widths from.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 * @var Index_Store
 	 */
 	private readonly Index_Store $index_store;
@@ -77,7 +77,7 @@ final class Rendition_Regenerator {
 	 * own deriver to exercise the mechanics without real pixel work, or its own index
 	 * store to pin the completeness sweep's width source.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string           $root        Absolute path to the collection root directory.
 	 * @param Descriptor       $descriptor  The collection's current descriptor.
@@ -105,7 +105,7 @@ final class Rendition_Regenerator {
 	 * directly unit-testable. A degenerate flip whose new full width equals an old
 	 * thumbnail width keeps that bucket, because it is configured after the flip.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param array<int,int> $old_widths The derived widths before the flip.
 	 * @param array<int,int> $new_widths The derived widths after the flip.
@@ -128,7 +128,7 @@ final class Rendition_Regenerator {
 	 * disk per request, so a main added or removed mid-run shifts the count rather
 	 * than relying on a stale snapshot.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return int The number of stored mains.
 	 */
@@ -147,7 +147,7 @@ final class Rendition_Regenerator {
 	 * the current main list (the list shrank between requests) is a no-op returning
 	 * zero, never an error. Returns the count of derived files written for that main.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param int $index             The zero-based cursor into the collection's mains.
 	 * @param int $full_width        The target full-image width.
@@ -200,7 +200,7 @@ final class Rendition_Regenerator {
 	 * vacuously complete — there is nothing to write at that index — mirroring
 	 * `regenerate_main()`'s no-op.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param int $index             The zero-based cursor into the collection's mains.
 	 * @param int $full_width        The target full-image width.
@@ -270,7 +270,7 @@ final class Rendition_Regenerator {
 	 * which only ever flips to concrete widths) the descriptor flips via
 	 * `with_renditions()` from the four arguments, as before.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param int             $full_width        The effective target full-image width.
 	 * @param int             $full_quality      The effective target full-image quality.
@@ -348,7 +348,7 @@ final class Rendition_Regenerator {
 	 * undecodable main as incomplete. Either way the safety guarantee holds: the flip
 	 * proceeds only when every expected rendition is verified present on disk.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param int $full_width        The target full-image width.
 	 * @param int $full_quality      The target full-image quality.
@@ -412,7 +412,7 @@ final class Rendition_Regenerator {
 	 * width`. A folder with no index (it could not be rebuilt, e.g. it has vanished)
 	 * yields an empty map, so every main falls back to the decode-based check.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @param string $folder Absolute path to a content folder.
 	 * @return array<string,int> Each main filename mapped to its pixel width.
@@ -447,7 +447,7 @@ final class Rendition_Regenerator {
 	 * link can never route a delete outside the collection. Returns the number of
 	 * thumbnail files removed.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param array<int,int> $stale The width buckets to remove.
 	 * @return int The number of thumbnail files removed.
@@ -485,7 +485,7 @@ final class Rendition_Regenerator {
 	 * warning) rather than being forced away. A symlinked or missing bucket is left
 	 * untouched. Returns the number of thumbnail files removed.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $bucket Absolute path to the `<width>/` bucket to remove.
 	 * @return int The number of thumbnail files removed.
@@ -537,7 +537,7 @@ final class Rendition_Regenerator {
 	 * corral is never treated as content and a symlinked directory is never descended
 	 * into, mirroring the doctor's and the delete path's symlink stance.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return array<int,string> The absolute main paths, in stable order.
 	 */
@@ -563,7 +563,7 @@ final class Rendition_Regenerator {
 	 * A main is a top-level `*.webp` file; thumbnails live under the hidden corral, so
 	 * the extension alone classifies a main here.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $folder Absolute path to a content folder.
 	 * @return array<int,string> The folder's main `*.webp` filenames.
@@ -596,7 +596,7 @@ final class Rendition_Regenerator {
 	 * content) and never through a symlink (which would let the regenerate reach
 	 * outside the collection). The list is depth-first and stable.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return array<int,string> The absolute content-folder paths, root first.
 	 */
@@ -618,7 +618,7 @@ final class Rendition_Regenerator {
 	 * and prune outside the collection, breaking the symlink confinement the rest of
 	 * the plugin enforces.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string            $folder   The folder to scan.
 	 * @param array<int,string> &$folders The accumulator the sub-folders are appended to.

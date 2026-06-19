@@ -15,7 +15,7 @@
  * It is pure of the DOM — `addToMedia` takes its `fetch` as an option — so the
  * view wiring above it stays thin and it is unit-testable without a browser.
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 
 /**
@@ -81,7 +81,7 @@ function readNumber( value: unknown, key: string ): number | null {
  * numeric id degrades to an error rather than a phantom id. Never throws, so the
  * caller can branch on `result.outcome` without a try/catch.
  *
- * @since 0.12.0
+ * @since 0.15.0
  *
  * @param url     - The collection's media endpoint URL (mirrored onto the wrapper).
  * @param path    - The image's collection-relative path (mirrored onto the anchor/icon).

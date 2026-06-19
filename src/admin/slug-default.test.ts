@@ -10,7 +10,7 @@
  * suffixing for the ASCII display names that dominate, and never collide with a slug
  * already in the list.
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 
 import { uniqueSlug } from './slug-default';

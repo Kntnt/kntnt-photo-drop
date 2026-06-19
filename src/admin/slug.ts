@@ -11,7 +11,7 @@
  * a blank slug to the same unique default and re-verifies uniqueness at submit, so
  * the page works unchanged when this script is absent.
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 
 import { uniqueSlug } from './slug-default';

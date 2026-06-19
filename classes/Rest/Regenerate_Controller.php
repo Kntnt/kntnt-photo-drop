@@ -44,7 +44,7 @@ use Kntnt\Photo_Drop\Storage\Descriptor;
  * protected `create_regenerator()` factory is the seam a test subclass overrides
  * to drive a faked deriver.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 class Regenerate_Controller {
 
@@ -57,7 +57,7 @@ class Regenerate_Controller {
 	 * Shared with the upload and list endpoints so the whole plugin surface lives
 	 * under one versioned namespace.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const NAMESPACE = 'kntnt-photo-drop/v1';
@@ -70,7 +70,7 @@ class Regenerate_Controller {
 	 * resolved to a path, so a syntactically matched-but-invalid slug simply fails to
 	 * resolve and yields a 404.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const ROUTE = '/collections/(?P<slug>[a-zA-Z0-9._-]+)/regenerate';
@@ -83,7 +83,7 @@ class Regenerate_Controller {
 	 * `kntnt_photo_drop_manage_capability`. An editor who can merely place a block
 	 * must not be able to re-derive a collection.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const DEFAULT_CAPABILITY = 'manage_options';
@@ -94,7 +94,7 @@ class Regenerate_Controller {
 	 * The repository is held `readonly` so a test can substitute one anchored at a
 	 * temp root at construction and production code cannot swap it afterwards.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param Repository $repository The collection read/resolve side.
 	 */
@@ -107,7 +107,7 @@ class Regenerate_Controller {
 	 * full/thumbnail widths plus a batch `index` (or a `finalize` flag), runs the
 	 * two-gate permission check, and dispatches to `regenerate()`.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return void
 	 */
@@ -143,7 +143,7 @@ class Regenerate_Controller {
 	 * people: a logged-in but un-capable user (an editor who can place a block) is a
 	 * 403. Only when both pass does WordPress invoke `regenerate()`.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return true|\WP_Error True when both gates pass, or a WP_Error carrying 401/403.
@@ -184,7 +184,7 @@ class Regenerate_Controller {
 	 * The slug and the upload contract are **never** read from the request, so the
 	 * endpoint can neither rename a collection nor change its irreversible pair.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return \WP_REST_Response|\WP_Error The batch/finalise result, or a WP_Error for a request-level failure.
@@ -239,7 +239,7 @@ class Regenerate_Controller {
 	 * count of derived files written — so the browser can drive the next batch or move
 	 * on to the finalise.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request      $request     The incoming request.
 	 * @param Rendition_Regenerator $regenerator The per-collection regenerator.
@@ -311,7 +311,7 @@ class Regenerate_Controller {
 	 * pruned, so the old renditions stay live and the collection consistent; a success
 	 * reports the effective new widths and the count of pruned files.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param Rendition_Regenerator $regenerator The per-collection regenerator.
 	 * @param Descriptor            $target      The raw target descriptor (re-derivable trio possibly unset).
@@ -357,7 +357,7 @@ class Regenerate_Controller {
 	 * Protected so a test subclass can substitute a faked deriver; production always
 	 * binds the real `Rendition_Regenerator` with its default GD-backed deriver.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string     $collection_path Absolute path to the resolved collection root.
 	 * @param Descriptor $descriptor      The collection's current descriptor.
@@ -383,7 +383,7 @@ class Regenerate_Controller {
 	 * non-numeric string, a non-positive width, an out-of-range quality) yields `null`,
 	 * which the caller answers with a 400 — distinct from a legitimate unset.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request    The incoming request.
 	 * @param Descriptor       $descriptor The stored descriptor the target is applied onto.
@@ -428,7 +428,7 @@ class Regenerate_Controller {
 	 * value is malformed and returns `false`, which the caller turns into a 400. The
 	 * `false` sentinel is what distinguishes garbage from a legitimate unset.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming request.
 	 * @param string           $key     The width parameter name.
@@ -454,7 +454,7 @@ class Regenerate_Controller {
 	 * `null`. A present value must be an integer in 0–100; anything else is malformed and
 	 * returns `false`, which the caller turns into a 400.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming request.
 	 * @param string           $key     The quality parameter name.
@@ -479,7 +479,7 @@ class Regenerate_Controller {
 	 * treated the same way. Either is the collapse-to-parent "unset" state, distinct from
 	 * a present-but-garbage value, which the optional readers reject as malformed.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming request.
 	 * @param string           $key     The parameter name.
@@ -492,7 +492,7 @@ class Regenerate_Controller {
 	/**
 	 * Reports whether a value is a valid 0–100 quality.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param int|null $quality The coerced quality value.
 	 * @return bool True when the value is an integer in 0–100.
@@ -508,7 +508,7 @@ class Regenerate_Controller {
 	 * flipping the descriptor and pruning. The value is read loosely (the JS sends a
 	 * JSON boolean) so `true`, `"1"`, and `1` all count.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming request.
 	 * @return bool True when the request is a finalise.
@@ -525,7 +525,7 @@ class Regenerate_Controller {
 	/**
 	 * Reads the zero-based batch cursor index from the request, clamped to ≥ 0.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming request.
 	 * @return int The cursor index, never negative.
@@ -542,7 +542,7 @@ class Regenerate_Controller {
 	 * yields), so the controller treats the wire's loose typing uniformly. A
 	 * non-integer, float, or empty value reads as `null`.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming request.
 	 * @param string           $key     The parameter name.
@@ -573,7 +573,7 @@ class Regenerate_Controller {
 	 * filter that returns a non-string or empty value is a misuse and falls back to
 	 * the default rather than silently disabling the gate.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return string The capability string to check.
 	 */

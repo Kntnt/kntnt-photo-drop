@@ -37,7 +37,7 @@ use Kntnt\Photo_Drop\Collection\Image_Name;
  * identically — the only difference is that a filename is first mapped back from
  * its stored `<original>.webp` form.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 final class Breadcrumb_Builder {
 
@@ -52,7 +52,7 @@ final class Breadcrumb_Builder {
 	 * as zero. An empty collection name contributes no leading crumb, so the
 	 * path simply starts at its first real segment.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $relative_path   The image path relative to the collection root.
 	 * @param string $collection_name The collection's display name (the first crumb).
@@ -95,7 +95,7 @@ final class Breadcrumb_Builder {
 	 * This is the string the gallery mirrors onto the anchor's
 	 * `data-kntnt-photo-drop-breadcrumbs` so the lightbox shows the same overlay.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $relative_path   The image path relative to the collection root.
 	 * @param string $collection_name The collection's display name (the first crumb).
@@ -127,7 +127,7 @@ final class Breadcrumb_Builder {
 	 * way a breadcrumb crumb is. Kept beside the breadcrumb assembly so the
 	 * filename humanisation has one source.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $relative_path The image path relative to the collection root.
 	 * @return string The humanised filename.
@@ -153,7 +153,7 @@ final class Breadcrumb_Builder {
 	 * The caller has already mapped a stored `<original>.webp` filename back to
 	 * its original, so this never sees the appended `.webp`.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $segment The path segment (filename already de-stored).
 	 * @return string The humanised display text.

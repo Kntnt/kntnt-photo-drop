@@ -29,7 +29,7 @@
  * The delete request lives in the pure {@link deleteImage} module; this module is
  * the DOM wiring — the popover and the live removal — around it.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 
 import { deleteImage } from './delete-image';
@@ -46,7 +46,7 @@ import { shouldInterceptClick } from './save-file';
  * a string is absent, so a stripped attribute degrades to a working (if untranslated)
  * popover rather than an empty one.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 interface ConfirmCopy {
 	/** The permanence-stating prompt above the buttons. */
@@ -62,28 +62,28 @@ interface ConfirmCopy {
 /**
  * The icon class that marks a trash control on any surface.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 const TRASH_SELECTOR = '.kntnt-photo-drop-gallery__icon--trash';
 
 /**
  * The class on the inline confirm popover this module creates.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 const POPOVER_CLASS = 'kntnt-photo-drop-gallery__confirm';
 
 /**
  * The modifier toggled on a trash icon while its confirm popover is open.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 const ARMED_CLASS = 'kntnt-photo-drop-gallery__icon--armed';
 
 /**
  * The modifier toggled on a trash icon while its delete request is in flight.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 const BUSY_CLASS = 'kntnt-photo-drop-gallery__icon--busy';
 
@@ -98,7 +98,7 @@ const BUSY_CLASS = 'kntnt-photo-drop-gallery__icon--busy';
  * fires the permanent delete. A modified click is left to the browser. Only one
  * popover is open at a time, tracked here so a click elsewhere can dismiss it.
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param wrapper     - The gallery wrapper the trash icons live in.
  * @param getLightbox - Returns the gallery's lightbox controller, or null when none is mounted.
@@ -195,7 +195,7 @@ export function wireTrash(
  * keyboard user lands on the safe choice. Returns a handle carrying the popover,
  * its icon, and a dismiss function that removes the popover and unarms the icon.
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param icon      - The trash icon the popover anchors to.
  * @param copy      - The translatable popover copy (mirrored from the wrapper).
@@ -280,7 +280,7 @@ function openConfirm(
  * mirrors onto each figure's anchor, so the same removal works whether the delete
  * was fired from a grid thumbnail or the open lightbox.
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param wrapper     - The gallery wrapper the figures live in.
  * @param icon        - The trash icon that was confirmed.
@@ -324,7 +324,7 @@ async function runDelete(
  * then the figure is removed from the grid. A path that matches no anchor (already
  * gone) is a no-op.
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param wrapper  - The gallery wrapper the figures live in.
  * @param path     - The collection-relative path of the deleted image.
@@ -362,7 +362,7 @@ function removeTile(
  * confines it), but it can contain spaces and other characters a selector needs
  * quoted, and this keeps the lookup robust without assuming the modern API.
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param value - The attribute value to escape.
  * @return The escaped value, safe inside a double-quoted attribute selector.

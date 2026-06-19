@@ -269,7 +269,7 @@ final class Render_Drop_Zone {
 	 * replaced with live counts in the browser.
 	 *
 	 * @since 0.5.0
-	 * @since 0.11.0 Per-file status/outcome labels gave way to the aggregate
+	 * @since 0.15.0 Per-file status/outcome labels gave way to the aggregate
 	 *               progress bar, live announcer, and three-bucket summary.
 	 *
 	 * @return array<string,string> The string map keyed by the identifier the module reads.

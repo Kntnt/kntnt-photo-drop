@@ -24,7 +24,7 @@
  * drags the dependent tiers below the minimum. The field that holds the sub-floor
  * value is left for the HTML `min` attribute and the server to reject (@since 0.15.0).
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 
 /**
@@ -46,7 +46,7 @@ const MINIMUM_WIDTH = 320;
  * width at all (it is the immutable contract, shown read-only), which the caller
  * models as `none` — there is no live upload ceiling to clamp against there.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 export type UploadWidthMode = 'limit' | 'none';
 
@@ -58,7 +58,7 @@ export type UploadWidthMode = 'limit' | 'none';
  * reject is passed through rather than silently coerced. `uploadMode` selects
  * whether `upload` is an active ceiling for `full`.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 export interface WidthFields {
 	readonly uploadMode: UploadWidthMode;
@@ -74,7 +74,7 @@ export interface WidthFields {
  * and is never lowered by this rule. Each value is the original string when it was
  * left untouched, or the ceiling's string when it was clamped down.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 export interface ClampedWidths {
 	readonly full: string;
@@ -152,7 +152,7 @@ function clampTo( raw: string, ceiling: number | null ): string {
  * lower tiers, so an out-of-range upload or full value never drags the dependent tiers
  * below the server's accepted minimum (@since 0.15.0).
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param fields - The three width fields' raw values and the upload-width mode.
  * @return The clamped Full and Thumbnail width strings.

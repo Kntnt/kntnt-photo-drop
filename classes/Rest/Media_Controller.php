@@ -50,7 +50,7 @@ use Kntnt\Photo_Drop\Storage\Index;
  * resolution-and-confinement logic without a real Media Library (the real
  * sideload is covered by the integration suite).
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 class Media_Controller {
 
@@ -63,7 +63,7 @@ class Media_Controller {
 	 * Shared with the upload and list endpoints so the whole plugin surface lives
 	 * under one versioned namespace.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const NAMESPACE = 'kntnt-photo-drop/v1';
@@ -76,7 +76,7 @@ class Media_Controller {
 	 * is resolved to a path, so a syntactically matched-but-invalid slug simply
 	 * fails to resolve and yields a 404.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const ROUTE = '/collections/(?P<slug>[a-zA-Z0-9._-]+)/media';
@@ -89,7 +89,7 @@ class Media_Controller {
 	 * `kntnt_photo_drop_add_to_media_capability` filter lets a site narrow or widen
 	 * it.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const DEFAULT_CAPABILITY = 'upload_files';
@@ -97,7 +97,7 @@ class Media_Controller {
 	/**
 	 * The JSON body field carrying the image's collection-relative path.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const PATH_PARAM = 'path';
@@ -137,7 +137,7 @@ class Media_Controller {
 	 * The repository is held `readonly` so a test can substitute one anchored at a
 	 * temp root at construction and production code cannot swap it afterwards.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param Repository $repository The collection read/resolve side.
 	 */
@@ -150,7 +150,7 @@ class Media_Controller {
 	 * collection-relative `path` of the image to copy, runs the two-gate permission
 	 * check, and dispatches to `add_to_media()`.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @return void
 	 */
@@ -203,7 +203,7 @@ class Media_Controller {
 	 * logged-in but un-capable user (a self-registered Subscriber holding a valid
 	 * nonce) is a 403. Only when both pass does WordPress invoke `add_to_media()`.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return true|\WP_Error True when both gates pass, or a WP_Error carrying 401/403.
@@ -254,7 +254,7 @@ class Media_Controller {
 	 * being `201 { id }`. A failed import or overwrite is a 500 rather than a phantom
 	 * success.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return \WP_REST_Response|\WP_Error The created/replaced attachment, or a WP_Error for a failure.
@@ -368,7 +368,7 @@ class Media_Controller {
 	 * stored-main rule anyway — but both are stated explicitly so the gate reads as
 	 * the full ADR-0015 contract rather than relying on a coincidence of the naming.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param string $path The confined absolute path returned by `Path_Guard`.
 	 * @return bool True when the path is a collection main image.
@@ -401,7 +401,7 @@ class Media_Controller {
 	 * stub and exercise the path resolution without a real Media Library; production
 	 * always runs the real import (covered end-to-end by the integration suite).
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param string $main_path The absolute path to the confined main image.
 	 * @return int|\WP_Error The created attachment id, or a WP_Error on failure.
@@ -578,7 +578,7 @@ class Media_Controller {
 	 * Static so both the controller's gate and the gallery's capability-gated render
 	 * resolve the identical value through one place.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @return string The capability string to check.
 	 */
@@ -595,7 +595,7 @@ class Media_Controller {
 	 * the `Path_Guard`'s job, and that guard must see the raw bytes (including any
 	 * encoded traversal) to reject them.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param \WP_REST_Request $request The incoming REST request.
 	 * @return string The raw relative path, or '' when absent.

@@ -11,7 +11,7 @@
  * stopping on the first transport failure without finalising (so a failed run
  * never flips the descriptor).
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import { runRegeneration } from './regenerate-run';

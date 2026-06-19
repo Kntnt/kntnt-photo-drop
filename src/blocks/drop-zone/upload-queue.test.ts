@@ -12,7 +12,7 @@
  * controllable fake — no XHR, no Interactivity runtime, no DOM — and pin the
  * coordination the live `view.ts` wiring depends on.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import {

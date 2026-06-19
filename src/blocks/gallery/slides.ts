@@ -36,8 +36,8 @@ export const SLIDE_LINK_SELECTOR = '.kntnt-photo-drop-gallery__link';
  * when the gallery has no add-to-media overlay or the user is un-capable).
  *
  * @since 0.7.0
- * @since 0.11.0 Added the `main` download target, distinct from the display `url`.
- * @since 0.12.0 Added the `path` add-to-media target.
+ * @since 0.15.0 Added the `main` download target, distinct from the display `url`.
+ * @since 0.15.0 Added the `path` add-to-media target.
  */
 export interface GallerySlide {
 	/** The display image URL — the full rendition the lightbox shows (the anchor's `href`). */
@@ -63,8 +63,8 @@ export interface GallerySlide {
  * breadcrumbs to empty, and the label to the thumbnail's `alt` or empty.
  *
  * @since 0.7.0
- * @since 0.11.0 Reads the `main` download target from its own data attribute.
- * @since 0.12.0 Reads the `path` add-to-media target, empty when the anchor has none.
+ * @since 0.15.0 Reads the `main` download target from its own data attribute.
+ * @since 0.15.0 Reads the `path` add-to-media target, empty when the anchor has none.
  *
  * @param links - The thumbnail anchors, in gallery order.
  * @return One slide per anchor, in the same order.

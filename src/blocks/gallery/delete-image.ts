@@ -17,7 +17,7 @@
  * explicit Delete/Cancel, never a single click), kept in the DOM layer because it
  * is all element creation and focus handling.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 
 /**
@@ -28,7 +28,7 @@
  * (or `0` for a transport failure the browser never gave a status for), so the
  * caller can distinguish a forbidden/rejected delete from a network drop.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 export type DeleteImageResult =
 	| { readonly ok: true }
@@ -45,7 +45,7 @@ export type DeleteImageResult =
  * is a failure with status `0`. Never throws, so the caller can branch on
  * `result.ok` without a try/catch.
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param url       - The collection's images endpoint URL (mirrored onto the wrapper).
  * @param path      - The image's collection-relative path (mirrored onto the anchor/icon).

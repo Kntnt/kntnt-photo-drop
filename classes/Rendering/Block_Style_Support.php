@@ -58,7 +58,7 @@ final class Block_Style_Support {
 	 * result lands on the breadcrumb `<figcaption>`, never on the block wrapper.
 	 *
 	 * @since 0.4.0
-	 * @since 0.11.0 Renamed from `caption()`; the gallery's text overlay is now the
+	 * @since 0.15.0 Renamed from `caption()`; the gallery's text overlay is now the
 	 *               breadcrumb (ADR-0015), but the colour/typography projection is
 	 *               unchanged.
 	 *
@@ -92,7 +92,7 @@ final class Block_Style_Support {
 	 * reference. An unset colour yields the empty string so the renderer omits the
 	 * property and the stylesheet's own default overlay colour applies.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @return array{fg:string,bg:string} The resolved foreground and background, or `''`.

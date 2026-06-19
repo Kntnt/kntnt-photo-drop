@@ -10,7 +10,7 @@
  * icon overlay's position picker. A second test confirms the breadcrumb overlay
  * actually reaches the server-rendered preview canvas.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';

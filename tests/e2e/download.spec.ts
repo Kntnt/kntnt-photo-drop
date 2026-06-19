@@ -12,8 +12,8 @@
  * download is always the highest-fidelity rendition.
  *
  * @since 0.5.0
- * @since 0.11.0 Overlay model (ADR-0015); asserts the main-image download target.
- * @since 0.11.0 Also asserts no popup ('new tab') opens on either surface (#59).
+ * @since 0.15.0 Overlay model (ADR-0015); asserts the main-image download target.
+ * @since 0.15.0 Also asserts no popup ('new tab') opens on either surface (#59).
  */
 
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';

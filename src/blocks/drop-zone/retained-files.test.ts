@@ -13,7 +13,7 @@
  * as a corrupt artifact), only the failed keys are resolved, and a key with no
  * retained file is dropped rather than fabricated.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import { createRetainedFiles } from './retained-files';

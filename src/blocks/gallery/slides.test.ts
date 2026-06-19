@@ -9,7 +9,7 @@
  * full image must not drag the download target off the main. Each field also
  * degrades on its own when the attribute is absent.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import { readSlides } from './slides';

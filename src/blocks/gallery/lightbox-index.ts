@@ -164,7 +164,7 @@ export function last( state: LightboxState ): LightboxState {
  * `0`), since there is nothing left to show. An index outside `[0, count)` removes
  * nothing and returns the state unchanged.
  *
- * @since 0.13.0
+ * @since 0.15.0
  *
  * @param state        - The current state.
  * @param removedIndex - The zero-based index of the image being removed.

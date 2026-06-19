@@ -138,7 +138,7 @@ final class Thumbnailer {
 	 * not be read again. Returns the absolute paths actually written, possibly empty
 	 * for a main that serves every role itself.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param object $image             The decoded, upright, contract-width main handle.
 	 * @param string $main_path         Absolute path to the stored main image (its folder roots the corral).
@@ -203,7 +203,7 @@ final class Thumbnailer {
 	 * hostile symlink cannot permanently block a collection's regenerate. An empty plan
 	 * (the legitimate collapse) is vacuously complete.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $main_path         Absolute path to the stored main image.
 	 * @param string $stored_name       The main's `<original>.webp` filename.
@@ -256,7 +256,7 @@ final class Thumbnailer {
 	 * that cannot guarantee that (a stale or missing index entry) must use
 	 * `renditions_present()` instead, which reads the width by decoding.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @param int    $main_width        The main image's pixel width (from a trusted source).
 	 * @param string $main_path         Absolute path to the stored main image.
@@ -313,7 +313,7 @@ final class Thumbnailer {
 	 * ceiling, or undecodable — the single point both callers treat as "no usable
 	 * main", so the derive and the completeness check agree on what counts as decodable.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $main_path Absolute path to the stored main image.
 	 * @return object|null The decoded image handle, or null when the main is unusable.

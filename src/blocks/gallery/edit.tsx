@@ -137,7 +137,7 @@ function PreviewPlaceholders(): JSX.Element {
 /**
  * The four overlay visibility options, paired with their translated labels.
  *
- * @since 0.11.0
+ * @since 0.15.0
  *
  * @return The visibility select options.
  */
@@ -153,7 +153,7 @@ function visibilityOptions(): { value: OverlayVisibility; label: string }[] {
 /**
  * The nine position options, paired with their translated labels.
  *
- * @since 0.11.0
+ * @since 0.15.0
  *
  * @return The position select options.
  */
@@ -192,7 +192,7 @@ function positionOptions(): { value: OverlayPosition; label: string }[] {
 /**
  * The props of one overlay's visibility + position control group.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 interface OverlayControlProps {
 	/** The control group's translated heading. */
@@ -220,7 +220,7 @@ interface OverlayControlProps {
  * sees why a band is unavailable — the mutual band-exclusion between the
  * breadcrumb and the icons (ADR-0015).
  *
- * @since 0.11.0
+ * @since 0.15.0
  *
  * @param props - The control group props.
  * @return The control group markup.

@@ -109,7 +109,7 @@ final class Render_Gallery {
 	 * and who may enumerate collections are different concerns that merely share a
 	 * default.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const DEFAULT_EDITOR_NOTICE_CAPABILITY = 'edit_posts';
@@ -210,7 +210,7 @@ final class Render_Gallery {
 	 *
 	 * @since 0.6.0
 	 * @since 0.4.0 Added the `$is_preview` flag to suppress the lightbox in the editor.
-	 * @since 0.11.0 Replaced the caption + download click-matrix with the unified
+	 * @since 0.15.0 Replaced the caption + download click-matrix with the unified
 	 *               overlay framework (ADR-0015).
 	 *
 	 * @param array<string,mixed>     $attributes The block attributes.
@@ -471,7 +471,7 @@ final class Render_Gallery {
 	 * the figure, positioned absolutely by their anchor classes.
 	 *
 	 * @since 0.4.0
-	 * @since 0.11.0 Replaced the caption + download icon with the overlay renderer.
+	 * @since 0.15.0 Replaced the caption + download icon with the overlay renderer.
 	 *
 	 * @param Gallery_Item     $item        The image.
 	 * @param Descriptor       $descriptor  The collection contract.
@@ -606,9 +606,9 @@ final class Render_Gallery {
 	 *
 	 * @since 0.6.0
 	 * @since 0.7.0 Added the slideshow surface (ADR-0009).
-	 * @since 0.11.0 Replaced the download wrapper flag and the caption/download
+	 * @since 0.15.0 Replaced the download wrapper flag and the caption/download
 	 *               overlay chrome with the unified overlay framework (ADR-0015).
-	 * @since 0.12.0 Emits the add-to-media REST nonce and URL only for a capable user
+	 * @since 0.15.0 Emits the add-to-media REST nonce and URL only for a capable user
 	 *               who will see the icon (ADR-0015).
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
@@ -803,7 +803,7 @@ final class Render_Gallery {
 	 * outside an icon does nothing.
 	 *
 	 * @since 0.7.0
-	 * @since 0.11.0 Carries the unified full-surface overlays instead of the caption
+	 * @since 0.15.0 Carries the unified full-surface overlays instead of the caption
 	 *               + download click-matrix.
 	 *
 	 * @param Overlay_Renderer $overlays The resolved overlay renderer.
@@ -921,7 +921,7 @@ final class Render_Gallery {
 	 * the thumbnails' own anchor data.
 	 *
 	 * @since 0.7.0
-	 * @since 0.11.0 Dropped the mirrored caption — the slideshow shows no overlays.
+	 * @since 0.15.0 Dropped the mirrored caption — the slideshow shows no overlays.
 	 *
 	 * @return string The escaped overlay markup.
 	 */
@@ -1077,7 +1077,7 @@ final class Render_Gallery {
 	 * non-string or empty value is a misuse and falls back to the default rather
 	 * than showing the diagnostic behind an empty capability check.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return string The capability a user must hold to see the editor notice.
 	 */

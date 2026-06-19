@@ -26,7 +26,7 @@
  * The copy request lives in the pure {@link addToMedia} module; this module is the
  * thin DOM wiring — the single-click flow and the overwrite popover — around it.
  *
- * @since 0.12.0
+ * @since 0.15.0
  * @since 0.15.0 Single click adds; a duplicate raises an overwrite confirm.
  */
 
@@ -58,7 +58,7 @@ interface OverwriteCopy {
 /**
  * The icon class that marks an add-to-media control on any surface.
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 const ADD_TO_MEDIA_SELECTOR = '.kntnt-photo-drop-gallery__icon--add-to-media';
 
@@ -79,14 +79,14 @@ const ARMED_CLASS = 'kntnt-photo-drop-gallery__icon--armed';
 /**
  * The modifier toggled while the copy POST is in flight.
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 const BUSY_CLASS = 'kntnt-photo-drop-gallery__icon--busy';
 
 /**
  * The modifier toggled briefly on a successful copy (the checkmark glyph).
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 const DONE_CLASS = 'kntnt-photo-drop-gallery__icon--done';
 
@@ -94,7 +94,7 @@ const DONE_CLASS = 'kntnt-photo-drop-gallery__icon--done';
  * How long the success checkmark stays before the icon returns to the plus, in
  * milliseconds.
  *
- * @since 0.12.0
+ * @since 0.15.0
  */
 const DONE_DURATION = 1500;
 
@@ -110,7 +110,7 @@ const DONE_DURATION = 1500;
  * popover is open at a time, tracked here so a click elsewhere or a new one
  * dismisses the prior.
  *
- * @since 0.12.0
+ * @since 0.15.0
  *
  * @param wrapper - The gallery wrapper the add-to-media icons live in.
  */

@@ -12,7 +12,7 @@
  * and an un-capable wrapper (no nonce/URL) leaves the icon completely inert. The
  * pure request shape is pinned separately in `delete-image.test.ts`.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 
 import { wireTrash } from './trash-view';
@@ -21,7 +21,7 @@ import type { GalleryLightbox } from './lightbox';
 /**
  * The fetch double's recorded calls, reset before each test.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 let fetchCalls: { url: string; init?: RequestInit }[] = [];
 

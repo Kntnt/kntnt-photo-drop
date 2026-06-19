@@ -38,14 +38,14 @@ export type SlideshowTrigger = 'off' | 'button' | 'custom';
  * thumbnail, on the lightbox ("full") image, or on both. "Full" requires the
  * lightbox to be on, and the slideshow never shows overlays.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 export type OverlayVisibility = 'off' | 'thumbnail' | 'full' | 'both';
 
 /**
  * The nine anchor points an overlay can be positioned at.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 export type OverlayPosition =
 	| 'top-left'

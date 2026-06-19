@@ -287,7 +287,7 @@ export class GalleryLightbox {
 	 * delete fired from the lightbox surface must advance or close the open viewer,
 	 * while one fired from a grid thumbnail (lightbox shut) only removes the tile.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @return True when the lightbox overlay is open.
 	 */
@@ -309,7 +309,7 @@ export class GalleryLightbox {
 	 * counter total updates. A removal of an anchor the lightbox does not own is a
 	 * no-op.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @param link - The thumbnail anchor of the deleted image.
 	 */

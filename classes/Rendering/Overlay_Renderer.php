@@ -43,14 +43,14 @@ namespace Kntnt\Photo_Drop\Rendering;
  * by the pure `Breadcrumb_Builder`; the placement decisions by the pure
  * `Overlay_Placement`; the appearance projection by `Block_Style_Support`.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 final readonly class Overlay_Renderer {
 
 	/**
 	 * The surface token for the grid thumbnail.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	public const SURFACE_THUMBNAIL = 'thumbnail';
@@ -58,7 +58,7 @@ final readonly class Overlay_Renderer {
 	/**
 	 * The surface token for the lightbox ("full") image.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	public const SURFACE_FULL = 'full';
@@ -69,7 +69,7 @@ final readonly class Overlay_Renderer {
 	 * Icons sharing a position cluster into one row in this order — download, then
 	 * add-to-media, then trash — so the row reads identically wherever it appears.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var array<int,string>
 	 */
 	private const ICON_ORDER = [ 'download', 'add-to-media', 'trash' ];
@@ -77,7 +77,7 @@ final readonly class Overlay_Renderer {
 	/**
 	 * Constructs the resolved overlay renderer.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param bool                            $lightbox Whether the lightbox is on (gates the full surface).
 	 * @param Overlay_Placement               $breadcrumbs The breadcrumb overlay placement.
@@ -113,7 +113,7 @@ final readonly class Overlay_Renderer {
 	 * custom properties. The projections are escaped here so the per-figure loop
 	 * interpolates finished strings.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param array<string,mixed> $attributes           The block attributes.
 	 * @param bool                $lightbox             Whether the gallery's lightbox is on.
@@ -189,7 +189,7 @@ final readonly class Overlay_Renderer {
 	 * breadcrumb text onto the anchor (so the lightbox can read it without
 	 * re-deriving the path); an off breadcrumb contributes nothing.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return bool True when the breadcrumb visibility is not off.
 	 */
@@ -206,7 +206,7 @@ final readonly class Overlay_Renderer {
 	 * the gallery's REST nonce and media URL at all: the credential rides only when
 	 * a capable user will see a write-path control, never on a page a visitor reads.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @return bool True when the add-to-media icon will render for this user.
 	 */
@@ -229,7 +229,7 @@ final readonly class Overlay_Renderer {
 	 * destructive action rides only when a capable user will see the control, never
 	 * on a page an ordinary visitor reads.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @return bool True when the trash icon will render for this user.
 	 */
@@ -248,7 +248,7 @@ final readonly class Overlay_Renderer {
 	 * A thin pass-through to the pure `Breadcrumb_Builder` so the figure builder,
 	 * the anchor data attribute, and any surface draw on one assembly per image.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $relative_path   The image path relative to the collection root.
 	 * @param string $collection_name The collection's display name.
@@ -269,8 +269,8 @@ final readonly class Overlay_Renderer {
 	 * the image's collection-relative path so the view module can POST it; the trash
 	 * stub carries no target. Empty when no overlay shows on the thumbnail.
 	 *
-	 * @since 0.11.0
-	 * @since 0.12.0 The add-to-media icon carries the per-image collection-relative path.
+	 * @since 0.15.0
+	 * @since 0.15.0 The add-to-media icon carries the per-image collection-relative path.
 	 *
 	 * @param string $breadcrumb_text The pre-assembled breadcrumb text for this image.
 	 * @param string $main_url        The image's main URL (the download target).
@@ -299,7 +299,7 @@ final readonly class Overlay_Renderer {
 	 * empty; the view module points it at the current slide per open. Empty when
 	 * no overlay shows on the lightbox (which includes the lightbox being off).
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return string The lightbox overlay markup.
 	 */
@@ -326,7 +326,7 @@ final readonly class Overlay_Renderer {
 	 * empty for a surface the view fills). The leading-ellipsis overflow and the
 	 * text alignment are pure CSS keyed off the anchor class.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $marker The surface marker class, or '' for the gallery figure.
 	 * @param string $inner  The already-escaped breadcrumb text, or '' for the view to fill.
@@ -357,7 +357,7 @@ final readonly class Overlay_Renderer {
 	 * (download → add-to-media → trash). Each cluster carries the shared
 	 * foreground/background/size custom properties; the anchor class places it.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $surface       One of SURFACE_THUMBNAIL or SURFACE_FULL.
 	 * @param string $main_url      The pre-escaped download target (empty for the lightbox).
@@ -422,9 +422,9 @@ final readonly class Overlay_Renderer {
 	 * foreground/background/size; its glyph is a CSS mask the stylesheet draws from the
 	 * icon's modifier class, so the markup carries no SVG.
 	 *
-	 * @since 0.11.0
-	 * @since 0.12.0 The add-to-media icon is active and carries the per-image path.
-	 * @since 0.13.0 The trash icon is active and carries the per-image path.
+	 * @since 0.15.0
+	 * @since 0.15.0 The add-to-media icon is active and carries the per-image path.
+	 * @since 0.15.0 The trash icon is active and carries the per-image path.
 	 *
 	 * @param string $name          The icon name (one of ICON_ORDER).
 	 * @param string $main_url       The pre-escaped download target (empty for the lightbox).
@@ -489,7 +489,7 @@ final readonly class Overlay_Renderer {
 	/**
 	 * Whether an icon placement shows on the given surface.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param Overlay_Placement $placement The icon's placement.
 	 * @param string            $surface   One of SURFACE_THUMBNAIL or SURFACE_FULL.
@@ -510,7 +510,7 @@ final readonly class Overlay_Renderer {
 	 * custom properties that have a value — an unset colour falls through to the
 	 * stylesheet's own default.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @return string The cluster inline style declarations (custom properties).
@@ -540,7 +540,7 @@ final readonly class Overlay_Renderer {
 	 * strip `;`/`:`, so only a single numeric length with a known unit is accepted;
 	 * anything else falls back to the default.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $value    The candidate length.
 	 * @param string $fallback The default to use when the value is not a clean length.
@@ -555,7 +555,7 @@ final readonly class Overlay_Renderer {
 	/**
 	 * Reads a string attribute, sanitised, defaulting to the empty string.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @param string              $key        The attribute key.
@@ -569,7 +569,7 @@ final readonly class Overlay_Renderer {
 	/**
 	 * Reads an integer attribute, defaulting to zero when absent or not numeric.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param array<string,mixed> $attributes The block attributes.
 	 * @param string              $key        The attribute key.

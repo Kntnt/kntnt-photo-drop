@@ -13,7 +13,7 @@
  * The registry owns no DOM and no upload state, so Jest covers it entirely over
  * plain values; the live `view.ts` wiring is the only caller.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import type { QueuedFile } from './upload-queue';
@@ -22,7 +22,7 @@ import type { FailedFile } from './progress-model';
 /**
  * The registry's external interface — retain a file, resolve the failed set.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 export interface RetainedFiles {
 	/**
@@ -48,7 +48,7 @@ export interface RetainedFiles {
 /**
  * Creates a fresh, empty retained-files registry.
  *
- * @since 0.11.0
+ * @since 0.15.0
  *
  * @return The registry handle.
  */

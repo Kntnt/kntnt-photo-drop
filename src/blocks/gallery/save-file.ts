@@ -55,7 +55,7 @@ const FALLBACK_FILENAME = 'image';
  * a plain object and reused across every download trigger and the navigation
  * suppression without coupling to the full DOM event.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 export interface ClickModifiers {
 	/** The pressed button: `0` is the primary (left) button. */
@@ -80,7 +80,7 @@ export interface ClickModifiers {
  * menu — so it passes through untouched, leaving the `<a download>`/`<a href>`
  * semantics as the fallback.
  *
- * @since 0.11.0
+ * @since 0.15.0
  *
  * @param event - The click's modifier and button state.
  * @return True for a plain primary click, false for any modified or non-primary click.
@@ -135,7 +135,7 @@ export function filenameFromUrl( url: string, base?: string ): string {
  * `download` attribute and decides the outcome itself (Safari, for one, then
  * opens the image in a new tab regardless of `target`) — see `saveFile`.
  *
- * @since 0.11.0
+ * @since 0.15.0
  *
  * @param href         - The href to click (an object URL, or the remote image URL).
  * @param downloadName - The value of the `download` attribute, the saved file name.
@@ -166,7 +166,7 @@ function clickDownloadAnchor( href: string, downloadName: string ): void {
  * one, opens the image in a new tab — and the gallery cannot override that.
  *
  * @since 0.5.0
- * @since 0.11.0 Fetch-failure fallback is a same-tab `<a download>`, not navigation (#59).
+ * @since 0.15.0 Fetch-failure fallback is a same-tab `<a download>`, not navigation (#59).
  * @since 0.15.0 Re-type the blob to application/octet-stream so Firefox cannot open it in a tab.
  *
  * @param url - The image URL to save.

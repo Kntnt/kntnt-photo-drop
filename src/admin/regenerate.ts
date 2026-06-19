@@ -12,7 +12,7 @@
  * successful finalise, so the gallery keeps serving the current renditions until
  * the run completes and an interrupted run is safe.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import { __ } from '@wordpress/i18n';
@@ -28,14 +28,14 @@ import { readTarget } from './regenerate-target';
  * Passed to the shared progress view so its bar, read-out, and summary carry this
  * surface's classes rather than the Drop Zone's — the same view, a second surface.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 const BLOCK = 'kntnt-photo-drop-regenerate';
 
 /**
  * The REST base the regenerate route hangs off; WordPress exposes it on `wpApiSettings`.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 interface WpApiSettings {
 	readonly root: string;

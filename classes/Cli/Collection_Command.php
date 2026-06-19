@@ -379,7 +379,7 @@ final class Collection_Command {
 	 * quality, ADR-0013/#71). The flip writes the target descriptor *raw*, so the
 	 * unset field persists on disk as null rather than freezing a concrete value.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @param string     $slug   The collection slug, for the operator-facing messages.
 	 * @param string     $path   Absolute path to the collection root.
@@ -775,7 +775,7 @@ final class Collection_Command {
 	 * halts the command via `WP_CLI::error()` before any write. The post-error return is
 	 * unreachable (WP_CLI::error() exits; the test double throws) but satisfies the type.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
 	 * @param string                    $flag       The flag name (`full-width` or `thumbnail-width`).
@@ -814,7 +814,7 @@ final class Collection_Command {
 	 * via `WP_CLI::error()` before any write. The post-error return is unreachable
 	 * (WP_CLI::error() exits; the test double throws) but satisfies the type.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param array<string,string|bool> $assoc_args The command's associative arguments.
 	 * @param string                    $flag       The flag name (`full-quality`).

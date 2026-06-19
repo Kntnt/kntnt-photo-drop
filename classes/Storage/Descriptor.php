@@ -177,7 +177,7 @@ final readonly class Descriptor {
 	 * effective values from one authority and can never drift, while the stored fields
 	 * stay nullable so "unset" survives a write/read cycle distinct from a concrete value.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @return array{full_width:int,full_quality:int,thumbnail_width:int,thumbnail_quality:int} The renditions.
 	 */
@@ -212,7 +212,7 @@ final readonly class Descriptor {
 	 * altered until the caller chooses to `write()` this copy, so a crash before the
 	 * write leaves the old renditions serving and a re-run reconciles.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param int|null $full_width        The new full-image width, or null to collapse (main serves the full role).
 	 * @param int|null $full_quality      The new full-image WebP quality (0–100), or null to follow the upload quality.
@@ -404,7 +404,7 @@ final readonly class Descriptor {
 	 * non-integer value all read as `null` so "unset" survives a hand-edit rather than
 	 * silently coercing to a concrete `0` that would freeze a degenerate value.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param array<array-key,mixed> $data The decoded descriptor.
 	 * @param string                 $key  The nullable integer field name.

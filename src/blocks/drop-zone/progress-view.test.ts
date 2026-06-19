@@ -14,7 +14,7 @@
  * failed set, and no Retry button when nothing failed) — and that every
  * filename is written as inert text.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 
 import { createProgressModel } from './progress-model';

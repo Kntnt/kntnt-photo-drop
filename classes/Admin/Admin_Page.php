@@ -110,7 +110,7 @@ final class Admin_Page {
 	 * manage-gated REST endpoint and renders progress through the shared Drop Zone
 	 * progress view, so the regenerate-then-flip logic is not duplicated (ADR-0013).
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const REGENERATE_HANDLE = 'kntnt-photo-drop-regenerate';
@@ -123,7 +123,7 @@ final class Admin_Page {
 	 * optional Slug field's placeholder, refreshed on-blur of the Display name; the
 	 * server resolves and re-verifies the same default at submit (blocks.md "Create").
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const SLUG_HANDLE = 'kntnt-photo-drop-slug';
@@ -138,7 +138,7 @@ final class Admin_Page {
 	 * re-validates every width at submit, so the page works unchanged when it is
 	 * absent.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	private const WIDTH_CLAMP_HANDLE = 'kntnt-photo-drop-width-clamp';
@@ -322,7 +322,7 @@ final class Admin_Page {
 	 * build file (an un-built checkout) enqueues nothing, so the page degrades to
 	 * read-only rendition fields rather than erroring.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 */
 	private function enqueue_regenerate_script(): void {
 
@@ -351,7 +351,7 @@ final class Admin_Page {
 	 * erroring. The dependency list is coerced to a string array since the manifest is
 	 * typed loose.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param string $handle The script handle to register under.
 	 * @param string $name   The build basename under `build/admin/` (no extension).
@@ -587,7 +587,7 @@ final class Admin_Page {
 	 * from rather than write an empty-named directory. Pure: the existing slugs are
 	 * passed in, so the unit tests drive it over plain arrays.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param string            $name           The display name to derive the slug from.
 	 * @param array<int,string> $existing_slugs The slugs already in use.
@@ -870,7 +870,7 @@ final class Admin_Page {
 	 * one queues the supplied error and returns `false` so the caller aborts — `false`
 	 * distinguishes malformed input from the valid `null` unset.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param string $value The raw field value.
 	 * @param string $error The translated error to queue when the value is malformed.
@@ -902,7 +902,7 @@ final class Admin_Page {
 	 * supplied error and returns `false` so the caller aborts — `false` distinguishes
 	 * malformed input from the valid `null` unset.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @param string $value The raw field value.
 	 * @param string $error The translated error to queue when the value is malformed.
@@ -1449,7 +1449,7 @@ final class Admin_Page {
 	 * full width is the smaller of the entered value and the upload width. The single
 	 * source for this translatable string keeps the Create and Edit forms in lockstep.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @return string The translated help line for the full-width field.
 	 */
@@ -1465,7 +1465,7 @@ final class Admin_Page {
 	 * effective thumbnail width is the smaller of the entered value and the (already
 	 * capped) effective full width. The single source keeps both forms in lockstep.
 	 *
-	 * @since 0.14.0
+	 * @since 0.15.0
 	 *
 	 * @return string The translated help line for the thumbnail-width field.
 	 */
@@ -1573,7 +1573,7 @@ final class Admin_Page {
 	 * roughly 30 % more bytes for no visible gain (#70, ADR-0002). The note also
 	 * states the blank-is-maximum rule so an empty submit is never a surprise.
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @return string The translated upload-quality help text.
 	 */
@@ -1594,7 +1594,7 @@ final class Admin_Page {
 	 * alike. The reason is escaped at output, so the marker is safe to render directly
 	 * into a label cell.
 	 *
-	 * @since 0.12.0
+	 * @since 0.15.0
 	 *
 	 * @param string $reason The translated explanation of why this field is permanent.
 	 */
@@ -1794,7 +1794,7 @@ final class Admin_Page {
 	 * `wp_rest` nonce the regenerate script reads, plus the empty progress region the
 	 * shared progress view writes into.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string     $slug       The collection slug the regenerate run targets.
 	 * @param Descriptor $descriptor The collection descriptor, for the pre-filled values.
@@ -1870,7 +1870,7 @@ final class Admin_Page {
 	 * a description line — used to state the effective-value cap (ADR-0013), the same
 	 * wording the create form carries.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string   $name    The form field name (and id stem).
 	 * @param string   $label   The translated field label.
@@ -1911,7 +1911,7 @@ final class Admin_Page {
 	 * width field it sits outside the instant-save form and is read only by the
 	 * regenerate script.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string   $name    The form field name (and id stem).
 	 * @param string   $label   The translated field label.
@@ -2111,7 +2111,7 @@ final class Admin_Page {
 	 * A missing or non-scalar value reads as the empty string, which the gate treats
 	 * as "use the default template" (ADR-0014).
 	 *
-	 * @since 0.13.0
+	 * @since 0.15.0
 	 *
 	 * @param array<array-key,mixed> $source The request array (`$_POST`).
 	 * @return string The raw-but-untagged template, or '' when absent or non-scalar.

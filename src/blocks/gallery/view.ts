@@ -444,7 +444,7 @@ store( 'kntnt-photo-drop/gallery', {
 		 *
 		 * @since 0.7.0
 		 * @since 0.4.0 Branches on the lightbox click; the overlays are per-figure.
-		 * @since 0.11.0 Wires the download-overlay icons independent of the lightbox.
+		 * @since 0.15.0 Wires the download-overlay icons independent of the lightbox.
 		 */
 		init(): void {
 			// Resolve the wrapper and guard against a double-init re-hydration.

@@ -30,14 +30,14 @@ namespace Kntnt\Photo_Drop\Rendering;
  * I/O, so the projection is unit-testable in isolation. The visibility and
  * position are guaranteed to be one of their documented value sets.
  *
- * @since 0.11.0
+ * @since 0.15.0
  */
 final readonly class Overlay_Placement {
 
 	/**
 	 * Visibility: the overlay shows nowhere.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	public const OFF = 'off';
@@ -45,7 +45,7 @@ final readonly class Overlay_Placement {
 	/**
 	 * Visibility: the overlay shows on the grid thumbnail only.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	public const THUMBNAIL = 'thumbnail';
@@ -53,7 +53,7 @@ final readonly class Overlay_Placement {
 	/**
 	 * Visibility: the overlay shows on the lightbox ("full") image only.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	public const FULL = 'full';
@@ -61,7 +61,7 @@ final readonly class Overlay_Placement {
 	/**
 	 * Visibility: the overlay shows on both the thumbnail and the lightbox.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var string
 	 */
 	public const BOTH = 'both';
@@ -72,7 +72,7 @@ final readonly class Overlay_Placement {
 	 * The single source of the allowed positions, so the narrowing here and the
 	 * editor's option list never drift apart.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 * @var array<int,string>
 	 */
 	public const POSITIONS = [
@@ -90,7 +90,7 @@ final readonly class Overlay_Placement {
 	/**
 	 * Constructs the resolved placement.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $visibility One of OFF, THUMBNAIL, FULL, BOTH.
 	 * @param string $position   A nine-point position token.
@@ -108,7 +108,7 @@ final readonly class Overlay_Placement {
 	 * back to `$position_fallback` (each overlay's documented default, so a stray
 	 * value lands somewhere sensible rather than at a hardcoded corner).
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param string $visibility        The raw visibility value.
 	 * @param string $position          The raw position value.
@@ -135,7 +135,7 @@ final readonly class Overlay_Placement {
 	/**
 	 * Whether the overlay shows on the grid thumbnail.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return bool True for the THUMBNAIL and BOTH visibilities.
 	 */
@@ -150,7 +150,7 @@ final readonly class Overlay_Placement {
 	 * enabled: a FULL/BOTH overlay shows there only when the gallery's lightbox
 	 * is on. With the lightbox off there is no full surface, so nothing shows.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @param bool $lightbox_on Whether the gallery's lightbox is enabled.
 	 * @return bool True for FULL/BOTH only when the lightbox is on.
@@ -166,7 +166,7 @@ final readonly class Overlay_Placement {
 	 * which is the prefix before the hyphen. Breadcrumbs occupy a whole band, so
 	 * this is what the editor mutually excludes against the icon overlays.
 	 *
-	 * @since 0.11.0
+	 * @since 0.15.0
 	 *
 	 * @return string One of `top`, `middle`, `bottom`.
 	 */

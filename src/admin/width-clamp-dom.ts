@@ -18,7 +18,7 @@
  * live upload ceiling there and the upload mode resolves to "no limit" — only the
  * Thumbnail-to-Full rule applies.
  *
- * @since 0.13.0
+ * @since 0.15.0
  */
 
 import { clampWidths } from './width-clamp';

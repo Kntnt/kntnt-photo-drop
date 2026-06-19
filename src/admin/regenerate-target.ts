@@ -15,7 +15,7 @@
  * same bounds the REST endpoint re-enforces. The thumbnail quality is always concrete:
  * an empty or out-of-range value is malformed, never unset.
  *
- * @since 0.14.0
+ * @since 0.15.0
  */
 
 import type { RegenerateTarget } from './regenerate-run';
@@ -26,7 +26,7 @@ import type { RegenerateTarget } from './regenerate-run';
  * `unset` is a cleared field (collapse-to-parent), `malformed` is a present-but-invalid
  * value the caller must reject, and a numeric value is a concrete entry.
  *
- * @since 0.14.0
+ * @since 0.15.0
  */
 type OptionalField = number | 'unset' | 'malformed';
 
@@ -100,7 +100,7 @@ function readConcrete(
  * return tells the caller to refuse the run and prompt the operator, the same bounds the
  * REST endpoint re-enforces, so the client never starts a run the server would reject.
  *
- * @since 0.14.0
+ * @since 0.15.0
  *
  * @param root - The regenerate host element holding the four inputs.
  * @return The validated target (re-derivable trio possibly null), or null when malformed.
