@@ -348,7 +348,16 @@ class Media_Controller {
 			'name'     => wp_basename( $main_path ),
 			'tmp_name' => $temp,
 		];
+
+		// Insert the collection main at its real, contract-bounded resolution:
+		// WordPress otherwise downscales any image past big_image_size_threshold
+		// (2560px) into a `…-scaled` master and attaches that. The main is already
+		// the source of truth, so disable the threshold for this one import only,
+		// then restore it so ordinary Media Library uploads keep WordPress's
+		// default scaling. Sub-sizes still generate (ADR-0015).
+		add_filter( 'big_image_size_threshold', '__return_false' );
 		$attachment_id = media_handle_sideload( $file, 0 );
+		remove_filter( 'big_image_size_threshold', '__return_false' );
 
 		// media_handle_sideload removes the temp file on success; clean it up
 		// ourselves on failure so a failed import leaves no orphan behind.

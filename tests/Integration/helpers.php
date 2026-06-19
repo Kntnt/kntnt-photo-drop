@@ -1476,6 +1476,27 @@ function attachment_subsize_count( int $attachment_id ): int {
 
 }
 
+/**
+ * Reads an attachment's stored file path (`_wp_attached_file`) over WP-CLI.
+ *
+ * When WordPress's big-image threshold downscales an upload, this value names
+ * the generated `…-scaled.<ext>` master; with scaling suppressed it names the
+ * original file. The add-to-media full-resolution test asserts the absence of
+ * the `-scaled` master here.
+ *
+ * @since 0.15.0
+ *
+ * @param int $attachment_id The attachment to inspect.
+ * @return string The stored file path relative to the uploads basedir.
+ */
+function attachment_file( int $attachment_id ): string {
+
+	// Read the meta over WP-CLI; an absent value yields the empty string.
+	$result = run_cli( [ 'post', 'meta', 'get', (string) $attachment_id, '_wp_attached_file' ] );
+	return trim( $result['output'] );
+
+}
+
 // Guard the whole suite at load time: every integration test needs the live
 // wp-env instance, so an unreachable site fails the run immediately with the
 // one actionable remedy instead of erroring test by test.

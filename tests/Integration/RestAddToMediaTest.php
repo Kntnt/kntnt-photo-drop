@@ -24,6 +24,7 @@ declare( strict_types = 1 );
 
 use function Tests\Integration\admin_session;
 use function Tests\Integration\attachment_count;
+use function Tests\Integration\attachment_file;
 use function Tests\Integration\attachment_subsize_count;
 use function Tests\Integration\create_collection;
 use function Tests\Integration\create_subscriber;
@@ -161,5 +162,32 @@ test( 'each confirmed copy adds another attachment — no dedup', function () us
 	expect( $second['status'] )->toBe( 201 );
 	expect( $first['body']['id'] )->not->toBe( $second['body']['id'] );
 	expect( attachment_count() )->toBe( $before + 2 );
+
+} );
+
+test( 'add-to-media inserts the main at full resolution without a -scaled master', function (): void {
+
+	// Seed a collection whose main width (3000) exceeds WordPress's 2560px
+	// big-image threshold, then import a source wide enough to keep the main
+	// above it. Without the threshold suppression the sideload would store a
+	// `…-scaled.webp` master at 2560px instead of the real main.
+	$slug     = unique_slug();
+	$fixtures = make_fixture_dir();
+	create_collection( $slug, '3000', 70 );
+	write_jpeg( "{$fixtures}/big.jpg", 3200, 1800 );
+	$import = import_images( $slug, [ to_container_path( "{$fixtures}/big.jpg" ) ] );
+	expect( $import['exit_code'] )->toBe( 0 );
+
+	// Copy the main into the Media Library through the real REST write-path.
+	$session  = admin_session();
+	$response = rest_add_to_media( $slug, 'big.jpg.webp', $session['jar'], $session['nonce'] );
+	expect( $response['status'] )->toBe( 201 );
+	$attachment_id = $response['body']['id'];
+
+	// The stored file must be the original main, never a `-scaled` master.
+	expect( attachment_file( $attachment_id ) )->not->toContain( '-scaled' );
+
+	delete_collection( $slug );
+	remove_tree( $fixtures );
 
 } );

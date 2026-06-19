@@ -25,6 +25,7 @@ The major redesign previously settled only in the specs is now **implemented in 
 - **The collection Create/Edit forms present the three image tiers as one uniform section.** The former "Upload contract (immutable)" and "Renditions (re-derivable)" headings are gone; upload, full, and thumbnail now sit together under a single **Image settings** heading. The upload pair is still immutable — marked on Create, read-only on Edit, and rejected server-side — while the full and thumbnail settings remain editable. (#67)
 - **The Full and Thumbnail width fields clamp live to the tier above** while you type on the Create/Edit forms: Full cannot exceed the upload width (when an upload limit is set) and Thumbnail cannot exceed Full, and lowering a tier pulls the ones below it down to match. Server-side validation remains the source of truth. (#69)
 - **The integration and end-to-end test harness is now worktree-portable** — `@wordpress/env` mounts the plugin under the checkout's own directory name and the e2e fixtures derive that slug, with a `WP_ENV_PORT` override, so the suites run from a git worktree (and several in parallel) without hand-editing paths. (contributor tooling)
+- **Add-to-media inserts at full resolution.** Copying a collection image into the Media Library no longer produces a downscaled `…-scaled` master for mains wider than WordPress's 2560px big-image threshold; the contract-bounded main is inserted as-is (sub-sizes still generate). (ADR-0015)
 
 ### Removed
 
