@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **Releases now publish directly from CI, with notes drawn from the changelog.** The tag-triggered `release` job extracts the `## [X.Y.Z]` section of `CHANGELOG.md` as the GitHub Release body and publishes the release immediately instead of leaving a draft, so a green version tag goes live to users — and the auto-updater offers it — with no manual publish step. (contributor tooling)
+
 ## [0.11.0] - 2026-06-19
 
 The major redesign previously settled only in the specs is now **implemented in code** (#42–#53, plus follow-ups #54).
