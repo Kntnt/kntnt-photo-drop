@@ -399,6 +399,120 @@ test( 'every reported outcome is one of the four legal values', function (): voi
 } );
 
 // ---------------------------------------------------------------------------
+// import — a directory source is walked recursively, like a Drop Zone drop
+// ---------------------------------------------------------------------------
+
+test( 'import walks a directory, storing every image and preserving the sub-tree', function (): void {
+	$basedir = fresh_image_basedir();
+	$root    = wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+
+	// A source tree outside the collection, with images at two depths.
+	mkdir( $basedir . '/incoming/day1', 0700, true );
+	write_jpeg_source( $basedir . '/incoming', 'a.jpg', 1000, 800 );
+	write_jpeg_source( $basedir . '/incoming/day1', 'b.jpg', 1000, 800 );
+
+	make_image_command()->import( [ 'trip', $basedir . '/incoming' ], [] );
+
+	// The directory's basename becomes the top-level prefix and its sub-tree is
+	// recreated under the collection; each image produced one report row.
+	expect( is_file( $root . 'trip/incoming/a.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $root . 'trip/incoming/day1/b.jpg.webp' ) )->toBeTrue();
+	expect( Format_Items_Recorder::$rows )->toHaveCount( 2 );
+
+	image_remove_tree( $basedir );
+} );
+
+test( 'import mixes file and directory sources in one run', function (): void {
+	$basedir = fresh_image_basedir();
+	$root    = wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+
+	$loose = write_jpeg_source( $basedir, 'loose.jpg', 1000, 800 );
+	mkdir( $basedir . '/folder', 0700, true );
+	write_jpeg_source( $basedir . '/folder', 'inside.jpg', 1000, 800 );
+
+	make_image_command()->import( [ 'trip', $loose, $basedir . '/folder' ], [] );
+
+	// The loose absolute file lands at the root; the directory's image lands under
+	// the directory's basename.
+	expect( is_file( $root . 'trip/loose.jpg.webp' ) )->toBeTrue();
+	expect( is_file( $root . 'trip/folder/inside.jpg.webp' ) )->toBeTrue();
+	expect( Format_Items_Recorder::$rows )->toHaveCount( 2 );
+
+	image_remove_tree( $basedir );
+} );
+
+test( 'import skips hidden noise and RAW/video siblings while walking a directory', function (): void {
+	$basedir = fresh_image_basedir();
+	$root    = wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+
+	// A real camera folder: one JPEG beside a RAW sibling, an OS sidecar, and a
+	// hidden directory holding its own image.
+	mkdir( $basedir . '/shoot/.thumbs', 0700, true );
+	write_jpeg_source( $basedir . '/shoot', 'photo.jpg', 1000, 800 );
+	file_put_contents( $basedir . '/shoot/photo.CR2', 'raw bytes' );
+	file_put_contents( $basedir . '/shoot/.DS_Store', 'noise' );
+	write_jpeg_source( $basedir . '/shoot/.thumbs', 'thumb.jpg', 100, 100 );
+
+	make_image_command()->import( [ 'trip', $basedir . '/shoot' ], [] );
+
+	// Only the JPEG is imported; the RAW, the sidecar, and the hidden directory's
+	// image produce no rows and no stored files.
+	expect( Format_Items_Recorder::$rows )->toHaveCount( 1 );
+	expect( Format_Items_Recorder::$rows[0]['source'] )->toBe( 'shoot/photo.jpg' );
+	expect( is_file( $root . 'trip/shoot/photo.jpg.webp' ) )->toBeTrue();
+	expect( glob( $root . 'trip/shoot/*.webp' ) )->toHaveCount( 1 );
+
+	image_remove_tree( $basedir );
+} );
+
+test( 'a directory with no importable images halts with a non-zero exit', function (): void {
+	$basedir = fresh_image_basedir();
+	wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+
+	// Only filesystem noise and a denied video — nothing the import can take.
+	mkdir( $basedir . '/barren', 0700, true );
+	file_put_contents( $basedir . '/barren/.DS_Store', 'noise' );
+	file_put_contents( $basedir . '/barren/clip.mov', 'video' );
+
+	$threw = false;
+	try {
+		make_image_command()->import( [ 'trip', $basedir . '/barren' ], [] );
+	} catch ( Cli_Halt ) {
+		$threw = true;
+	}
+
+	expect( $threw )->toBeTrue();
+	expect( WP_CLI::$errors )->toHaveCount( 1 );
+	expect( WP_CLI::$errors[0] )->toContain( 'No importable image files' );
+
+	image_remove_tree( $basedir );
+} );
+
+test( 'the same directory passed twice imports once and skips the duplicate', function (): void {
+	$basedir = fresh_image_basedir();
+	$root    = wire_image_stubs( $basedir );
+	establish_collection( 'trip', 1920, 80 );
+
+	mkdir( $basedir . '/dup', 0700, true );
+	write_jpeg_source( $basedir . '/dup', 'x.jpg', 1000, 800 );
+
+	make_image_command()->import( [ 'trip', $basedir . '/dup', $basedir . '/dup' ], [] );
+
+	// Two units map to the same target: the first stores it, the second is the
+	// idempotent skip.
+	$outcomes = array_column( Format_Items_Recorder::$rows, 'outcome' );
+	expect( $outcomes )->toHaveCount( 2 );
+	expect( $outcomes )->toContain( 'skipped' );
+	expect( is_file( $root . 'trip/dup/x.jpg.webp' ) )->toBeTrue();
+
+	image_remove_tree( $basedir );
+} );
+
+// ---------------------------------------------------------------------------
 // delete — removes main + thumbnails, prompts unless --yes, no foreign files
 // ---------------------------------------------------------------------------
 

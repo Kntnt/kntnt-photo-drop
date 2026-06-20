@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.13.0] – 2026-06-20
+
+### Added
+
+- **`wp kntnt-photo-drop image import` now accepts a directory, not only files.** A directory source is walked recursively and every image under it is imported with its sub-directory structure preserved — the same folder semantics as dropping a folder on the Drop Zone: hidden files (`.DS_Store`, AppleDouble `._*` sidecars) and RAW/video siblings are skipped before any work, while the literal source-relative target is still written with no date/uploader template expansion. Files and directories can be mixed in a single invocation, and a source folder with no importable images is a clear, non-zero-exit error.
+
+### Changed
+
+- **CI runners updated for Node 24.** `actions/checkout` and `actions/setup-node` are bumped to v5, since GitHub-hosted runners have deprecated Node 20. (contributor tooling)
+
 ## [0.12.0] – 2026-06-20
 
 ### Added
@@ -268,7 +278,8 @@ The major redesign previously settled only in the specs is now **implemented in 
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.0
 [0.12.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.12.0
 [0.11.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.11.0
 [0.10.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.1

@@ -26,6 +26,10 @@
  * format the server's WebP pipeline can never accept, so uploading it only burns
  * the photographer's bandwidth.
  *
+ * Mirrored server-side by `DENIED_EXTENSIONS` in
+ * `classes/Ingestion/Source_Filter.php`, which the CLI `image import` applies
+ * when it walks a directory; keep the two lists in sync.
+ *
  * @since 0.2.0
  */
 const DENIED_EXTENSIONS: ReadonlySet< string > = new Set( [

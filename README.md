@@ -173,7 +173,7 @@ wp kntnt-photo-drop image import <slug> <source>... [--overwrite]
 wp kntnt-photo-drop image delete <slug> <path> [--yes]
 ```
 
-- **`import`** brings external files into an existing collection, optimising each to that collection's contract. It carries no contract flags (it is a pure consumer of the collection) and is idempotent – an existing target is skipped unless `--overwrite` is given.
+- **`import`** brings external files into an existing collection, optimising each to that collection's contract. It carries no contract flags (it is a pure consumer of the collection) and is idempotent – an existing target is skipped unless `--overwrite` is given. A `<source>` may be a file or a directory: a directory is traversed recursively and every image under it is imported with its sub-directory structure preserved – the same folder semantics as dropping a folder on the Drop Zone, skipping hidden files (`.DS_Store`, `._*`) and RAW/video siblings, and writing the literal source-relative target (no date/uploader template is applied on the CLI path).
 - **`delete`** removes one main image and its derived artifacts (full image, thumbnail, index entry). `<path>` is the image's path relative to the collection root, given as either its stored name or its original name, and is confined to the collection root. It prompts unless `--yes` is given.
 
 `doctor` and `import` present their per-file results as standard WP-CLI tables.

@@ -114,3 +114,24 @@ test( 'a corrupt source is rejected without aborting the batch', function () use
 	expect( is_file( collection_path( $slug ) . '/corrupt.jpg.webp' ) )->toBeFalse();
 
 } );
+
+test( 'importing a directory recreates its tree as conforming WebP mains', function () use ( $slug, &$fixtures ): void {
+
+	// A source directory with a nested image, addressed inside the container as a
+	// single directory argument: the CLI walks it and imports the nested JPEG.
+	mkdir( "{$fixtures}/album/day1", 0755, true );
+	write_jpeg( "{$fixtures}/album/day1/nested.jpg", 1600, 900 );
+	$result = import_images( $slug, [ to_container_path( "{$fixtures}/album" ) ] );
+	expect( $result['exit_code'] )->toBe( 0 );
+	expect( $result['output'] )->toContain( 'reencoded' );
+
+	// The directory's basename becomes the top-level prefix and its sub-tree is
+	// recreated; the stored main really is a downscaled WebP.
+	$main = collection_path( $slug ) . '/album/day1/nested.jpg.webp';
+	expect( is_file( $main ) )->toBeTrue();
+	$info = getimagesize( $main );
+	expect( $info )->not->toBeFalse();
+	expect( $info['mime'] )->toBe( 'image/webp' );
+	expect( $info[0] )->toBeLessThanOrEqual( 1200 );
+
+} );
