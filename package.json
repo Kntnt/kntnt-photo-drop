@@ -32,7 +32,7 @@
 		"markdown-it": "^14.2.0",
 		"serialize-javascript": "^7.0.5",
 		"uuid": "^11.1.1",
-		"webpack-dev-server": "^5.2.3",
+		"webpack-dev-server": "^5.2.5",
 		"markdownlint-cli": {
 			"minimatch": "^3.1.5"
 		}
