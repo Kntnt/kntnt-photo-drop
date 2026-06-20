@@ -31,7 +31,7 @@ The plugin version is `0.10.1` (`kntnt-photo-drop.php` header and `package.json`
 - `@since` distribution in `classes/` (approximate counts at `2cf63ed`): `0.11.0` ×86, `0.12.0` ×24, `0.13.0` ×29, `0.14.0` ×12, `0.15.0` ×2. The two `0.15.0` tags are `classes/Cli/Collection_Input.php:56` and (in tests) `src/admin/width-clamp-dom.test.ts`.
 - Commit `fd80bfc` changed exactly `classes/Cli/Collection_Input.php` and `src/admin/width-clamp-dom.test.ts` to `0.15.0` — evidence the maintainer intends `0.15.0` as the unifying version but did not finish.
 
-Conventions (`agents.d/coding-standards.md`): `@since` is required on every file/class/method/property/constant and "Include `@since` from the first release." Pre-1.0 policy (`AGENTS.md`): while major version is `0`, no back-compat concerns; pick the cleanest end-state.
+Conventions (`agents.d/coding-standard/`): `@since` is required on every file/class/method/property/constant and "Include `@since` from the first release." Pre-1.0 policy (`AGENTS.md`): while major version is `0`, no back-compat concerns; pick the cleanest end-state.
 
 ## Decision gate (Step 0 — resolve before editing)
 

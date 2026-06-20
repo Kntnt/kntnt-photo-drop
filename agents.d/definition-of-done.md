@@ -18,7 +18,7 @@ Touch only PHP → the JS gates need not re-run, and vice versa; but run any gat
 
 ## Test-driven development
 
-New behaviour is built test-first — Red/Green/Refactor ([`coding-standards.md`](coding-standards.md)). The bar is the **demonstrated RED**: a test seen failing *before* its implementation — committed ahead of the code, or the failing run captured in the PR — and failing for the expected reason (a real assertion, not an import error or typo). Self-service and non-blocking: the agent produces and reports the RED itself and never pauses for a human to run, write, or confirm a test. Automate at the lowest layer that captures the behaviour, escalating to integration/e2e only where a unit test cannot reach. Per-issue layer mapping: [`testing.md`](testing.md).
+New behaviour is built test-first — Red/Green/Refactor ([`coding-standard/general.md`](coding-standard/general.md)). The bar is the **demonstrated RED**: a test seen failing *before* its implementation — committed ahead of the code, or the failing run captured in the PR — and failing for the expected reason (a real assertion, not an import error or typo). Self-service and non-blocking: the agent produces and reports the RED itself and never pauses for a human to run, write, or confirm a test. Automate at the lowest layer that captures the behaviour, escalating to integration/e2e only where a unit test cannot reach. Per-issue layer mapping: [`testing.md`](testing.md).
 
 ## Integration and end-to-end — green where relevant
 
@@ -34,7 +34,7 @@ A change fully covered by unit tests need not add one, but must not break an exi
 
 ## Standard adherence
 
-- Code obeys [`coding-standards.md`](coding-standards.md): `declare( strict_types = 1 )`, typed properties, `readonly` where immutable, `match` over `switch`, `[ ... ]` arrays, paragraph-style `//` comments, PHPDoc/TSDoc on every file, class, method, property, and constant.
+- Code obeys [`coding-standard/`](coding-standard/): `declare( strict_types = 1 )`, typed properties, `readonly` where immutable, `match` over `switch`, `[ ... ]` arrays, paragraph-style `//` comments, PHPDoc/TSDoc on every file, class, method, property, and constant.
 - Honours the load-bearing invariants in [`AGENTS.md`](../AGENTS.md) and [`design.md`](../docs/design.md); contradicts no ADR. A change needing to contradict a decision is blocked until the ADR is amended — never shipped as a silent deviation.
 - Domain terms match [`CONTEXT.md`](../CONTEXT.md) exactly.
 - User-facing strings translatable (`__()`, `esc_html__()`, …) against the `kntnt-photo-drop` text domain; output escaped at the point of output; every superglobal sanitised; all SQL via `$wpdb->prepare()`.
@@ -58,4 +58,4 @@ A PR states which gates were run and their result, which could not run in the en
 
 ## Reporting
 
-Report faithfully. A failed gate: say so with the output. A gate not runnable in the environment (e.g. no Docker for `@wordpress/env`): say so explicitly — never imply it passed. "Done" = the gates are green and the human-verification items are listed, not that the code merely compiles. In an agent hierarchy, each implementing agent ends with the structured report from [`AGENTS.md`](../AGENTS.md) — *Automatically tested* / *Remaining for a human* / *Assumptions & blockers* — and the outermost agent consolidates into one end-of-work report: everything implemented and green, then the aggregated human-remaining list and any blockers.
+Report faithfully. A failed gate: say so with the output. A gate not runnable in the environment (e.g. no Docker for `@wordpress/env`): say so explicitly — never imply it passed. "Done" = the gates are green and the human-verification items are listed, not that the code merely compiles. In an agent hierarchy, each implementing agent ends with the structured report from [`autonomy.md`](autonomy.md) — *Automatically tested* / *Remaining for a human* / *Assumptions & blockers* — and the outermost agent consolidates into one end-of-work report: everything implemented and green, then the aggregated human-remaining list and any blockers.

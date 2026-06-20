@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.12.0] – 2026-06-20
+
 ### Added
 
 - **`.editorconfig`** at the repository root, mirroring the coding standard's surface conventions — tabs displayed as four columns, UTF-8, LF line endings, a final newline, trimmed trailing whitespace, and two-space YAML — so any editor applies the baseline automatically. (contributor tooling)
@@ -266,7 +268,8 @@ The major redesign previously settled only in the specs is now **implemented in 
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.12.0
 [0.11.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.11.0
 [0.10.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.1
 [0.10.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.10.0

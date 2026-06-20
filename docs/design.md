@@ -128,4 +128,4 @@ CSS Grid, native `loading="lazy"`, and `srcset` (the **thumbnail and full rendit
 
 ## Structure and conventions
 
-Mirror kntnt-gpx-blocks: `build/`, `classes/` (PSR-4), `docs/` (`design.md`, `updater.md`, `adr/`), `agents.d/` (`coding-standards.md`, `definition-of-done.md`, `testing.md`), `src/blocks/`, `tests/`; main file `kntnt-photo-drop.php`; plus `autoloader.php`, `composer.json`, `package.json`, `phpcs.xml.dist`, `phpstan.neon.dist`, `tsconfig.json`, `install.php`, `uninstall.php`, `CLAUDE.md`, `AGENTS.md`, `README.md`. Follow the coder skill. Markdown prose is not hard-wrapped; code comments wrap at 80 columns.
+Mirror kntnt-gpx-blocks: `build/`, `classes/` (PSR-4), `docs/` (`design.md`, `updater.md`, `adr/`), `agents.d/` (agent-facing references), `src/blocks/`, `tests/`; main file `kntnt-photo-drop.php`; plus `autoloader.php`, `composer.json`, `package.json`, `phpcs.xml.dist`, `phpstan.neon.dist`, `tsconfig.json`, `install.php`, `uninstall.php`, `CLAUDE.md`, `AGENTS.md`, `README.md`. Follow the coder skill. Markdown prose is not hard-wrapped; code comments wrap at 80 columns.

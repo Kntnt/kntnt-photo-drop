@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <ruleset name="kntnt-photo-drop">
 
-	<description>WordPress Coding Standards with the four deliberate deviations documented in agents.d/coding-standards.md.</description>
+	<description>WordPress Coding Standards with the four deliberate deviations documented in agents.d/coding-standard/wordpress.md.</description>
 
 	<!-- Scan the classes directory, test files, and the bootstrap files. -->
 	<file>classes/</file>

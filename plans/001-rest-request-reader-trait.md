@@ -70,7 +70,7 @@ Tests that protect this behavior (run them as the safety net, do not weaken them
 - `tests/Unit/Rest/UploadControllerTest.php`, `ImagesControllerTest.php`, `MediaControllerTest.php`, `RegenerateControllerTest.php`, `CollectionsControllerTest.php` — assert the nonce/capability gates at default and through each `kntnt_photo_drop_*_capability` filter.
 - `tests/Integration/RestUploadTest.php`, `RestAddToMediaTest.php`, `RestTrashTest.php` — round-trip the live endpoints.
 
-Coding-standard constraints to honor (from `agents.d/coding-standards.md`): WordPress flavour — tabs, `$snake_case`, `snake_case` methods, `Pascal_Snake_Case` type names; `[ ... ]` arrays; `declare( strict_types = 1 )` at the top of the new file; PHPDoc on the trait and every method explaining the *why/contract*; paragraph-style `//` comments preserved verbatim when moving the bodies. PSR-4: the trait file is `classes/Rest/Request_Gate.php` mapping to `\Kntnt\Photo_Drop\Rest\Request_Gate`. Use `@since 0.15.0` on the new symbols (matches the current unreleased cycle — see plan 004).
+Coding-standard constraints to honor (from `agents.d/coding-standard/php.md` + `agents.d/coding-standard/wordpress.md`): WordPress flavour — tabs, `$snake_case`, `snake_case` methods, `Pascal_Snake_Case` type names; `[ ... ]` arrays; `declare( strict_types = 1 )` at the top of the new file; PHPDoc on the trait and every method explaining the *why/contract*; paragraph-style `//` comments preserved verbatim when moving the bodies. PSR-4: the trait file is `classes/Rest/Request_Gate.php` mapping to `\Kntnt\Photo_Drop\Rest\Request_Gate`. Use `@since 0.15.0` on the new symbols (matches the current unreleased cycle — see plan 004).
 
 ## Commands you will need
 

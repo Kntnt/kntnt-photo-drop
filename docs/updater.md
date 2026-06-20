@@ -1,6 +1,6 @@
 # Updater and distribution
 
-How kntnt-photo-drop ships and how it updates itself. The plugin is not on the WordPress.org directory; it is distributed through **GitHub Releases**, and the `Updater` class teaches WordPress to find new releases there. This document describes the update mechanism and the tag-triggered release sequence. It mirrors kntnt-gpx-blocks and is consistent with [`AGENTS.md`](../AGENTS.md) § *Cutting a release* — if the two ever drift, `AGENTS.md` is the authoritative checklist and this document explains the why.
+How kntnt-photo-drop ships and how it updates itself. The plugin is not on the WordPress.org directory; it is distributed through **GitHub Releases**, and the `Updater` class teaches WordPress to find new releases there. This document describes the update mechanism and the tag-triggered release sequence. It mirrors kntnt-gpx-blocks and is consistent with [`agents.d/releasing.md`](../agents.d/releasing.md) — if the two ever drift, `releasing.md` is the authoritative checklist and this document explains the why.
 
 ## The update mechanism
 

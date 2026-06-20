@@ -1,6 +1,6 @@
 # Testing strategy
 
-The detailed, per-area test specification: what is tested, with what tooling, and what is deliberately not. The human-facing orientation (test pyramid, out-of-scope) is in [`CONTRIBUTING.md`](../CONTRIBUTING.md#testing). Bar: [`definition-of-done.md`](definition-of-done.md). Toolchain: [`coding-standards.md`](coding-standards.md). Authoritative specs: [`design.md`](../docs/design.md), ADR-0013/0014/0015.
+The detailed, per-area test specification: what is tested, with what tooling, and what is deliberately not. The human-facing orientation (test pyramid, out-of-scope) is in [`CONTRIBUTING.md`](../CONTRIBUTING.md#testing). Bar: [`definition-of-done.md`](definition-of-done.md). Toolchain: [`coding-standard/`](coding-standard/). Authoritative specs: [`design.md`](../docs/design.md), ADR-0013/0014/0015.
 
 ## Test layer per issue (TDD)
 
@@ -171,3 +171,7 @@ Mirror gpx-blocks: do **not** hit live GitHub. Stub `wp_remote_get` via Brain Mo
 | Block JS unit | `npm run test:js` |
 | Integration | `npm run test:integration` (boots `@wordpress/env`) |
 | End-to-end | `npm run test:e2e` (Playwright against `@wordpress/env`) |
+
+There is no live WordPress on the maintainer's machine; integration/e2e boot `@wordpress/env` (Docker) themselves. For interactive verification, `npx wp-env start` → `http://localhost:8888` (admin `admin` / `password`); the WP-CLI surface is `npx wp-env run cli wp kntnt-photo-drop …`. `@wp-playground/cli` is the lighter alternative for PHP-only checks needing no browser.
+
+The harness is **worktree-portable**: wp-env mounts the plugin under the checkout's own directory name, so a git worktree mounts at `wp-content/plugins/<worktree-dir>` (e2e fixtures derive that slug automatically). The dev port defaults to 8888, overridable via `WP_ENV_PORT`. To run e2e from a worktree concurrently with another instance, give it a free port — `WP_ENV_PORT=8890 npm run test:e2e` (Playwright's base URL and `webServer` follow it).

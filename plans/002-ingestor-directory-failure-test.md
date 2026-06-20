@@ -66,7 +66,7 @@ Functions\when( 'wp_mkdir_p' )->alias(
 
 Existing rejection tests to mirror for the "nothing written" assertions — `IngestorTest.php:231` (`'an undecodable source is rejected with nothing written'`) and `:284` (`'a hostile traversal path is rejected and writes nothing outside the root'`). The sub-directory recreation test at `:269` (`'a relative path recreates its sub-directories confined inside the root'`) shows how to construct a deep relative path and where the root temp dir comes from. Read those three tests before writing the new one — reuse their helpers (`fresh_collection_root()`-style temp-dir helper, the image-bytes fixture, and the `Ingestor` construction) rather than inventing new ones.
 
-Conventions (from `agents.d/coding-standards.md` + the existing file): Pest `test( 'imperative behavior statement', function (): void { ... } )`; Arrange-Act-Assert; tab indent; `expect(...)->toBe(...)`; Brain Monkey `Functions\when(...)` for WP stubs. The test name states the expected behavior. Per the testing standard (`agents.d/testing.md`), this is pure-unit territory and the RED must be demonstrated.
+Conventions (from `agents.d/coding-standard/php.md` + the existing file): Pest `test( 'imperative behavior statement', function (): void { ... } )`; Arrange-Act-Assert; tab indent; `expect(...)->toBe(...)`; Brain Monkey `Functions\when(...)` for WP stubs. The test name states the expected behavior. Per the testing standard (`agents.d/testing.md`), this is pure-unit territory and the RED must be demonstrated.
 
 ## Commands you will need
 

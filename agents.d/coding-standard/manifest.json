@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "generatedWith": "0.8.3",
+  "modules": {
+    "general": "sha256:511ca1f24625a08cf5f9736d78e9e279d77c27073cd87d59b007bee35c19da1d",
+    "php": "sha256:9b232e971e0d47ed49b451c9ab0932a9d354df619e9d51dd13b52035ca2864e0",
+    "wordpress": "sha256:8ab158f6a9a6a05a01203f02099705abb588fae0005d2a874a647399e3acce9e",
+    "typescript": "sha256:62c6459443d559efbf768b23630f3b7fb17593082b8b065310eef4b8513874ab",
+    "wordpress-block": "sha256:fcba904637585c097d25e58ebbb99086a4e10469b4e97182b2525c68def058ef",
+    "bash": "sha256:4c1032be0f9101c009470c8b4a761301228d3cf888398792a681065b95c43ce1"
+  }
+}

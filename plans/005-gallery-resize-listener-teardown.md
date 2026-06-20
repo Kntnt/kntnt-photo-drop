@@ -59,7 +59,7 @@ function wireLastRowCorrection( layout: HTMLElement ): void {
 
 Called once per wrapper from `init()` (`:438-440`), which already guards double-init via `mountedGalleries.has( ref )` (`:428`). The Interactivity API `init` callback exposes **no unmount hook**, which is why no teardown is wired today.
 
-Conventions (`agents.d/coding-standards.md`, TypeScript + WordPress-blocks): block code stays on the `@wordpress/scripts` happy path; `camelCase` functions; DOM listeners use `{ passive: true }` where applicable (already done); prefer the `#`/module-scope private idiom over ad-hoc globals. Per `agents.d/testing.md`, this DOM-wiring layer is covered by Playwright e2e, **not** unit tests — do not add a Jest test for it; the existing e2e specs are the regression guard.
+Conventions (`agents.d/coding-standard/typescript.md` + `agents.d/coding-standard/wordpress-block.md`): block code stays on the `@wordpress/scripts` happy path; `camelCase` functions; DOM listeners use `{ passive: true }` where applicable (already done); prefer the `#`/module-scope private idiom over ad-hoc globals. Per `agents.d/testing.md`, this DOM-wiring layer is covered by Playwright e2e, **not** unit tests — do not add a Jest test for it; the existing e2e specs are the regression guard.
 
 ## Commands you will need
 
