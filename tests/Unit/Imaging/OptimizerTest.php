@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the optimisation boundary — `docs/testing.md`
+ * Tests for the optimisation boundary — `agents.d/testing.md`
  * § *Server-side contract re-enforcement*.
  *
  * Every test generates a real image via GD and drives the real GD codec, so the

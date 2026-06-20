@@ -73,7 +73,7 @@ The gallery's **add-to-media** overlay (ADR-0015) copies a collection's *main im
 | PHP code style | `composer phpcs` | zero violations, exit 0 |
 | Integration tests | `npm run test:integration` | Pest green; boots wp-env (Docker) itself |
 
-**Note on the integration layer**: `npm run test:integration` needs Docker + `@wordpress/env`. If Docker is unavailable in your environment, you cannot run the RED→GREEN cycle for the new integration test here. In that case: still **write** the test (Step 2), commit it, and report in your final summary that the integration test was authored but **not executed** for lack of Docker (per `docs/definition-of-done.md`, state plainly what could not be run — never imply it passed).
+**Note on the integration layer**: `npm run test:integration` needs Docker + `@wordpress/env`. If Docker is unavailable in your environment, you cannot run the RED→GREEN cycle for the new integration test here. In that case: still **write** the test (Step 2), commit it, and report in your final summary that the integration test was authored but **not executed** for lack of Docker (per `agents.d/definition-of-done.md`, state plainly what could not be run — never imply it passed).
 
 ## Scope
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the atomic file writer — `docs/testing.md` § *Storage durability*.
+ * Tests for the atomic file writer — `agents.d/testing.md` § *Storage durability*.
  *
  * Every test runs against a real temp directory so the temp-then-rename
  * publish, the staging-file cleanup, and the permission normalisation are

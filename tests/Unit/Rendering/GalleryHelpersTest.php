@@ -4,7 +4,7 @@
  *
  * The justified-row math, the srcset assembly, and the URL arithmetic are pure
  * helpers precisely so they can be proven in isolation, without a collection on
- * disk or a WordPress runtime (docs/testing.md). These tests pin each helper's
+ * disk or a WordPress runtime (agents.d/testing.md). These tests pin each helper's
  * contract directly: the srcset keeps the main as a candidate and drops upscaled
  * thumbnails; the justified math derives basis and grow from the aspect ratio and
  * flags the last row; and URLs encode each path segment and splice the hidden

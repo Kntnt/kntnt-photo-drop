@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the WP-CLI image command's import/delete glue — `docs/testing.md`
+ * Tests for the WP-CLI image command's import/delete glue — `agents.d/testing.md`
  * § *CLI surface*.
  *
  * The thin verbs are driven against a real temp uploads root and the WP_CLI test

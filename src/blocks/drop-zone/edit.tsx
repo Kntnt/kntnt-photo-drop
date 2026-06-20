@@ -59,7 +59,7 @@ import type { JSX } from '@wordpress/element';
  * Persisted attributes for the Photo Drop Zone block.
  *
  * The slug is the only durable reference; everything about the contract is read
- * live from the descriptor, never stored on the block (docs/blocks.md).
+ * live from the descriptor, never stored on the block (docs/design.md).
  *
  * @since 0.5.0
  */

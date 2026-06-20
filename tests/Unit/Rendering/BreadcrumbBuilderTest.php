@@ -8,7 +8,7 @@
  * *always* humanised (there is no humanise toggle any more), the stored
  * `<original>.webp` filename maps back to its original before humanising, and the
  * derivation is pure — no I/O — so every hide-count and path shape is asserted
- * directly here rather than through a render (docs/testing.md, "#47 Pure core").
+ * directly here rather than through a render (agents.d/testing.md, "#47 Pure core").
  *
  * @package Kntnt\Photo_Drop
  * @since   0.11.0

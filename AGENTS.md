@@ -4,7 +4,7 @@ Guidance for AI coding agents (Claude Code, Copilot, Cursor, Codex, …) working
 
 ## Coding standards
 
-@docs/coding-standards.md
+@agents.d/coding-standards.md
 
 ## What this plugin is
 
@@ -26,7 +26,7 @@ Mirror, in particular: the `Plugin` singleton (component wiring + the four-level
 
 ## Second move: the coding standard
 
-The coding standard is the contract, and it is **already in your context** — `CLAUDE.md` `@`-imports this file, which `@`-imports [`docs/coding-standards.md`](docs/coding-standards.md), the checked-in concatenation of the coder skill's language modules (`general`, `php`, `wordpress`, `typescript`, `wordpress-block`); you do not need to invoke a skill to *read* it. In brief: tabs, `$snake_case`, `Pascal_Snake_Case` classes, PSR-4 in `classes/`, `[ ... ]` arrays, `declare( strict_types = 1 )`, paragraph-style comments, PHPDoc/TSDoc on every symbol, the four deliberate WP-CS deviations. Block JS/TS stays on the `@wordpress/scripts` happy path (its bundled ESLint/Prettier/Stylelint/Jest), not Biome/Bun.
+The coding standard is the contract, and it is **already in your context** — `CLAUDE.md` `@`-imports this file, which `@`-imports [`agents.d/coding-standards.md`](agents.d/coding-standards.md), the checked-in concatenation of the coder skill's language modules (`general`, `php`, `wordpress`, `typescript`, `wordpress-block`); you do not need to invoke a skill to *read* it. In brief: tabs, `$snake_case`, `Pascal_Snake_Case` classes, PSR-4 in `classes/`, `[ ... ]` arrays, `declare( strict_types = 1 )`, paragraph-style comments, PHPDoc/TSDoc on every symbol, the four deliberate WP-CS deviations. Block JS/TS stays on the `@wordpress/scripts` happy path (its bundled ESLint/Prettier/Stylelint/Jest), not Biome/Bun.
 
 Invoke the **coder skill** (`kntnt-code-skills:coder`, <https://github.com/Kntnt/kntnt-code-skills/blob/main/skills/coder/SKILL.md>) only when it adds something the import does not: to **scaffold the standard into a new project** (it writes `docs/coding-standards.md` and wires it into `CLAUDE.md` / `AGENTS.md` via `bin/scaffold`), or when `docs/coding-standards.md` is not already in context. For ordinary edits to this repo the standard is already loaded, so a separate skill call is redundant.
 
@@ -39,11 +39,12 @@ The plugin is built from a settled design. Load only what the task needs.
 | Big-picture plan, every load-bearing decision | [`design.md`](docs/design.md) |
 | The rationale behind a decision | the linked ADR under [`docs/adr/`](docs/adr/) |
 | Domain vocabulary | [`CONTEXT.md`](CONTEXT.md) |
-| Block attributes + admin-page CRUD UX | [`docs/blocks.md`](docs/blocks.md) |
-| What to test, with what tooling | [`docs/testing.md`](docs/testing.md) |
-| The bar a change must clear before it ships | [`docs/definition-of-done.md`](docs/definition-of-done.md) |
+| Block attribute schema | each block's `block.json` under [`src/blocks/`](src/blocks/) (authoritative) |
+| Admin-page CRUD UX | [`docs/design.md`](docs/design.md) § *Collection lifecycle and discovery* |
+| What to test, with what tooling | [`agents.d/testing.md`](agents.d/testing.md) |
+| The bar a change must clear before it ships | [`agents.d/definition-of-done.md`](agents.d/definition-of-done.md) |
 | The release mechanics and the auto-updater | [`docs/updater.md`](docs/updater.md) |
-| Language/style rules | [`docs/coding-standards.md`](docs/coding-standards.md) |
+| Language/style rules | [`agents.d/coding-standards.md`](agents.d/coding-standards.md) |
 
 The fifteen ADRs (`docs/adr/0001`–`0015`) own the decisions with real trade-offs: filesystem collections with no Media Library (0001), the immutable WebP output contract (0002), the on-disk layout and mtime-validated index (0003), the grouped CLI with consumer `import` (0004), the recursive-flatten gallery (0005), the server-enforced contract behind a nonce + `upload_files` REST upload (0006), the Interactivity-API lightbox (0007), hierarchy-preserving folder drop and immutable per-uploader folders (0008), the passive fullscreen slideshow with a pluggable trigger (0009), the token-wired Drop Zone upload controls (0010), the slideshow's cycle-boundary resync to the gallery's current view by page refetch (0011), the imageless-gallery public message (0012), the three-rendition model — main / full / thumbnail, with only the upload pair immutable (0013), the mutable path-components placement template (0014), and the unified gallery overlays over a gated REST write-path (0015). Note that 0002/0003/0005/0008 carry amendment banners pointing to 0013–0015. **Never contradict design.md or an ADR. Never redesign.** If a task seems to require contradicting a decision, stop and surface it — change is an ADR, not a silent edit.
 
@@ -68,7 +69,7 @@ When these issues are implemented away from the keyboard, agents operate autonom
 **Every implementing agent ends with a structured report to its caller**, in three buckets:
 
 - **Automatically tested** — what was covered, and at which layer (unit / integration / e2e).
-- **Remaining for a human** — the irreducibly subjective checks the automation cannot meaningfully make (the human-verification caveat in [`docs/definition-of-done.md`](docs/definition-of-done.md)).
+- **Remaining for a human** — the irreducibly subjective checks the automation cannot meaningfully make (the human-verification caveat in [`agents.d/definition-of-done.md`](agents.d/definition-of-done.md)).
 - **Assumptions & blockers** — every assumption made to avoid pausing, and any true design blocker that stopped a unit.
 
 **The outermost agent aggregates.** It concatenates and de-duplicates every sub-agent's three buckets into one end-of-work report to the maintainer: everything implemented, tested and green, then the consolidated *remaining-for-a-human* list and any *blockers*. That single report is the only thing that travels back up — nothing waits mid-flight.
@@ -89,7 +90,7 @@ npm run build           # compile src/blocks/** → build/blocks/** (committed t
 npm run start           # watch build
 ```
 
-Quality gates — all must be green (see [`docs/definition-of-done.md`](docs/definition-of-done.md)):
+Quality gates — all must be green (see [`agents.d/definition-of-done.md`](agents.d/definition-of-done.md)):
 
 ```bash
 composer test           # Pest unit tests (Brain Monkey + Mockery)
@@ -100,7 +101,7 @@ npm run lint:css        # Stylelint via wp-scripts
 npm run test:js         # Jest block-JS unit tests via wp-scripts
 ```
 
-Integration and end-to-end layers run against a real WordPress through **`@wordpress/env`** (Docker): `npm run test:integration` (Pest, `tests/Integration/`) and `npm run test:e2e` (Playwright + `@wordpress/e2e-test-utils-playwright`, `tests/e2e/`) both boot the instance themselves; `npx wp-env start` boots it manually, and the WP-CLI surface is reachable via `npx wp-env run cli wp kntnt-photo-drop …`. Both suites also run in CI. See [`docs/testing.md`](docs/testing.md) for the full pyramid and per-component test targets.
+Integration and end-to-end layers run against a real WordPress through **`@wordpress/env`** (Docker): `npm run test:integration` (Pest, `tests/Integration/`) and `npm run test:e2e` (Playwright + `@wordpress/e2e-test-utils-playwright`, `tests/e2e/`) both boot the instance themselves; `npx wp-env start` boots it manually, and the WP-CLI surface is reachable via `npx wp-env run cli wp kntnt-photo-drop …`. Both suites also run in CI. See [`agents.d/testing.md`](agents.d/testing.md) for the full pyramid and per-component test targets.
 
 ## Local dev environment
 

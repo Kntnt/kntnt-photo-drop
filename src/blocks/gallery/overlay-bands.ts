@@ -8,7 +8,7 @@
  * that decision core: `bandOf` maps a nine-point position to its band, and
  * `disabledPositions` turns a set of occupied bands into the nine-point positions
  * a picker must disable. The editor wires them; the DOM/disabled-state shell is
- * exercised by e2e (docs/testing.md, "#47 Pure core + non-unit shell"). Icons may
+ * exercised by e2e (agents.d/testing.md, "#47 Pure core + non-unit shell"). Icons may
  * still share a position with one another (they auto-cluster), so only the
  * breadcrumb-vs-icon bands are ever excluded — never icon-vs-icon.
  *

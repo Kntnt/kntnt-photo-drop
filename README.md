@@ -306,7 +306,7 @@ The WP-CLI surface is then reachable via `npx wp-env run cli wp kntnt-photo-drop
 
 ### Technical documentation
 
-The design and its rationale live under [`docs/`](docs/): the overall plan in [`docs/design.md`](docs/design.md), the block attribute schemas and admin-page UX in [`docs/blocks.md`](docs/blocks.md), the testing strategy in [`docs/testing.md`](docs/testing.md), the release-and-update mechanism in [`docs/updater.md`](docs/updater.md), and the decisions with real trade-offs as architecture decision records under [`docs/adr/`](docs/adr/). The domain vocabulary is in [`CONTEXT.md`](CONTEXT.md), and the bootstrap playbook for AI coding agents is in [`AGENTS.md`](AGENTS.md).
+The design and its rationale live under [`docs/`](docs/): the overall plan, the block behaviour, and the admin-page UX in [`docs/design.md`](docs/design.md) (each block's attribute schema is authoritative in its own `block.json` under `src/blocks/`), the testing strategy in [`agents.d/testing.md`](agents.d/testing.md), the release-and-update mechanism in [`docs/updater.md`](docs/updater.md), and the decisions with real trade-offs as architecture decision records under [`docs/adr/`](docs/adr/). The domain vocabulary is in [`CONTEXT.md`](CONTEXT.md), and the bootstrap playbook for AI coding agents is in [`AGENTS.md`](AGENTS.md).
 
 ## How you can contribute
 

@@ -6,7 +6,7 @@
  * icon overlays and vice versa (ADR-0015). These pure helpers back that: `bandOf`
  * maps a nine-point position to its band, and `disabledPositions` turns a set of
  * occupied bands into the nine-point positions a picker must disable. The editor
- * shell wiring is exercised by e2e; this is the decision core (docs/testing.md,
+ * shell wiring is exercised by e2e; this is the decision core (agents.d/testing.md,
  * "#47 Pure core + non-unit shell").
  *
  * @since 0.11.0

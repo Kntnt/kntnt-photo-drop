@@ -28,7 +28,7 @@ Every write REST endpoint resolves its gating capability through a `kntnt_photo_
 - `Upload_Controller::required_capability()` applies `kntnt_photo_drop_upload_capability` defaulting to `upload_files` (`classes/Rest/Upload_Controller.php:453-459`).
 - `.wp-env.json` currently mounts only the plugin (`"plugins": [ "." ]`) with no `mappings` and no mu-plugins. **A filter that affects an HTTP request must run inside the WordPress process**, so a host-side `add_filter` cannot work and a `run_cli(['eval', …])` filter dies with its one CLI process. The mechanism therefore is: mount a tiny **option-gated** mu-plugin into the instance; it is inert unless an integration test sets the option, so it does not affect normal dev, e2e, or other integration tests.
 
-Conventions: `docs/testing.md` says capability-filter behavior is asserted "at its default AND through its filter" and that the write endpoints are integration-first. Integration tests are Pest files in `tests/Integration/` driven against `@wordpress/env`. The mu-plugin file follows the plugin's PHP standard (`declare( strict_types = 1 )`, paragraph comments, PHPDoc) but is test scaffolding, not shipped code.
+Conventions: `agents.d/testing.md` says capability-filter behavior is asserted "at its default AND through its filter" and that the write endpoints are integration-first. Integration tests are Pest files in `tests/Integration/` driven against `@wordpress/env`. The mu-plugin file follows the plugin's PHP standard (`declare( strict_types = 1 )`, paragraph comments, PHPDoc) but is test scaffolding, not shipped code.
 
 ## Commands you will need
 

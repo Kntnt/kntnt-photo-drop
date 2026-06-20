@@ -2,7 +2,7 @@
  * The Create-form slug on-blur default — the DOM shell over the pure compute.
  *
  * Wires the optional Slug field on the collection-lifecycle admin page's Create form
- * (blocks.md "Create"): on-blur of the Display name it recomputes the unique slug the
+ * (design.md § Collection lifecycle): on-blur of the Display name it recomputes the unique slug the
  * field would default to and shows it as the Slug field's placeholder, so a blank
  * slug visibly previews what will be stored. All value logic — slugify the name,
  * suffix from `-2` against the existing slugs — lives in the Jest-tested `uniqueSlug`

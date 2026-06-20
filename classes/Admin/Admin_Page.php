@@ -121,7 +121,7 @@ final class Admin_Page {
 	 * Enqueued on the Create view only and built by `@wordpress/scripts` into
 	 * `build/admin/slug.js`. It previews the unique `sanitize_title` default in the
 	 * optional Slug field's placeholder, refreshed on-blur of the Display name; the
-	 * server resolves and re-verifies the same default at submit (blocks.md "Create").
+	 * server resolves and re-verifies the same default at submit (design.md § Collection lifecycle).
 	 *
 	 * @since 0.11.0
 	 * @var string
@@ -582,7 +582,7 @@ final class Admin_Page {
 	 * `sanitize_title` of the display name, made unique against the slugs already in
 	 * use by appending the lowest free numeric suffix from `-2` (never `-1`) — the
 	 * same scheme the on-blur placeholder previews client-side, with the server the
-	 * authority (blocks.md "Create"). A name that slugifies to nothing yields the
+	 * authority (design.md § Collection lifecycle). A name that slugifies to nothing yields the
 	 * empty string, so the caller can reject a blank slug that has no base to default
 	 * from rather than write an empty-named directory. Pure: the existing slugs are
 	 * passed in, so the unit tests drive it over plain arrays.
@@ -752,7 +752,7 @@ final class Admin_Page {
 		// positive integer. The admin form has no "none" keyword (that is a CLI-only
 		// affordance) — blank is its one way to say "no max" — so a present value is
 		// parsed strictly, and a crafted "none" POST is rejected like any other
-		// non-numeric width (#70, docs/blocks.md).
+		// non-numeric width (#70, docs/design.md).
 		$upload_width_raw = $raw['upload-width'] ?? '';
 		if ( $upload_width_raw === '' ) {
 			$upload_width = null;
@@ -1274,7 +1274,7 @@ final class Admin_Page {
 	 * 100 (#70). There is deliberately no format field (always WebP). The slug and the
 	 * upload pair carry a permanence ⚠️ marker; a plain-language irreversibility warning
 	 * opens the form above every field, explaining what the ⚠ marks mean, and a set-once
-	 * rule line sits beside the Save button (blocks.md "Create", #62, ADR-0013).
+	 * rule line sits beside the Save button (design.md § Collection lifecycle, #62, ADR-0013).
 	 *
 	 * @since 0.5.0
 	 */
@@ -1588,7 +1588,7 @@ final class Admin_Page {
 	 * A small, accessible badge for every field that is set once and cannot be changed
 	 * after the collection is created — the slug and the upload width/quality on the
 	 * create form, and the read-only upload width/quality on the edit contract
-	 * (blocks.md "Create"/"Update"). The visible glyph is hidden from assistive tech
+	 * (design.md § Collection lifecycle). The visible glyph is hidden from assistive tech
 	 * (`aria-hidden`); the accessible name and the hover tooltip both carry the supplied
 	 * reason, so the warning reaches sighted, screen-reader, and pointer-hover users
 	 * alike. The reason is escaped at output, so the marker is safe to render directly
@@ -1715,7 +1715,7 @@ final class Admin_Page {
 		echo '<table class="form-table" role="presentation"><tbody>';
 
 		// Display name — editable; rendered first so both forms agree on field order
-		// (Display name → Slug; docs/blocks.md).
+		// (Display name → Slug; docs/design.md).
 		$name_label = __( 'Display name', 'kntnt-photo-drop' );
 		echo '<tr><th scope="row"><label for="kntnt-photo-drop-name">' . esc_html( $name_label ) . '</label></th><td>';
 		echo '<input name="name" id="kntnt-photo-drop-name" type="text" class="regular-text" value="';

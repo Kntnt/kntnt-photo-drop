@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the Photo Gallery render handler — `docs/testing.md`
+ * Tests for the Photo Gallery render handler — `agents.d/testing.md`
  * § *Gallery rendering: srcset and ordering*.
  *
  * `Render_Gallery` is the public viewing surface: it resolves a collection,

@@ -671,7 +671,7 @@ test( 'the edit form renders the Display name field above the read-only Slug', f
 
 	$_GET = [];
 
-	// The two forms must agree on field order (Display name → Slug; docs/blocks.md):
+	// The two forms must agree on field order (Display name → Slug; docs/design.md):
 	// the editable Display name label must precede the read-only slug cell, so the
 	// editable identity-mirroring field is encountered before its permanent identity.
 	$name_position = strpos( $html, 'for="kntnt-photo-drop-name"' );
@@ -1419,7 +1419,7 @@ test( 'unique_slug_default sanitises the display name into a slug', function ():
 	$page = new Admin_Page( new Repository() );
 
 	// With no existing slugs the default is just the sanitised name: lowercased,
-	// spaces to hyphens, punctuation dropped (ADR — blocks.md "Create").
+	// spaces to hyphens, punctuation dropped (ADR-0014 — design.md § Collection lifecycle).
 	expect( $page->unique_slug_default( 'Spring 2024 Trip!', [] ) )->toBe( 'spring-2024-trip' );
 
 	admin_remove_tree( $basedir );

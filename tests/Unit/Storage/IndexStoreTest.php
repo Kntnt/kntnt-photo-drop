@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the self-healing per-folder index — `docs/testing.md`
+ * Tests for the self-healing per-folder index — `agents.d/testing.md`
  * § *Index self-heal via dirMtime*.
  *
  * Every test runs against a real temp directory so the `mtime`-driven self-heal

@@ -2,7 +2,7 @@
 /**
  * Adversarial tests for path sanitisation and `realpath` confinement.
  *
- * Covers every hostile input enumerated in docs/testing.md § "Path traversal
+ * Covers every hostile input enumerated in agents.d/testing.md § "Path traversal
  * and realpath confinement": traversal, absolute and UNC paths, schemes,
  * percent-encoded / double-encoded / overlong sequences, NUL bytes and control
  * characters, and symlink escape caught on the resolved path. Also asserts

@@ -59,7 +59,7 @@ function wireLastRowCorrection( layout: HTMLElement ): void {
 
 Called once per wrapper from `init()` (`:438-440`), which already guards double-init via `mountedGalleries.has( ref )` (`:428`). The Interactivity API `init` callback exposes **no unmount hook**, which is why no teardown is wired today.
 
-Conventions (`docs/coding-standards.md`, TypeScript + WordPress-blocks): block code stays on the `@wordpress/scripts` happy path; `camelCase` functions; DOM listeners use `{ passive: true }` where applicable (already done); prefer the `#`/module-scope private idiom over ad-hoc globals. Per `docs/testing.md`, this DOM-wiring layer is covered by Playwright e2e, **not** unit tests — do not add a Jest test for it; the existing e2e specs are the regression guard.
+Conventions (`agents.d/coding-standards.md`, TypeScript + WordPress-blocks): block code stays on the `@wordpress/scripts` happy path; `camelCase` functions; DOM listeners use `{ passive: true }` where applicable (already done); prefer the `#`/module-scope private idiom over ad-hoc globals. Per `agents.d/testing.md`, this DOM-wiring layer is covered by Playwright e2e, **not** unit tests — do not add a Jest test for it; the existing e2e specs are the regression guard.
 
 ## Commands you will need
 
@@ -152,7 +152,7 @@ The resize-correction behavior must be identical: a window resize still re-runs 
 
 ## Test plan
 
-- **No new unit test** — this is DOM wiring, which `docs/testing.md` covers at the e2e layer, not Jest. Adding a Jest test here would mock the Canvas/DOM into a tautology.
+- **No new unit test** — this is DOM wiring, which `agents.d/testing.md` covers at the e2e layer, not Jest. Adding a Jest test here would mock the Canvas/DOM into a tautology.
 - **Regression guard**: the existing justified-layout e2e specs (`tests/e2e/breadcrumb-overflow.spec.ts`, `tests/e2e/gallery-shadow.spec.ts`) must stay green — they render the justified layout and depend on the last-row correction.
 - **Verification**: `npm run build` + `npm run lint:js` clean; e2e green where runnable.
 

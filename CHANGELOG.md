@@ -4,9 +4,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **`.editorconfig`** at the repository root, mirroring the coding standard's surface conventions — tabs displayed as four columns, UTF-8, LF line endings, a final newline, trimmed trailing whitespace, and two-space YAML — so any editor applies the baseline automatically. (contributor tooling)
+
 ### Changed
 
 - **Releases now publish directly from CI, with notes drawn from the changelog.** The tag-triggered `release` job extracts the `## [X.Y.Z]` section of `CHANGELOG.md` as the GitHub Release body and publishes the release immediately instead of leaving a draft, so a green version tag goes live to users — and the auto-updater offers it — with no manual publish step. (contributor tooling)
+- **Project documentation reorganised by audience.** A new `agents.d/` directory holds the agent-facing references — the coding standard, the testing strategy, and the definition of done — tightened for agents rather than humans; `docs/` keeps the shared design record read by both (`design.md`, the ADRs, the updater guide). `CONTRIBUTING.md` gains a contributor-oriented testing overview and a "Before opening a pull request" checklist and was edited for a human contributor audience; every cross-reference and the coding-standard `@`-import were repointed. (contributor tooling)
+
+### Removed
+
+- **`docs/blocks.md`.** Its reproduced `block.json` schemas had drifted from the real block files (now the single authoritative source), and its admin-page CRUD UX was folded into `docs/design.md`. (contributor tooling)
+
+### Security
+
+- The transitive development dependency `webpack-dev-server` is bumped to 5.2.5 via npm `overrides` (GHSA-mx8g-39q3-5c79). Build-chain/dev-server only; nothing shipped to the browser changes.
 
 ## [0.11.0] - 2026-06-19
 

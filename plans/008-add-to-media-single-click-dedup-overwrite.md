@@ -32,7 +32,7 @@ The gallery's **add-to-media** overlay (ADR-0015) has three rough edges the main
 
 These three are coupled: making the add single-click is only safe *because* the dedup-confirm catches re-adds — without dedup, single-click would silently pile up duplicates, which is worse than today. So the two-click gate is **replaced** by a smarter, duplicate-only confirm: first add is one click; a re-add raises the overwrite popover.
 
-Both #1 and #2 overturn ADR-0015 contract. Per `docs/definition-of-done.md` ("A change that needs to contradict a decision is blocked until the ADR is amended — it is never shipped as a silent deviation"), this plan **amends ADR-0015** (Step 9). The maintainer is authorising the change.
+Both #1 and #2 overturn ADR-0015 contract. Per `agents.d/definition-of-done.md` ("A change that needs to contradict a decision is blocked until the ADR is amended — it is never shipped as a silent deviation"), this plan **amends ADR-0015** (Step 9). The maintainer is authorising the change.
 
 **Maintainer decisions baked into this plan** (do not second-guess them):
 - Duplicate detection = stamp the **source identity (collection slug + collection-relative path)** as attachment post-meta at add time, and query that meta.
@@ -137,7 +137,7 @@ PHP: tabs, `declare( strict_types = 1 )`, `match` over `switch`, `[ … ]` array
 | Block build (type-checks + emits `build/`) | `npm run build` | compiles, no type errors; `build/` updated |
 | Integration tests | `npm run test:integration` | Pest green; boots wp-env (Docker) |
 
-**Note**: `npm run test:integration` needs Docker + `@wordpress/env`. If unavailable, write/commit the integration changes and report they were not executed (per `docs/definition-of-done.md`). `npm run build` is required for any change under `src/blocks/` because `build/` is committed.
+**Note**: `npm run test:integration` needs Docker + `@wordpress/env`. If unavailable, write/commit the integration changes and report they were not executed (per `agents.d/definition-of-done.md`). `npm run build` is required for any change under `src/blocks/` because `build/` is committed.
 
 ## Scope
 
@@ -591,4 +591,4 @@ Stop and report back (do not improvise) if:
   - The big-image threshold suppression must be present in `replace()` too (else overwrites re-introduce the `-scaled` master Plan 007 removed).
   - Confirm the single-click change does not break modified-click (cmd/ctrl/middle) behaviour — those must still fall through to the browser via `shouldInterceptClick`.
 - **Source-meta as a new contract**: `_kntnt_photo_drop_collection` / `_kntnt_photo_drop_path` are now a durable link between a collection image and its Library copy. A future feature (e.g. "show which gallery images are already in the Library", or cleanup on collection delete) can build on this meta. Renaming or moving a collection would orphan the link (the relative path changes) — acceptable today, but note it if collection-rename is ever added.
-- **Human-verification (cannot be automated)**: that one click *feels* right, the overwrite popover's copy/placement reads clearly, focus lands on Cancel, and Escape/click-away dismiss cleanly on both a grid thumbnail and the open lightbox. List these in the final report per `docs/definition-of-done.md`.
+- **Human-verification (cannot be automated)**: that one click *feels* right, the overwrite popover's copy/placement reads clearly, focus lands on Cancel, and Escape/click-away dismiss cleanly on both a grid thumbnail and the open lightbox. List these in the final report per `agents.d/definition-of-done.md`.

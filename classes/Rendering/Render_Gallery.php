@@ -134,7 +134,7 @@ final class Render_Gallery {
 	 * @since 0.6.0
 	 * @since 0.4.0 Added the capped, lightbox-suppressed editor-preview mode.
 	 *
-	 * @param array<string,mixed> $attributes Block attributes (see docs/blocks.md).
+	 * @param array<string,mixed> $attributes Block attributes (see the block's `block.json`).
 	 * @param string              $content    Inner block HTML (unused — no inner blocks).
 	 * @param \WP_Block           $block      Block instance (unused).
 	 * @return string Escaped HTML for the block, or '' when nothing should render.

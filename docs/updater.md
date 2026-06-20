@@ -15,7 +15,7 @@ How kntnt-photo-drop ships and how it updates itself. The plugin is not on the W
 
 It **bails quietly** — returning the transient unmodified, never erroring — whenever the repo cannot be derived, the API errors or returns a non-200 status, the released version is not newer, or no `application/zip` asset exists. The only external request the plugin makes is this admin-side check; there is no visitor-facing call to gate (see [`design.md`](design.md) § *Distribution and privacy*).
 
-The behaviour is unit-tested with `wp_remote_get` stubbed via Brain Monkey (`tests/Unit/UpdaterTest.php`); the live GitHub path is deliberately not exercised in tests (see [`testing.md`](testing.md) § *Updater*).
+The behaviour is unit-tested with `wp_remote_get` stubbed via Brain Monkey (`tests/Unit/UpdaterTest.php`); the live GitHub path is deliberately not exercised in tests (see [`testing.md`](../agents.d/testing.md) § *Updater*).
 
 ## Why the ZIP filename is version-less
 
@@ -36,7 +36,7 @@ It parses the `Version:` header, runs `composer install --no-dev --optimize-auto
 Releasing is **tag-triggered and runs on CI** — the `release` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), never an upload from a local script. Run these from a clean, merged working tree:
 
 1. **Bump the version in lockstep** — the `Version:` header in `kntnt-photo-drop.php` **and** `"version"` in `package.json` must match.
-2. **Commit and push** the version bump to the default branch. CI runs every gate (PHPStan, PHPCS, Pest, the JS lint/test/build gates, and integration/e2e) on the push — see [`definition-of-done.md`](definition-of-done.md).
+2. **Commit and push** the version bump to the default branch. CI runs every gate (PHPStan, PHPCS, Pest, the JS lint/test/build gates, and integration/e2e) on the push — see [`definition-of-done.md`](../agents.d/definition-of-done.md).
 3. **Tag and push** `vX.Y.Z` on that commit: `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag push is the signal that cuts the release.
 4. **CI builds and drafts the release.** The `release` job fires *only* on a `v*` tag and *only* after the PHP, Node, and integration/e2e gate jobs are green; it runs `./build-zip.sh` and attaches the resulting `dist/kntnt-photo-drop.zip` to a **draft** GitHub Release for the tag. A failing gate or a failing build leaves no release behind. GitHub serves the attached asset with `content_type: application/zip`, which is exactly what the `Updater` looks for.
 5. **Review and publish from GitHub.** Open the draft release, confirm the ZIP asset is attached, and click **Publish release**. This is the single deliberate "go live to users" step — and, because `wp_remote_get` reads only `/releases/latest` (which excludes drafts), the `Updater` offers nothing until you publish.

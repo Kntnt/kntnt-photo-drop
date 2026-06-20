@@ -1,0 +1,30 @@
+# EditorConfig — mirrors the surface conventions of agents.d/coding-standards.md.
+# https://editorconfig.org
+#
+# This file owns only what every editor can apply mechanically: tabs displayed
+# as four columns (WP-CS, and the @wordpress/scripts Prettier happy path), UTF-8,
+# LF line endings, a final newline, and trimmed trailing whitespace. Line width
+# is deliberately not set here — it differs by language and by code-vs-comment,
+# and is already enforced by phpcs.xml.dist (PHP) and the @wordpress/scripts
+# Prettier config (block JS/TS/SCSS).
+
+root = true
+
+# Default for all code in the plugin — PHP, block TS/TSX, SCSS, JSON: tabs,
+# displayed four columns wide.
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = tab
+indent_size = 4
+
+# YAML forbids tabs as indentation, so workflows and other YAML use two spaces.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Markdown: two trailing spaces are a hard line break, so keep them intact.
+[*.md]
+trim_trailing_whitespace = false

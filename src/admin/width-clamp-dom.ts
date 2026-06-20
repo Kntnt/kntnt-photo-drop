@@ -9,7 +9,7 @@
  * lives in the Jest-tested `clampWidths` core; this module only reads the inputs,
  * calls it when a field is committed (on `change`), and writes the two lower tiers
  * back. It is purely presentational: the server re-validates every width at submit
- * (blocks.md "Create"/"Edit"), so the page works unchanged when this script is absent.
+ * (design.md § Collection lifecycle), so the page works unchanged when this script is absent.
  *
  * The Create form carries all three tiers; the upload width is a single blank-able
  * field (blank = the source's own dimensions, so no ceiling — #70 retired the

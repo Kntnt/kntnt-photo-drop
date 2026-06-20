@@ -1,7 +1,7 @@
 /**
  * Typed attribute shape for the Photo Gallery block.
  *
- * Mirrors the canonical schema in `block.json` and `docs/blocks.md`. The slug is
+ * Mirrors the canonical schema in `block.json`. The slug is
  * the only durable reference to a collection; everything else is presentation —
  * the start path and recursion that select which images render, the ordering, the
  * two layout modes and their knobs, the lightbox toggle, the slideshow trigger,
@@ -128,7 +128,9 @@ export interface GalleryAttributes {
 	 * Render-time-only flag the editor sets on the `ServerSideRender` preview to
 	 * cap the figures and suppress the lightbox. It is never written through
 	 * `setAttributes`, so — left at its `false` default — it is never serialised
-	 * into `post_content` and cannot reach a frontend render.
+	 * into `post_content` and cannot reach a frontend render. It is declared in
+	 * `block.json` only so the REST block-renderer (`additionalProperties: false`)
+	 * does not strip it before the preview reaches the render callback.
 	 */
 	isEditorPreview: boolean;
 	[ key: string ]: unknown;

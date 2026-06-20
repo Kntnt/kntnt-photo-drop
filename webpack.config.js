@@ -17,7 +17,7 @@
  * config only and the modules config — and every loader, plugin, and preset —
  * passes through untouched.
  *
- * @see docs/coding-standards.md — "stay on @wordpress/scripts' happy path"; a
+ * @see agents.d/coding-standards.md — "stay on @wordpress/scripts' happy path"; a
  *      project-specific entry is the documented reason to extend, not replace, it.
  */
 

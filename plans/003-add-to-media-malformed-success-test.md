@@ -58,7 +58,7 @@ it( 'reports a non-OK status as a failure carrying that status', async () => {
 } );
 ```
 
-Conventions (`docs/coding-standards.md`, TypeScript + WordPress-blocks sections): block tests run on `@wordpress/scripts`' Jest — do not introduce Vitest. Tab indent, `it( 'behavior', async () => { ... } )`, the `result.ok` type-guard narrowing pattern shown above (the result is a discriminated union, so narrow with `if ( ! result.ok )` before reading `.status`).
+Conventions (`agents.d/coding-standards.md`, TypeScript + WordPress-blocks sections): block tests run on `@wordpress/scripts`' Jest — do not introduce Vitest. Tab indent, `it( 'behavior', async () => { ... } )`, the `result.ok` type-guard narrowing pattern shown above (the result is a discriminated union, so narrow with `if ( ! result.ok )` before reading `.status`).
 
 ## Commands you will need
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * Unit tests for the Gallery walker's flattening order — `docs/testing.md`
+ * Unit tests for the Gallery walker's flattening order — `agents.d/testing.md`
  * § *Gallery rendering: ordering* and ADR-0015 § *Ordering — amends ADR-0005*.
  *
  * The walker flattens a collection sub-tree into one ordered `Gallery_Item`

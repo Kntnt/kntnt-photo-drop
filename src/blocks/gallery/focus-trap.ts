@@ -6,7 +6,7 @@
  * load-bearing accessibility reason the lightbox is a real dialog and not a CSS
  * `:target` (ADR-0007). This module is the thin DOM wiring for that contract —
  * it cycles Tab/Shift+Tab within a container's focusable elements and reports no
- * pure logic of its own, so per `docs/testing.md` the trap is a human-
+ * pure logic of its own, so per `agents.d/testing.md` the trap is a human-
  * verification item rather than a unit test.
  *
  * @since 0.7.0
