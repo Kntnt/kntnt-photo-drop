@@ -164,7 +164,9 @@ final class Collections_Controller {
 				continue;
 			}
 			$collections[] = [
-				'slug'             => $slug,
+				// Cast the key to string: PHP coerces a purely numeric slug to an
+				// integer array key, which would otherwise serialise as a JSON number.
+				'slug'             => (string) $slug,
 				'name'             => $descriptor->name,
 				'uploadWidth'      => $descriptor->upload_width,
 				'uploadQuality'    => $descriptor->upload_quality,

@@ -166,9 +166,16 @@ final class Repository {
 	 * caller has both the identity and the location in one pass. The map is
 	 * sorted by slug for stable, predictable listing order.
 	 *
+	 * Beware PHP array-key coercion: a purely numeric slug such as `2026` is
+	 * stored as an *integer* key, not the string `'2026'` — a string key cannot
+	 * hold a numeric value in PHP. The key type is therefore `array-key`, and
+	 * every caller that consumes a key as a string must cast it with `(string)`,
+	 * or it will hand an `int` to a `string`-typed parameter and crash under
+	 * `strict_types`.
+	 *
 	 * @since 0.1.0
 	 *
-	 * @return array<string,string> Map of slug to absolute collection directory path.
+	 * @return array<array-key,string> Map of slug to absolute collection directory path (numeric slugs key as int).
 	 */
 	public function discover(): array {
 

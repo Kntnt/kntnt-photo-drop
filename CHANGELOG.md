@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.13.1] – 2026-06-20
+
+### Fixed
+
+- **A collection whose slug is purely numeric (e.g. `2026`) no longer triggers a critical error.** PHP coerces a numeric-string array key to an integer, so the slug-keyed discovery map handed an `int` to code that expected a `string`: the admin *Photo Drop Collections* page fatally errored the moment such a collection existed. The same coercion made the REST collections endpoint emit the slug as a JSON number — breaking the block editor's collection selector — and let the Create form's existing-slugs list miss a numeric-slug collision in its on-blur uniqueness check. The collection itself was always created correctly; only these consumers mishandled the key, and each now treats it as the string it represents.
+
 ## [0.13.0] – 2026-06-20
 
 ### Added
@@ -278,7 +284,8 @@ The major redesign previously settled only in the specs is now **implemented in 
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.1
 [0.13.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.0
 [0.12.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.12.0
 [0.11.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.11.0

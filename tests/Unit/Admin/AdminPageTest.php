@@ -868,6 +868,35 @@ test( 'the list shows always-visible Edit and Delete buttons instead of hover ro
 	admin_remove_tree( $basedir );
 } );
 
+test( 'the list renders a purely numeric slug without crashing on PHP array-key coercion', function (): void {
+	$basedir = fresh_admin_basedir();
+	$root    = wire_admin_render_stubs( $basedir );
+
+	// A purely numeric slug (a valid slug — the pattern allows digits-only) is
+	// stored by discover() under an *integer* array key, so the list render must
+	// cast it back to string before handing it to render_list_row(); without the
+	// cast this render fatals under strict_types ("int given, string expected").
+	seed_admin_collection( $root, '2026', '2026', 1920, 80 );
+
+	Functions\when( 'get_current_user_id' )->justReturn( 1 );
+	Functions\when( 'delete_transient' )->justReturn( true );
+
+	$_GET = [ 'page' => Admin_Page::MENU_SLUG ];
+
+	ob_start();
+	( new Admin_Page( new Repository() ) )->render_page();
+	$html = (string) ob_get_clean();
+
+	// The numeric collection lists like any other: its name shows and its action
+	// links carry the numeric slug.
+	expect( $html )->toContain( '<table class="wp-list-table widefat fixed striped kntnt-photo-drop-collections">' );
+	expect( $html )->toContain( 'action=edit&collection=2026' );
+	expect( $html )->toContain( 'action=delete&collection=2026' );
+
+	$_GET = [];
+	admin_remove_tree( $basedir );
+} );
+
 test( 'a collection with an unreadable descriptor still lists by slug and keeps its Delete button', function (): void {
 	$basedir = fresh_admin_basedir();
 	$root    = wire_admin_render_stubs( $basedir );

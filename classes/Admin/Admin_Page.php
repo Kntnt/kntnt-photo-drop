@@ -502,7 +502,9 @@ final class Admin_Page {
 		// through untouched, so a typed collision still surfaces as the create error
 		// below rather than being silently auto-suffixed.
 		if ( $slug === '' ) {
-			$slug = $this->unique_slug_default( $name, array_keys( $this->repository->discover() ) );
+			// strval each key: a numeric slug keys discover() as an int (PHP coercion).
+			$existing_slugs = array_map( 'strval', array_keys( $this->repository->discover() ) );
+			$slug           = $this->unique_slug_default( $name, $existing_slugs );
 		}
 
 		// Run the decision logic and redirect back to the list with its notice.
@@ -1186,8 +1188,10 @@ final class Admin_Page {
 			echo '<tr><td colspan="8">' . esc_html( $empty ) . '</td></tr>';
 		}
 
+		// Cast the key to string: PHP coerces a purely numeric slug (e.g. `2026`)
+		// to an integer array key, and render_list_row() demands a string.
 		foreach ( $collections as $row_slug => $path ) {
-			$this->render_list_row( $row_slug, $path );
+			$this->render_list_row( (string) $row_slug, $path );
 		}
 
 		echo '</tbody></table>';
@@ -1329,7 +1333,9 @@ final class Admin_Page {
 		$slug_help = __( 'Optional. Blank uses the unique default shown as the placeholder. Lowercase letters, digits and single hyphens.', 'kntnt-photo-drop' );
 		// phpcs:ignore Generic.Files.LineLength.TooLong -- A single translator literal must not be split per WordPress.WP.I18n.
 		$slug_reason   = __( 'Permanent: the slug is the collection’s identity and cannot be changed after creation.', 'kntnt-photo-drop' );
-		$existing_json = (string) wp_json_encode( array_keys( $this->repository->discover() ) );
+		// Cast each key to string so a numeric slug serialises as a JSON string the
+		// on-blur uniqueness check compares against, not a bare number it would miss.
+		$existing_json = (string) wp_json_encode( array_map( 'strval', array_keys( $this->repository->discover() ) ) );
 		echo '<tr><th scope="row"><label for="kntnt-photo-drop-slug">' . esc_html( $slug_label ) . '</label> ';
 		$this->render_permanence_marker( $slug_reason );
 		echo '</th><td>';

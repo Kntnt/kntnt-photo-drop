@@ -201,6 +201,28 @@ test( 'the list returns one object per collection with the rendition fields', fu
 	list_remove_tree( $basedir );
 } );
 
+test( 'a purely numeric slug is returned as a string, not a JSON number', function (): void {
+
+	// A purely numeric slug keys discover() as an int (PHP array-key coercion), so
+	// the controller must cast it back to string — otherwise the slug serialises as
+	// a JSON number and the editor's selector, which compares strings, never matches.
+	$basedir = fresh_list_basedir();
+	wire_collections_stubs( $basedir, cap_ok: true );
+	seed_list_collection(
+		$basedir,
+		'2026',
+		new Descriptor( '2026', 1920, 80, 1920, 85, 640, 75, Descriptor::DEFAULT_PATH_COMPONENTS ),
+	);
+	$controller = new Collections_Controller( new Repository() );
+
+	$data = $controller->list_collections()->get_data();
+
+	expect( $data )->toHaveCount( 1 );
+	expect( $data[0]['slug'] )->toBe( '2026' );
+
+	list_remove_tree( $basedir );
+} );
+
 test( 'the list is empty when no collections are discovered', function (): void {
 
 	// An empty uploads root yields an empty list, not an error.
