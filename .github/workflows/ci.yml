@@ -173,7 +173,7 @@ jobs:
       # is green, so the published release is the deliberate go-live and the
       # Updater offers it immediately.
       - name: Publish the GitHub Release with the ZIP asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: false
           body_path: release-notes.md
