@@ -79,7 +79,11 @@ async function measureBreadcrumb(
 ): Promise< BreadcrumbGeometry | null > {
 	return page.evaluate( ( sel ) => {
 		const el = document.querySelector< HTMLElement >( sel );
-		const textNode = el?.firstChild;
+		// The crumb text lives in a bidi-isolating <bdi> inside the figcaption
+		// (so a number-heavy path is not reordered), so descend into it for the
+		// text node, falling back to a bare text child if the wrapper is absent.
+		const host = el?.querySelector< HTMLElement >( 'bdi' ) ?? el;
+		const textNode = host?.firstChild;
 		if ( ! el || ! textNode || textNode.nodeType !== Node.TEXT_NODE ) {
 			return null;
 		}
