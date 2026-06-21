@@ -102,6 +102,8 @@ interface OverlayRefs {
 	readonly download: HTMLAnchorElement | null;
 	/** The mirrored breadcrumb figcaption, or `null` when breadcrumbs are off the lightbox. */
 	readonly breadcrumbs: HTMLElement | null;
+	/** The breadcrumb's bidi-isolated `<bdi>` the view fills per slide, or `null` when breadcrumbs are off the lightbox. */
+	readonly breadcrumbsText: HTMLElement | null;
 	/** The add-to-media icon button, or `null` when add-to-media is off the lightbox. */
 	readonly addToMedia: HTMLButtonElement | null;
 	/** The trash icon button, or `null` when the trash overlay is off the lightbox. */
@@ -155,6 +157,10 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 	const breadcrumbs = overlay.querySelector< HTMLElement >(
 		'.kntnt-photo-drop-lightbox__breadcrumbs'
 	);
+	// Fill the inner `<bdi>` (the bidi-isolated crumb run), falling back to the
+	// figcaption itself if the markup was stripped of its wrapper.
+	const breadcrumbsText =
+		breadcrumbs?.querySelector< HTMLElement >( 'bdi' ) ?? breadcrumbs;
 	const addToMedia = overlay.querySelector< HTMLButtonElement >(
 		'.kntnt-photo-drop-lightbox__add-to-media'
 	);
@@ -171,6 +177,7 @@ function resolveOverlay( overlay: HTMLElement ): OverlayRefs | null {
 		failure,
 		download,
 		breadcrumbs,
+		breadcrumbsText,
 		addToMedia,
 		trash,
 	};
@@ -646,9 +653,12 @@ export class GalleryLightbox {
 		}
 
 		// Mirror the gallery breadcrumb onto the lightbox figure when a breadcrumb
-		// element exists; the text comes from the slide's mirrored breadcrumb data.
+		// element exists; the text comes from the slide's mirrored breadcrumb data and
+		// is written into the bidi-isolated `<bdi>` so a numeric path is not reordered.
 		if ( this.#refs.breadcrumbs ) {
-			this.#refs.breadcrumbs.textContent = slide.breadcrumbs;
+			(
+				this.#refs.breadcrumbsText ?? this.#refs.breadcrumbs
+			).textContent = slide.breadcrumbs;
 			this.#refs.breadcrumbs.hidden = slide.breadcrumbs === '';
 		}
 

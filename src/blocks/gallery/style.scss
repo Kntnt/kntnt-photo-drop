@@ -179,28 +179,31 @@
 		// the enclosing anchor (the lightbox trigger or the no-JS link). Overflow
 		// keeps the *tail* (the image name) and clips the *head* with a leading
 		// ellipsis — on thumbnails an overflowing path is the common case, so a
-		// pure-CSS single-line clip is used rather than a JS fitter. The clip is
-		// tuned for the common case: a left-to-right crumb (an operator-typed
-		// display name plus humanised filesystem segments, usually Latin). For
-		// such content an RTL line base direction inverts the overflow relative to
-		// the run: `text-overflow: ellipsis` falls at the visual start (the head),
-		// the tail stays at the content box's end inside the right padding, and the
-		// LTR text still reads left-to-right within the line. A prior
-		// `unicode-bidi: plaintext` defeated this by re-deriving an LTR base
-		// direction from the content, so the line laid out LTR and clipped the tail
-		// on the right (issue #58); dropping it restores the leading ellipsis. A
-		// strong-RTL crumb (e.g. a Hebrew folder name) already derived an RTL base
-		// direction under `plaintext` too, so it clipped its tail before this fix
-		// and still does — the fix neither introduces nor worsens that case, it only
-		// repairs the LTR one. (Inverting the clip per-crumb to follow each crumb's
-		// own script would need a JS fitter, which ADR-0015 ruled out.) The clip
-		// mechanic is keyed to the LTR *content*, not the site chrome, so it must
-		// stay `rtl` even on an RTL site — but the build's RTLCSS pass mirrors a
-		// literal `direction: rtl` to `ltr`, and runs on already-minified CSS where
-		// a source `rtl:ignore` comment no longer exists. Routing the value through
-		// a custom property keeps RTLCSS from recognising (and flipping) it, so the
-		// breadcrumb keeps its `rtl` line direction in both stylesheets, and an LTR
-		// path keeps its tail regardless of the surrounding locale's direction.
+		// pure-CSS single-line clip is used rather than a JS fitter. `text-overflow:
+		// ellipsis` only ever clips at the line's inline-end, so an `rtl` line base
+		// direction is what moves that end (and the ellipsis) to the visual start,
+		// giving the *leading* ellipsis. But a line's base direction also reorders
+		// its own content, and a crumb run is a bidi mix: humanised Latin
+		// folders, but also bare numbers (date folders, numeric filenames) and
+		// the neutral angle-quote separator. Under an `rtl` base those resolve
+		// right-to-left, so a number-heavy path renders with its crumbs reversed
+		// and the `›` separators mirrored to `‹`. The fix is to isolate the
+		// *content* rather than re-aim the
+		// *clip*: the crumb text is wrapped in a `<bdi>` (see `Overlay_Renderer` and
+		// the lightbox view), which derives its own base direction from its content
+		// and reads in document order with upright separators, while the figcaption
+		// keeps `rtl` purely for the clip edge. A `<bdi>` (not a CSS rule) is used so
+		// the isolation holds even if this stylesheet is stripped and needs no inner
+		// `direction` that RTLCSS could flip. An earlier attempt put `unicode-bidi:
+		// plaintext` on the figcaption itself to fix the order by re-deriving an LTR
+		// base, but that also moved the ellipsis to the tail (issue #58); isolating
+		// the content keeps both the order and the leading ellipsis right. The clip
+		// mechanic stays keyed to the content, not the site chrome, so the figcaption
+		// must stay `rtl` even on an RTL site — but the build's RTLCSS pass mirrors a
+		// literal `direction: rtl` to `ltr`, and runs on already-minified CSS where a
+		// source `rtl:ignore` comment no longer exists. Routing the value through a
+		// custom property keeps RTLCSS from recognising (and flipping) it, so the
+		// breadcrumb keeps its `rtl` line direction in both stylesheets.
 		position: absolute;
 		z-index: 1;
 		max-width: 100%;

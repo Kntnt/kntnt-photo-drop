@@ -2099,11 +2099,11 @@ test( 'the lightbox carries a breadcrumb element when the breadcrumb visibility 
 	);
 
 	// The lightbox overlay carries an empty breadcrumb element — the same overlay
-	// element and anchor the gallery figures use — for the view module to fill per
-	// slide from the mirrored anchor data.
+	// element and anchor the gallery figures use, with its bidi-isolating `<bdi>`
+	// empty — for the view module to fill per slide from the mirrored anchor data.
 	expect( $html )->toMatch(
 		'/<figcaption class="kntnt-photo-drop-gallery__breadcrumbs kntnt-photo-drop-lightbox__breadcrumbs'
-			. ' kntnt-photo-drop-gallery__breadcrumbs--anchor-top-right[^"]*"[^>]*><\/figcaption>/'
+			. ' kntnt-photo-drop-gallery__breadcrumbs--anchor-top-right[^"]*"[^>]*><bdi><\/bdi><\/figcaption>/'
 	);
 	expect( $html )->toContain( 'data-kntnt-photo-drop-breadcrumbs="' );
 

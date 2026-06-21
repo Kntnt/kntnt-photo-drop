@@ -323,8 +323,13 @@ final readonly class Overlay_Renderer {
 	 * colour/typography preset classes, with the colour/typography declarations as
 	 * the inline style, and an optional surface marker (the lightbox's
 	 * `__breadcrumbs` so the view module finds it). The text is already escaped (or
-	 * empty for a surface the view fills). The leading-ellipsis overflow and the
-	 * text alignment are pure CSS keyed off the anchor class.
+	 * empty for a surface the view fills) and is wrapped in a `<bdi>` so the crumb
+	 * run is bidi-isolated from the figcaption's `rtl` line direction (which exists
+	 * only to put the leading ellipsis at the visual start): the run keeps document
+	 * order with upright separators even when it is mostly numbers (date folders,
+	 * numeric filenames), which an `rtl` base would otherwise reorder and mirror.
+	 * The leading-ellipsis overflow and the text alignment are pure CSS keyed off
+	 * the anchor class.
 	 *
 	 * @since 0.11.0
 	 *
@@ -340,8 +345,10 @@ final readonly class Overlay_Renderer {
 			. ( $marker === '' ? '' : ' ' . esc_attr( $marker ) )
 			. ' kntnt-photo-drop-gallery__breadcrumbs--anchor-' . esc_attr( $this->breadcrumbs->position );
 
+		// Wrap the crumb text in a `<bdi>` so it is isolated from the figcaption's
+		// `rtl` line direction; the lightbox view fills this same `<bdi>` per slide.
 		return sprintf(
-			'<figcaption class="%1$s"%2$s>%3$s</figcaption>',
+			'<figcaption class="%1$s"%2$s><bdi>%3$s</bdi></figcaption>',
 			$class,
 			$this->breadcrumb_style === '' ? '' : sprintf( ' style="%s"', $this->breadcrumb_style ),
 			$inner,

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.13.2] – 2026-06-21
+
+### Fixed
+
+- **A number-heavy breadcrumb (e.g. a `2026/06/12` date folder with a numeric filename) is no longer reordered and its separators no longer flipped.** The overlay forces a right-to-left line direction so the overflow ellipsis falls at the *head* — a leading ellipsis that keeps the image name visible — but that base direction also reordered the crumb run itself. A crumb run is a bidi mix (humanised Latin folders, but also bare numbers and the neutral `›` separator), so a mostly-numeric path rendered reversed with its `›` mirrored to `‹`: `40km › 062112 ‹ 12 ‹ 06 ‹ 2026` instead of `2026 › 06 › 12 › 40km › 062112`. The crumb text is now wrapped in a `<bdi>`, isolating it from the figcaption's line direction so it reads in document order with upright separators while the leading ellipsis still clips the head; the lightbox fills the same `<bdi>` per slide.
+
 ## [0.13.1] – 2026-06-20
 
 ### Fixed
@@ -284,7 +290,8 @@ The major redesign previously settled only in the specs is now **implemented in 
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.2
 [0.13.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.1
 [0.13.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.0
 [0.12.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.12.0
