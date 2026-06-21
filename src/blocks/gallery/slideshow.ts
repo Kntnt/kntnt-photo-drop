@@ -12,8 +12,10 @@
  *
  * Fullscreen uses the Fullscreen API where available and silently degrades to
  * the overlay's own fixed, viewport-filling layer where it is not (notably
- * iPhone Safari) — both paths end identically and return the visitor to the
- * gallery. While playing, a screen wake lock is held (best-effort, re-acquired
+ * iPhone Safari) or where it is exposed but broken (Firefox for iOS, which
+ * black-screens the fullscreened overlay — see `native-fullscreen.ts`) — both
+ * paths end identically and return the visitor to the gallery. While playing, a
+ * screen wake lock is held (best-effort, re-acquired
  * when the tab becomes visible again), since endless playback implies
  * photo-frame use; where the API is missing the slideshow simply runs without
  * it.
@@ -42,6 +44,7 @@
  */
 
 import { trapFocus } from './focus-trap';
+import { hasBrokenElementFullscreen } from './native-fullscreen';
 import { readSlides, type GallerySlide } from './slides';
 import {
 	createAdvanceGate,
@@ -339,9 +342,15 @@ export class GallerySlideshow {
 			this.#documentVisibilityChange
 		);
 
-		// Go fullscreen where the API exists; a missing API or a refusal (user
-		// agent policy) leaves the fixed, viewport-filling overlay as the surface.
-		if ( typeof this.#refs.overlay.requestFullscreen === 'function' ) {
+		// Go fullscreen where the API exists *and* is not the supported-but-broken
+		// kind (Firefox for iOS exposes it yet black-screens the overlay); a
+		// missing API, a refusal (user agent policy), or that broken kind all
+		// leave the fixed, viewport-filling overlay as the surface.
+		const view = this.#refs.overlay.ownerDocument.defaultView;
+		if (
+			typeof this.#refs.overlay.requestFullscreen === 'function' &&
+			! hasBrokenElementFullscreen( view?.navigator.userAgent ?? '' )
+		) {
 			this.#refs.overlay.requestFullscreen().catch( () => {
 				// The overlay itself is the fallback surface; nothing to do.
 			} );

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.13.3] – 2026-06-21
+
+### Fixed
+
+- **Starting the slideshow in Firefox on iPad no longer shows a black screen with no image.** The slideshow requests native fullscreen on its overlay, but Firefox for iOS/iPadOS exposes the Fullscreen API and then errors on an element `requestFullscreen()` — a Firefox-iOS limitation Mozilla has closed as won't-fix, whereas Safari and Chrome on the same iPad enter fullscreen normally — so the request failed and the first slide never faded in over the black overlay. Firefox on iPad now skips the native request and plays on the fixed, viewport-filling overlay instead, the same fallback already used on iPhone (where the element Fullscreen API is absent entirely); Safari, Chrome, and every desktop browser keep true fullscreen.
+
 ## [0.13.2] – 2026-06-21
 
 ### Fixed
@@ -290,7 +296,8 @@ The major redesign previously settled only in the specs is now **implemented in 
 - A **GitHub-Releases auto-updater** that installs new versions from the published release ZIP.
 - Public filters: `kntnt_photo_drop_root`, `kntnt_photo_drop_thumbnail_width`, `kntnt_photo_drop_default_max_width`, `kntnt_photo_drop_default_quality`, `kntnt_photo_drop_upload_capability`, `kntnt_photo_drop_manage_capability`, and `kntnt_photo_drop_list_capability`.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.13.2...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-photo-drop/compare/v0.13.3...HEAD
+[0.13.3]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.3
 [0.13.2]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.2
 [0.13.1]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.1
 [0.13.0]: https://github.com/Kntnt/kntnt-photo-drop/releases/tag/v0.13.0
