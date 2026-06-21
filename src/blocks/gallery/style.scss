@@ -183,12 +183,14 @@
 		// ellipsis` only ever clips at the line's inline-end, so an `rtl` line base
 		// direction is what moves that end (and the ellipsis) to the visual start,
 		// giving the *leading* ellipsis. But a line's base direction also reorders
-		// its own content, and a crumb run is a bidi mix: humanised Latin
-		// folders, but also bare numbers (date folders, numeric filenames) and
-		// the neutral angle-quote separator. Under an `rtl` base those resolve
-		// right-to-left, so a number-heavy path renders with its crumbs reversed
-		// and the `›` separators mirrored to `‹`. The fix is to isolate the
-		// *content* rather than re-aim the
+		// its own content — on every breadcrumb, overflowing or not. A crumb run
+		// is a bidi mix: humanised Latin folders, but also bare numbers (date
+		// folders, numeric filenames) and the neutral angle-quote separator. Under
+		// an `rtl` base, crumbs with no Latin letter (the bare numbers) are laid
+		// out right-to-left with the `›` between them mirrored to `‹`, while
+		// letter-bearing crumbs stay left-to-right — so the path comes out
+		// jumbled, not simply reversed. The fix is to isolate the *content*
+		// rather than re-aim the
 		// *clip*: the crumb text is wrapped in a `<bdi>` (see `Overlay_Renderer` and
 		// the lightbox view), which derives its own base direction from its content
 		// and reads in document order with upright separators, while the figcaption
