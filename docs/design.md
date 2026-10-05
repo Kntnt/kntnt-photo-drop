@@ -2,7 +2,7 @@
 
 ## Status
 
-This plan was written before the code and the plugin has since been built from it; the document is kept current as the settled design. Its open questions were resolved in a `grill-with-docs` session; the decisions with real trade-offs are recorded as ADRs under `docs/adr/` and the domain language is in `CONTEXT.md`. Sections below reflect the settled design and link the ADR that owns each load-bearing decision.
+This plan was written before the code and the plugin has since been built from it; the document is kept current as the settled design. Its open questions were resolved in a `grill-with-docs` session; the decisions with real trade-offs are recorded as ADRs under `docs/adr/` and the domain language is in `GLOSSARY.md`. Sections below reflect the settled design and link the ADR that owns each load-bearing decision.
 
 ## Purpose
 

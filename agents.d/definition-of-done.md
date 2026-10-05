@@ -36,7 +36,7 @@ A change fully covered by unit tests need not add one, but must not break an exi
 
 - Code obeys [`coding-standard/`](coding-standard/): `declare( strict_types = 1 )`, typed properties, `readonly` where immutable, `match` over `switch`, `[ ... ]` arrays, paragraph-style `//` comments, PHPDoc/TSDoc on every file, class, method, property, and constant.
 - Honours the load-bearing invariants in [`AGENTS.md`](../AGENTS.md) and [`design.md`](../docs/design.md); contradicts no ADR. A change needing to contradict a decision is blocked until the ADR is amended — never shipped as a silent deviation.
-- Domain terms match [`CONTEXT.md`](../CONTEXT.md) exactly.
+- Domain terms match [`GLOSSARY.md`](../GLOSSARY.md) exactly.
 - User-facing strings translatable (`__()`, `esc_html__()`, …) against the `kntnt-photo-drop` text domain; output escaped at the point of output; every superglobal sanitised; all SQL via `$wpdb->prepare()`.
 - Filters namespaced `kntnt_photo_drop_*`.
 

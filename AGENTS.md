@@ -24,7 +24,7 @@ Naming: namespace `Kntnt\Photo_Drop`; slug + text domain `kntnt-photo-drop`. Eve
 
 - **Never contradict `design.md` or an ADR. Never redesign.** A change that requires it is *blocked* — surface it as an ADR amendment, never a silent edit. The ADRs (`docs/adr/`) own the decisions with trade-offs; some carry amendment banners.
 - **Pre-1.0 (major `0`): ignore backwards-compat** — no `block.json` `deprecated`, no attribute migrations, no old-shape fallbacks. Ship the cleanest end-state. Sunsets when `Version:` (`kntnt-photo-drop.php`) and `"version"` (`package.json`) cross `1.0.0`.
-- **Use `CONTEXT.md` vocabulary exactly** — no synonyms.
+- **Use `GLOSSARY.md` vocabulary exactly** — no synonyms.
 
 ## References
 
@@ -39,7 +39,7 @@ Load on demand.
 - [`docs/design.md`](docs/design.md) — big-picture plan + every load-bearing decision; admin CRUD UX in § *Collection lifecycle and discovery*.
 - [`docs/adr/`](docs/adr/) — the rationale behind each decision.
 - [`docs/updater.md`](docs/updater.md) — how the auto-updater finds releases.
-- [`CONTEXT.md`](CONTEXT.md) — domain glossary (authoritative vocabulary).
+- [`GLOSSARY.md`](GLOSSARY.md) — domain glossary (authoritative vocabulary).
 - `src/blocks/<slug>/block.json` — authoritative block attribute schema.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — human-contributor setup (`composer install`, `npm install`, build, `@wordpress/env`).
 - agents.d/coding-standard/general.md — read before writing or changing any code
